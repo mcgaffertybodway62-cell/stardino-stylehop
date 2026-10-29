@@ -300,6 +300,20 @@ export async function main(argv = process.argv.slice(2)) {
         })
       );
 
+      // Collect any runtime acting/foley cues emitted into `window.CUES.cues` across all worker pages
+      const mergedCueMap = new Map();
+      for (const c of cues?.cues || []) {
+        mergedCueMap.set(`${c.kind}@${(+c.t).toFixed(2)}`, c);
+      }
+      for (const wp of pages) {
+        const pageCues = await wp.evaluate(() => window.CUES?.cues || []);
+        for (const c of pageCues) {
+          const key = `${c.kind}@${(+c.t).toFixed(2)}`;
+          if (!mergedCueMap.has(key)) mergedCueMap.set(key, c);
+        }
+      }
+      const allCollectedCues = [...mergedCueMap.values()].sort((a, b) => a.t - b.t);
+
       for (let w = 1; w < pages.length; w++) {
         await pages[w].close();
       }
@@ -316,7 +330,7 @@ export async function main(argv = process.argv.slice(2)) {
               start: Math.max(0, +(s.start - startT).toFixed(3)),
               end: Math.min(renderDur, +(s.end - startT).toFixed(3)),
             })),
-          cues: (cues.cues || [])
+          cues: allCollectedCues
             .filter((c) => c.t >= startT && c.t <= startT + renderDur)
             .map((c) => ({ ...c, t: +(c.t - startT).toFixed(3) })),
         };

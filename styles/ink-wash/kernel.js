@@ -21,10 +21,10 @@
  * Strict Rule: Zero Star-Spark Slime mascot in `styles/ink-wash/`.
  */
 
-import { clamp, lerp, smootherstep, flowStep, springStep } from '../../engine/motion.js';
+import { clamp, lerp, smootherstep, flowStep, springStep, registerRuntimeCue } from '../../engine/motion.js';
 export { clamp, lerp, smootherstep, flowStep, springStep };
-import { createStudio2D } from '../../engine/studio2d.js';
-import { createPuppet2D } from '../../engine/puppet2d.js';
+import { createStudio2D, recordSceneElement2D, recordInteractionCheck2D } from '../../engine/studio2d.js';
+import { createPuppet2D, computeContourEnvelope2D } from '../../engine/puppet2d.js';
 
 // ============================================================================
 // TIER 1A · PALETTE & FIVE-TONE INK / MINERAL PIGMENT SYSTEM
@@ -1160,6 +1160,14 @@ export function drawScrollMountains(ctx, width, height, look = INK_LOOK_PRESETS.
       ctx.restore();
     }
   }
+
+  recordSceneElement2D(ctx, {
+    id: opts.id || `scrollMountains_${seed}`,
+    role: 'bg',
+    layerZ: 0.22,
+    kind: 'scrollMountains',
+    bbox: [0, Math.max(0, 180 + baseYOffset + horizonShiftY * 0.65), width, Math.min(height, 620 + baseYOffset + horizonShiftY * 0.85)],
+  });
 }
 
 /**
@@ -3741,17 +3749,37 @@ export function drawStroke(ctx, s, p = 1, am = 1) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // 1. Soft wet halo & base body fill
+  // 1. Multi-ring capillary wet halo (`宣纸毛细水晕`) & base body fill
   const bodyA = s.tone * am * s.bodyK * Math.pow(clamp(1 - s.dry * 0.85, 0, 1), 1.6);
-  if (s.wet > 0 && bodyA > 0.008) {
-    poly(1.16);
-    ctx.fillStyle = rgba(s.color, clamp(s.tone * am * s.wet * 0.24, 0, 1));
+  const effWet = Math.max(s.wet || 0, s.w >= 6 ? 0.32 : 0.14);
+  if (effWet > 0 && bodyA > 0.006) {
+    poly(1.26);
+    ctx.fillStyle = rgba(s.color, clamp(s.tone * am * effWet * 0.11, 0, 1));
+    ctx.fill();
+    poly(1.13);
+    ctx.fillStyle = rgba(s.color, clamp(s.tone * am * effWet * 0.21, 0, 1));
     ctx.fill();
   }
   if (bodyA > 0.005) {
     poly(1.0);
     ctx.fillStyle = rgba(s.color, clamp(bodyA, 0, 1));
     ctx.fill();
+  }
+
+  // 1b. Po-Mo capillary ink pooling stamps (`破墨湿斑与宿墨渗化`) along wide/close-up strokes
+  if (s.w >= 6.5 && !s.solid && k >= 3) {
+    const stampStep = Math.max(2, Math.floor(14 / Math.max(1, s.w * 0.18)));
+    for (let i = 1; i <= k; i += stampStep) {
+      const u = i / Math.max(1, n - 1);
+      const nVal = valueNoise2D(s.seed * 0.17 + i * 0.73, s.seed * 0.31);
+      if (nVal < s.dry * 0.55) continue;
+      const sideShift = (s.side ? Math.sign(s.side) * 0.28 : (nVal - 0.5) * 0.4) * ws[i];
+      const bx = P[i][0] + nx[i] * sideShift;
+      const by = P[i][1] + ny[i] * sideShift;
+      const br = ws[i] * (0.34 + 0.28 * nVal);
+      const blotA = clamp(s.tone * am * (0.16 + 0.18 * (1 - u * s.fade)), 0.02, 0.42);
+      drawInkBlot(ctx, bx, by, br, blotA, i * 1.1 + s.seed, 0.62 + 0.25 * nVal, s.seed + i * 13, s.color);
+    }
   }
 
   // 2. Individual bristles (`笔毫`: asymmetric loaded ink + dry flying-white gaps)
@@ -3801,7 +3829,8 @@ export function stroke(ctx, pts, opts = {}, progress = 1, alpha = 1) {
 
 /**
  * Renders a soft jittered-edge wet ink mass (`drawInkMass`, equivalent to `mass()` in lemo-opuscar):
- * Replaces flat vector fills with organic capillary ink washes and optional directional gradient falloff.
+ * Replaces flat vector fills with multi-stage capillary Po-Mo (`破墨`) ink washes, internal tonal
+ * mottling, and interrupted coffee-ring pigment water-lines (`断续宿墨水线`).
  *
  * @param {CanvasRenderingContext2D} ctx
  * @param {Array<[number,number]>} pts - Polygon vertices
@@ -3815,31 +3844,75 @@ export function drawInkMass(ctx, pts, opts = {}) {
   const seed = opts.seed ?? 19;
   const R = mulberry32(seed);
   const sub = [];
+  const subNorms = [];
+  let cx = 0;
+  let cy = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i];
     const b = pts[(i + 1) % pts.length];
     const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const steps = Math.max(1, Math.min(20, Math.ceil(d / 18)));
+    const nx = -(b[1] - a[1]) / (d || 1);
+    const ny = (b[0] - a[0]) / (d || 1);
     for (let k = 0; k < steps; k++) {
       const t = k / steps;
-      const j = (R() - 0.5) * jitter * 2;
-      const nx = -(b[1] - a[1]) / (d || 1);
-      const ny = (b[0] - a[0]) / (d || 1);
-      sub.push([lerp(a[0], b[0], t) + nx * j, lerp(a[1], b[1], t) + ny * j]);
+      const nFbm = fbm2D((i + t) * 1.9 + seed * 0.13, seed * 0.29, 2) - 0.5;
+      const j = ((R() - 0.5) * 1.3 + nFbm * 1.4) * jitter;
+      const px = lerp(a[0], b[0], t) + nx * j;
+      const py = lerp(a[1], b[1], t) + ny * j;
+      sub.push([px, py]);
+      subNorms.push([nx, ny]);
+      cx += px;
+      cy += py;
+      if (px < minX) minX = px;
+      if (px > maxX) maxX = px;
+      if (py < minY) minY = py;
+      if (py > maxY) maxY = py;
     }
   }
+  cx /= Math.max(1, sub.length);
+  cy /= Math.max(1, sub.length);
+
+  const traceSubPath = (expandPx = 0) => {
+    ctx.beginPath();
+    for (let i = 0; i < sub.length; i++) {
+      const prev = sub[(i - 1 + sub.length) % sub.length];
+      const pn = subNorms[(i - 1 + sub.length) % sub.length];
+      const cur = sub[i];
+      const cn = subNorms[i];
+      const p0x = prev[0] + pn[0] * expandPx;
+      const p0y = prev[1] + pn[1] * expandPx;
+      const p1x = cur[0] + cn[0] * expandPx;
+      const p1y = cur[1] + cn[1] * expandPx;
+      const mx = (p0x + p1x) * 0.5;
+      const my = (p0y + p1y) * 0.5;
+      if (i === 0) ctx.moveTo(mx, my);
+      else ctx.quadraticCurveTo(p0x, p0y, mx, my);
+    }
+    ctx.closePath();
+  };
+
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(sub[0][0], sub[0][1]);
-  for (let i = 1; i < sub.length; i++) {
-    const m = [(sub[i - 1][0] + sub[i][0]) * 0.5, (sub[i - 1][1] + sub[i][1]) * 0.5];
-    ctx.quadraticCurveTo(sub[i - 1][0], sub[i - 1][1], m[0], m[1]);
+
+  // 1. Outer capillary bleed halo (`宣纸毛细外晕`, eliminates sharp vector edges)
+  if (jitter > 0.6 && tone > 0.05) {
+    traceSubPath(jitter * 1.15);
+    ctx.fillStyle = rgba(color, clamp(tone * 0.22, 0, 0.35));
+    ctx.fill();
   }
-  ctx.closePath();
+
+  // 2. Primary wet wash body
+  traceSubPath(0);
   if (opts.grad) {
     const [x0, y0, x1, y1, a0 = 1, a1 = 0] = opts.grad;
     const g = ctx.createLinearGradient(x0, y0, x1, y1);
     g.addColorStop(0, rgba(color, clamp(tone * a0, 0, 1)));
+    g.addColorStop(0.55, rgba(color, clamp(tone * lerp(a0, a1, 0.48), 0, 1)));
     g.addColorStop(1, rgba(color, clamp(tone * a1, 0, 1)));
     ctx.fillStyle = g;
   } else {
@@ -3847,11 +3920,54 @@ export function drawInkMass(ctx, pts, opts = {}) {
   }
   ctx.fill();
 
-  // Subtle pigment accumulation rim (`边缘积墨水线`)
-  if (opts.wetRim !== false && tone > 0.08) {
-    ctx.strokeStyle = rgba(color, clamp(tone * 0.42, 0, 0.55));
-    ctx.lineWidth = 1.4;
-    ctx.stroke();
+  // 3. Internal Po-Mo tonal mottling (`破墨浓淡渗化`, clipped inside wash body)
+  const span = Math.hypot(maxX - minX, maxY - minY);
+  if (span > 28 && tone > 0.08) {
+    ctx.save();
+    ctx.clip();
+    const nBlobs = Math.min(4, Math.max(2, Math.floor(span / 85)));
+    for (let b = 0; b < nBlobs; b++) {
+      const vIdx = Math.floor(R() * sub.length);
+      const vp = sub[vIdx];
+      const bx = lerp(cx, vp[0], 0.35 + R() * 0.35);
+      const by = lerp(cy, vp[1], 0.35 + R() * 0.35);
+      const br = span * (0.16 + R() * 0.18);
+      const rg = ctx.createRadialGradient(bx, by, br * 0.1, bx, by, br);
+      rg.addColorStop(0, rgba(color, clamp(tone * 0.42, 0, 0.45)));
+      rg.addColorStop(0.65, rgba(color, clamp(tone * 0.16, 0, 0.22)));
+      rg.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // 4. Interrupted concave Coffee-Ring pigment water-line (`断续边缘宿墨水线`, never a 360° cartoon outline)
+  if (opts.wetRim !== false && tone > 0.08 && sub.length >= 6) {
+    ctx.lineCap = 'round';
+    let i = 0;
+    while (i < sub.length) {
+      const nVal = valueNoise2D(seed * 0.31 + i * 0.42, seed * 0.19);
+      if (nVal > 0.44) {
+        const segLen = Math.min(sub.length - i - 1, 2 + Math.floor(R() * 4));
+        if (segLen >= 2) {
+          ctx.beginPath();
+          ctx.moveTo(sub[i][0], sub[i][1]);
+          for (let k = 1; k <= segLen; k++) {
+            const p = sub[(i + k) % sub.length];
+            ctx.lineTo(p[0], p[1]);
+          }
+          ctx.strokeStyle = rgba(color, clamp(tone * (0.28 + 0.24 * nVal), 0, 0.48));
+          ctx.lineWidth = 0.7 + 1.1 * nVal;
+          ctx.stroke();
+        }
+        i += segLen + 2 + Math.floor(R() * 3);
+      } else {
+        i += 2;
+      }
+    }
   }
   ctx.restore();
 }
@@ -4004,6 +4120,14 @@ export function drawRidgeLayer(ctx, opts = {}) {
       }
     }
   }
+
+  recordSceneElement2D(ctx, {
+    id: opts.id || `ridgeLayer_${seed}`,
+    role: opts.role || 'bg',
+    layerZ: opts.layerZ ?? 0.25,
+    kind: 'ridgeLayer',
+    bbox: [x0, minY, x1, minY + depth * 0.65],
+  });
 }
 
 /**
@@ -4103,11 +4227,22 @@ export function drawCliffFace(ctx, x, y, scale = 1.0, opts = {}) {
       drawInkBlot(ctx, p[0], p[1], (1.3 + R() * 2.0) * scale, 0.85, R() * 3, 0.65, c * 10 + i + seed, color);
     }
   }
+
+  // 5. Base mist-root diffusion wash (`山脚烟霭消融`) so cliffs root into the scroll instead of floating
+  const b0 = T([-65, 220]);
+  const b1 = T([220, 265]);
+  recordSceneElement2D(ctx, {
+    id: opts.id || `cliffFace_${seed}`,
+    role: opts.role || 'mid',
+    kind: 'cliffFace',
+    bbox: [Math.min(b0[0], b1[0]), y - 8 * scale, Math.max(b0[0], b1[0]), y + 265 * scale],
+  });
 }
 
 /**
  * Renders a towering gestural ink wave (`drawGesturalWave`: 巨浪排空 / 黄河之水天上来),
- * built from a pale wet ink mass and 4–5 huge loaded strokes curling at the crest.
+ * built from a multi-layer Po-Mo wet ink mass, 4–5 huge loaded strokes curling at the crest,
+ * turbulent claw-foam hooks (`蟹爪水纹`), and organic spray splatter droplets (`飞沫破墨`).
  */
 export function drawGesturalWave(ctx, x, y, scale = 1.0, t = 0, opts = {}) {
   const flip = opts.flip ?? 1; // 1 = curls left-to-right, -1 = curls right-to-left
@@ -4115,8 +4250,9 @@ export function drawGesturalWave(ctx, x, y, scale = 1.0, t = 0, opts = {}) {
   const color = opts.color || INK_PALETTE.inkJiao;
   const surge = Math.sin(t * 2.2) * 8 * scale;
   const T = (px, py) => [x + px * scale * flip, y + py * scale + surge];
+  const R = mulberry32(seed * 13);
 
-  // 1. Pale wet body mass of the rising wall of water
+  // 1. Pale wet body mass of the rising wall of water + deeper turbulent under-belly wash
   const bodyPoly = [
     T(-220, 140),
     T(-140, 40),
@@ -4129,12 +4265,24 @@ export function drawGesturalWave(ctx, x, y, scale = 1.0, t = 0, opts = {}) {
     T(180, 140),
   ];
   drawInkMass(ctx, bodyPoly, {
-    tone: 0.22,
+    tone: 0.24,
     color,
-    jitter: 3.5 * scale,
+    jitter: 4.2 * scale,
     seed,
-    grad: [x, y - 210 * scale, x, y + 140 * scale, 0.95, 0.15],
+    grad: [x, y - 210 * scale, x, y + 140 * scale, 0.95, 0.12],
   });
+  // Secondary Po-Mo dark core inside the wave trough (`浓破淡浪腹暗涌`)
+  drawInkMass(
+    ctx,
+    [T(-145, 115), T(-55, -25), T(25, -125), T(78, -95), T(45, 25), T(-40, 125)],
+    {
+      tone: 0.18,
+      color,
+      jitter: 3.0 * scale,
+      seed: seed + 7,
+      wetRim: false,
+    }
+  );
 
   // 2. Huge loaded brushstrokes (`没骨巨笔`) curling up into the crest
   const ribs = [
@@ -4147,13 +4295,52 @@ export function drawGesturalWave(ctx, x, y, scale = 1.0, t = 0, opts = {}) {
     stroke(
       ctx,
       pts.map((p) => T(p[0], p[1])),
-      LOAD((26 - idx * 4) * scale, 0.72 - idx * 0.1, [-flip, -1], {
-        dry: 0.42 + idx * 0.08,
+      LOAD((26 - idx * 4) * scale, 0.74 - idx * 0.1, [-flip, -1], {
+        dry: 0.38 + idx * 0.08,
+        wet: 0.92,
         prof: 'rise',
         color,
         seed: seed * 19 + idx,
       })
     );
+  });
+
+  // 3. Claw-like crest hooks (`宋代马远水图浪冠爪纹`) & flying ink spray droplets (`飞沫点苔`)
+  const hooks = [
+    [[72, -198], [108, -214], [134, -186]],
+    [[102, -175], [138, -168], [148, -138]],
+    [[62, -142], [96, -128], [108, -102]],
+  ];
+  hooks.forEach((hPts, hIdx) => {
+    stroke(
+      ctx,
+      hPts.map((p) => T(p[0], p[1])),
+      {
+        w: (5.2 - hIdx * 0.9) * scale,
+        tone: TONE.jiao,
+        dry: 0.45,
+        prof: 'nail',
+        color,
+        seed: seed * 41 + hIdx,
+      }
+    );
+  });
+
+  for (let sIdx = 0; sIdx < 16; sIdx++) {
+    const sx = 35 + R() * 135;
+    const sy = -225 + R() * 120 + Math.sin(t * 3.1 + sIdx) * 4;
+    const sp = T(sx, sy);
+    const rDot = (1.2 + R() * 2.8) * scale;
+    drawInkBlot(ctx, sp[0], sp[1], rDot, 0.45 + R() * 0.48, R() * 3.14, 0.58 + R() * 0.3, seed * 97 + sIdx, color);
+  }
+
+  const pMin = T(-220, -215);
+  const pMax = T(180, 145);
+  recordSceneElement2D(ctx, {
+    id: opts.id || `gesturalWave_${seed}`,
+    role: opts.role || 'mid',
+    kind: 'gesturalWave',
+    bbox: [Math.min(pMin[0], pMax[0]), Math.min(pMin[1], pMax[1]), Math.max(pMin[0], pMax[0]), Math.max(pMin[1], pMax[1])],
   });
 }
 
@@ -4521,12 +4708,16 @@ export function createInkCharacter(opts = {}) {
     ctx.restore();
 
     // 1. Flowing Nape Hair Ribbon (`发带三段副骨骼链`: headTop -> hairB1 -> hairB2 -> hairB3)
-    ctx.beginPath();
-    ctx.moveTo(skel.headTop.x - 4, skel.headTop.y + 4);
-    ctx.bezierCurveTo(hairB1.x, hairB1.y, hairB2.x, hairB2.y, hairB3.x, hairB3.y);
-    ctx.strokeStyle = rgba(inkStroke, 0.88);
-    ctx.lineWidth = 1.65;
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [skel.headTop.x - 4, skel.headTop.y + 4],
+        [hairB1.x, hairB1.y],
+        [hairB2.x, hairB2.y],
+        [hairB3.x, hairB3.y],
+      ],
+      { w: 2.1, tone: 0.88, dry: 0.32, prof: 'tip', color: inkStroke, seed: 71 }
+    );
 
     // 2. Optional Waist Sword Scabbard (`腰间佩剑`, anchored to `lumbar` bone)
     if (state.waistSword) {
@@ -4540,8 +4731,8 @@ export function createInkCharacter(opts = {}) {
       ctx.closePath();
       ctx.fillStyle = '#FFFFFF';
       ctx.fill();
-      ctx.strokeStyle = rgba(inkStroke, 0.9);
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = rgba(inkStroke, 0.86);
+      ctx.lineWidth = 1.4;
       ctx.stroke();
 
       // Sword Hilt & Guard at right hip
@@ -4570,17 +4761,43 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = robeTopCol;
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.92);
-    ctx.lineWidth = 1.85;
+    ctx.strokeStyle = rgba(inkStroke, 0.45);
+    ctx.lineWidth = 1.1;
     ctx.stroke();
 
+    // Calligraphic variable-width brush strokes along left sleeve contour (`提按顿挫衣纹`)
+    stroke(
+      ctx,
+      [
+        [shL.x - 2, shL.y + 2],
+        [elL.x - 3, elL.y - 1],
+        [wrL.x, wrL.y],
+        [slMidL.x - 2, slMidL.y],
+        [slTipL.x, slTipL.y],
+      ],
+      { w: 2.2, tone: 0.9, dry: 0.24, prof: 'brush', color: inkStroke, seed: 73 }
+    );
+    stroke(
+      ctx,
+      [
+        [slTipL.x, slTipL.y],
+        [slMidL.x + 7, slMidL.y + 4],
+        [elL.x + 7, elL.y + 16],
+        [shL.x - 1, shL.y + 16],
+      ],
+      { w: 2.4, tone: 0.88, dry: 0.28, prof: 'nail', color: inkStroke, seed: 74 }
+    );
+
     // Left Sleeve fold lines & hand hint
-    ctx.beginPath();
-    ctx.moveTo(wrL.x, wrL.y);
-    ctx.bezierCurveTo(slMidL.x + 3, slMidL.y, slTipL.x + 2, slTipL.y, slTipL.x, slTipL.y);
-    ctx.strokeStyle = rgba(inkStroke, 0.72);
-    ctx.lineWidth = 1.25;
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [wrL.x, wrL.y],
+        [slMidL.x + 3, slMidL.y],
+        [slTipL.x, slTipL.y],
+      ],
+      { w: 1.6, tone: 0.72, dry: 0.35, prof: 'tip', color: inkStroke, seed: 75 }
+    );
 
     ctx.beginPath();
     ctx.moveTo(wrL.x, wrL.y + 1);
@@ -4645,9 +4862,53 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = robeGrad;
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.95);
-    ctx.lineWidth = 1.95;
+    ctx.strokeStyle = rgba(inkStroke, 0.42);
+    ctx.lineWidth = 1.1;
     ctx.stroke();
+
+    // Subtle internal Po-Mo wash fold inside lower robe (`衣褶淡墨晕染`)
+    drawInkMass(
+      ctx,
+      [
+        [lumbar.x - 8, lumbar.y + 8],
+        [Math.min(kneeL.x, kneeR.x) - 8, kneeL.y + 16],
+        [backHemX + 4, -6],
+        [(backHemX + frontHemX) * 0.42, -6],
+        [lumbar.x, lumbar.y + 18],
+      ],
+      { tone: 0.065, color: inkStroke, jitter: 1.4, seed: 76, wetRim: false }
+    );
+
+    // Calligraphic pressurized strokes for back & front robe contours (`吴带当风提按线`)
+    stroke(
+      ctx,
+      [
+        [lumbar.x - 11, lumbar.y],
+        [Math.min(hipL.x, hipR.x) - 11, hipL.y + 32],
+        [Math.min(kneeL.x, kneeR.x) - 11, kneeL.y + 18],
+        [backHemX, -6],
+      ],
+      { w: 2.5, tone: 0.94, dry: 0.24, prof: 'nail', color: inkStroke, seed: 77 }
+    );
+    stroke(
+      ctx,
+      [
+        [lumbar.x + 11, lumbar.y],
+        [Math.max(hipL.x, hipR.x) + 11, hipR.y + 32],
+        [Math.max(kneeL.x, kneeR.x) + 11, kneeR.y + 18],
+        [frontHemX, -6],
+      ],
+      { w: 2.35, tone: 0.92, dry: 0.26, prof: 'brush', color: inkStroke, seed: 78 }
+    );
+    stroke(
+      ctx,
+      [
+        [backHemX, -6],
+        [(backHemX + frontHemX) * 0.5, -5],
+        [frontHemX, -6],
+      ],
+      { w: 2.1, tone: 0.9, dry: 0.3, prof: 'even', color: inkStroke, seed: 79 }
+    );
 
     // Overlapping Flowing Skirt Train (`贴合后侧袍边的雅致叠层`: lumbar -> trainB1 -> trainB2 -> trainTip)
     ctx.beginPath();
@@ -4665,22 +4926,38 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = robeTopCol;
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.9);
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [lumbar.x - 10, lumbar.y + 4],
+        [trainB1.x - 1, trainB1.y],
+        [trainB2.x - 1, trainB2.y],
+        [trainTip.x, trainTip.y],
+      ],
+      { w: 2.0, tone: 0.88, dry: 0.28, prof: 'tip', color: inkStroke, seed: 80 }
+    );
 
     // Calligraphic Pleat Lines inside the tall robe
-    ctx.strokeStyle = rgba(inkStroke, 0.72);
-    ctx.lineWidth = 1.25;
-    ctx.beginPath();
-    ctx.moveTo(lumbar.x - 3, lumbar.y + 10);
-    ctx.bezierCurveTo(hipL.x - 3, kneeL.y - 16, kneeL.x - 6, kneeL.y + 20, ankleL.x - 4, -6);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(lumbar.x + 3, lumbar.y + 12);
-    ctx.bezierCurveTo(hipR.x + 3, kneeR.y - 16, kneeR.x + 5, kneeR.y + 20, ankleR.x + 4, -6);
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [lumbar.x - 3, lumbar.y + 10],
+        [hipL.x - 3, kneeL.y - 8],
+        [kneeL.x - 5, kneeL.y + 18],
+        [ankleL.x - 4, -6],
+      ],
+      { w: 1.55, tone: 0.72, dry: 0.38, prof: 'tip', color: inkStroke, seed: 81 }
+    );
+    stroke(
+      ctx,
+      [
+        [lumbar.x + 3, lumbar.y + 12],
+        [hipR.x + 3, kneeR.y - 8],
+        [kneeR.x + 4, kneeR.y + 18],
+        [ankleR.x + 4, -6],
+      ],
+      { w: 1.55, tone: 0.72, dry: 0.38, prof: 'tip', color: inkStroke, seed: 82 }
+    );
 
     // 6. Upper Torso & Crossed Collar (`交领右衽白袍上身`, skinned across `lumbar -> thorax -> neckBase`)
     ctx.beginPath();
@@ -4691,9 +4968,27 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = robeTopCol;
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.95);
-    ctx.lineWidth = 1.95;
+    ctx.strokeStyle = rgba(inkStroke, 0.5);
+    ctx.lineWidth = 1.15;
     ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [shL.x, shL.y],
+        [thorax.x - 14, thorax.y - 2],
+        [lumbar.x - 12, lumbar.y + 2],
+      ],
+      { w: 2.3, tone: 0.92, dry: 0.22, prof: 'brush', color: inkStroke, seed: 83 }
+    );
+    stroke(
+      ctx,
+      [
+        [shR.x, shR.y],
+        [thorax.x + 13, thorax.y - 2],
+        [lumbar.x + 12, lumbar.y + 2],
+      ],
+      { w: 2.3, tone: 0.92, dry: 0.22, prof: 'brush', color: inkStroke, seed: 84 }
+    );
 
     // Inner Crossed Collar (`多层交领`)
     ctx.beginPath();
@@ -4703,16 +4998,19 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = innerCol;
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.9);
-    ctx.lineWidth = 1.45;
+    ctx.strokeStyle = rgba(inkStroke, 0.88);
+    ctx.lineWidth = 1.4;
     ctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(neckBase.x - 8, neckBase.y + 3);
-    ctx.lineTo(lumbar.x + 8, lumbar.y - 12);
-    ctx.strokeStyle = rgba(inkStroke, 0.9);
-    ctx.lineWidth = 1.65;
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [neckBase.x - 8, neckBase.y + 3],
+        [thorax.x, thorax.y - 4],
+        [lumbar.x + 8, lumbar.y - 12],
+      ],
+      { w: 2.1, tone: 0.92, dry: 0.2, prof: 'nail', color: inkStroke, seed: 85 }
+    );
 
     // 7. Waist Sash & Flowing Ribbon (`束腰与三段腰带骨骼`: `lumbar -> sashB1 -> sashB2 -> sashB3`)
     ctx.beginPath();
@@ -4723,16 +5021,20 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = state.sashColor === '#FFFFFF' ? '#FFFFFF' : mixHex('#FFFFFF', state.sashColor, 0.75);
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.92);
-    ctx.lineWidth = 1.75;
+    ctx.strokeStyle = rgba(inkStroke, 0.9);
+    ctx.lineWidth = 1.65;
     ctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(lumbar.x - 6, lumbar.y + 4);
-    ctx.bezierCurveTo(sashB1.x, sashB1.y, sashB2.x, sashB2.y, sashB3.x, sashB3.y);
-    ctx.strokeStyle = rgba(inkStroke, 0.85);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [lumbar.x - 6, lumbar.y + 4],
+        [sashB1.x, sashB1.y],
+        [sashB2.x, sashB2.y],
+        [sashB3.x, sashB3.y],
+      ],
+      { w: 2.0, tone: 0.86, dry: 0.3, prof: 'tip', color: inkStroke, seed: 86 }
+    );
 
     // 8. Slender Neck & Faceless Head (`修长颈部与无脸留白轮廓`, driven by `neckBase -> headPivot -> headTop -> topKnotTip`)
     ctx.save();
@@ -4852,6 +5154,7 @@ export function createInkCharacter(opts = {}) {
     // 9. Right Foreground Wide White Sleeve (`右广袖`, drawn in front: Layer 9)
     // Non-self-intersecting articulated drape across all elbow flexion angles (including V-bent `drink`)
     const isElbowFoldedIn = wrR.y < elR.y - 2;
+    const tipY = isElbowFoldedIn ? Math.max(slTipR.y, elR.y + 24) : slTipR.y;
     ctx.beginPath();
     ctx.moveTo(shR.x, shR.y);
     if (isElbowFoldedIn) {
@@ -4868,11 +5171,11 @@ export function createInkCharacter(opts = {}) {
         elR.x + 9,
         elR.y + 12,
         slTipR.x,
-        Math.max(slTipR.y, elR.y + 24)
+        tipY
       );
       ctx.bezierCurveTo(
         slTipR.x - 10,
-        Math.max(slTipR.y, elR.y + 24) + 4,
+        tipY + 4,
         shR.x + 4,
         elR.y + 18,
         shR.x - 2,
@@ -4887,29 +5190,71 @@ export function createInkCharacter(opts = {}) {
     ctx.closePath();
     ctx.fillStyle = robeTopCol;
     ctx.fill();
-    ctx.strokeStyle = rgba(inkStroke, 0.95);
-    ctx.lineWidth = 1.95;
+    ctx.strokeStyle = rgba(inkStroke, 0.44);
+    ctx.lineWidth = 1.1;
     ctx.stroke();
+
+    // Subtle internal sleeve shadow wash (`袖肚淡墨晕染`)
+    drawInkMass(
+      ctx,
+      [
+        [elR.x - 1, elR.y + 4],
+        [wrR.x + 2, wrR.y + 2],
+        [slTipR.x - 1, tipY - 1],
+        [elR.x + 1, elR.y + 14],
+      ],
+      { tone: 0.055, color: inkStroke, jitter: 1.2, seed: 87, wetRim: false }
+    );
+
+    // Calligraphic variable-width brush strokes along right sleeve contour (`提按顿挫右广袖`)
+    stroke(
+      ctx,
+      isElbowFoldedIn
+        ? [
+            [shR.x, shR.y],
+            [lerp(shR.x, elR.x, 0.45), Math.max(shR.y, wrR.y) + 5],
+            [wrR.x - 1, wrR.y - 1],
+          ]
+        : [
+            [shR.x, shR.y],
+            [elR.x, elR.y - 2],
+            [wrR.x, wrR.y - 2],
+          ],
+      { w: 2.35, tone: 0.94, dry: 0.22, prof: 'brush', color: inkStroke, seed: 88 }
+    );
+    stroke(
+      ctx,
+      [
+        [wrR.x + 3, wrR.y + 1],
+        [isElbowFoldedIn ? elR.x + 8 : slMidR.x + 3, isElbowFoldedIn ? elR.y + 10 : slMidR.y],
+        [slTipR.x, tipY],
+        [elR.x - 1, elR.y + 16],
+        [shR.x - 2, shR.y + 15],
+      ],
+      { w: 2.5, tone: 0.92, dry: 0.26, prof: 'nail', color: inkStroke, seed: 89 }
+    );
 
     // Right Sleeve opening fold curves (parallel, never crossing in an X)
-    ctx.beginPath();
-    ctx.moveTo(wrR.x + 3, wrR.y + 2);
-    if (isElbowFoldedIn) {
-      ctx.quadraticCurveTo(elR.x + 4, elR.y + 4, slTipR.x - 2, Math.max(slTipR.y, elR.y + 24) - 3);
-    } else {
-      ctx.bezierCurveTo(slMidR.x + 2, slMidR.y - 2, slMidR.x - 2, slMidR.y + 8, slTipR.x - 3, slTipR.y - 2);
-    }
-    ctx.strokeStyle = rgba(inkStroke, 0.78);
-    ctx.lineWidth = 1.3;
-    ctx.stroke();
+    stroke(
+      ctx,
+      [
+        [wrR.x + 3, wrR.y + 2],
+        [isElbowFoldedIn ? elR.x + 4 : slMidR.x + 1, isElbowFoldedIn ? elR.y + 4 : slMidR.y + 3],
+        [slTipR.x - 2, tipY - 2],
+      ],
+      { w: 1.65, tone: 0.78, dry: 0.34, prof: 'tip', color: inkStroke, seed: 90 }
+    );
 
     if (!isElbowFoldedIn) {
-      ctx.beginPath();
-      ctx.moveTo(shR.x + 4, shR.y + 5);
-      ctx.quadraticCurveTo(elR.x + 1, elR.y + 3, wrR.x - 2, wrR.y + 2);
-      ctx.strokeStyle = rgba(inkStroke, 0.65);
-      ctx.lineWidth = 1.1;
-      ctx.stroke();
+      stroke(
+        ctx,
+        [
+          [shR.x + 4, shR.y + 5],
+          [elR.x + 1, elR.y + 3],
+          [wrR.x - 2, wrR.y + 2],
+        ],
+        { w: 1.4, tone: 0.65, dry: 0.38, prof: 'tip', color: inkStroke, seed: 91 }
+      );
     }
 
     // 10. Minimalist Right Hand & Held Prop at `wrR -> handTipR`

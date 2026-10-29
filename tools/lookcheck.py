@@ -7,17 +7,21 @@ look change (new light, env map, pass, palette tweak) shows up as numbers instea
 gut feeling. Drift beyond the guard thresholds is flagged; intentional changes are
 re-baselined with `--accept`.
 
-Per-panel metrics (CIE Lab, D65):
-  L      mean lightness (exposure)            contrast  std of L (flat / milky vs punchy)
-  p5     shadow depth (lower = deeper)        p95       highlight level
-  chroma mean Lab chroma (saturation)         grit      median |L - blur(L)| (fine texture /
-                                                         screen-space pattern energy)
-  dE     mean CIE76 colour difference against the baseline panel
+Per-panel metrics (CIE Lab, D65 + Spatial Composition):
+  L         mean lightness (exposure)         contrast  std of L (flat / milky vs punchy)
+  p5        shadow depth (lower = deeper)     p95       highlight level
+  chroma    mean Lab chroma (saturation)      grit      median |L - blur(L)| (fine texture /
+                                                        screen-space pattern energy)
+  com_y     vertical center-of-mass of visual salience (0 = top edge, 1 = bottom edge)
+  half_void max dead-void fraction in upper or lower half (16x9 grid cells with near-zero
+            texture & tonal deviation from background median)
+  dE        mean CIE76 colour difference against the baseline panel
 
-Absolute readability floors (checked on every run, including the first run of a new story,
-which only stores a baseline and therefore compares nothing):
-  L in [35, 92]   not murky / not blown out      p95 >= 55   something in the frame catches light
-  contrast >= 7   not a flat milky wash          p95 - p5 >= 18   real tonal range
+Absolute readability & spatial composition floors (checked on every run, including the first run
+of a new story, which only stores a baseline and therefore compares nothing):
+  L in [35, 92]        not murky / not blown out      p95 >= 55         something catches light
+  contrast >= 7        not a flat milky wash          p95 - p5 >= 18    real tonal range
+  com_y in [0.36,0.66] balanced vertical weight       half_void <= 0.72 no dead-white empty half
 
 Originality gate (every --style run; exit 3 on failure, independent of --strict):
   the rendered sheet is compared panel-by-panel with the style's showcase contact sheet, archived
@@ -55,10 +59,19 @@ OUT_ROOT = os.path.abspath(os.environ.get('STYLEHOP_OUT') or os.path.join(REPO_R
 # Max drift tolerated for a change that is NOT meant to alter the look (per panel).
 GUARD = {'L': 4.0, 'contrast_pct': 20.0, 'chroma_pct': 25.0, 'dE': 6.0}
 
-METRICS = ['L', 'contrast', 'p5', 'p95', 'chroma', 'grit']
+METRICS = ['L', 'contrast', 'p5', 'p95', 'chroma', 'grit', 'com_y', 'half_void']
 
 # Absolute floors any shippable panel must meet, whatever the story or time of day.
-ABS = {'L_min': 35.0, 'L_max': 92.0, 'p95_min': 55.0, 'contrast_min': 7.0, 'range_min': 18.0}
+ABS = {
+    'L_min': 35.0,
+    'L_max': 92.0,
+    'p95_min': 55.0,
+    'contrast_min': 7.0,
+    'range_min': 18.0,
+    'com_y_min': 0.36,
+    'com_y_max': 0.66,
+    'half_void_max': 0.72,
+}
 
 
 def absolute_check(path):
@@ -75,14 +88,24 @@ def absolute_check(path):
             f.append(f"contrast {m['contrast']:.1f} < {ABS['contrast_min']:.0f} (flat)")
         if m['p95'] - m['p5'] < ABS['range_min']:
             f.append(f"tonal range {m['p95'] - m['p5']:.1f} < {ABS['range_min']:.0f}")
+        if not ABS['com_y_min'] <= m['com_y'] <= ABS['com_y_max']:
+            f.append(
+                f"com_y {m['com_y']:.3f} outside [{ABS['com_y_min']:.2f}, {ABS['com_y_max']:.2f}] "
+                "(vertical center-of-mass imbalance: top-heavy or bottom-heavy frame)"
+            )
+        if m['half_void'] > ABS['half_void_max']:
+            f.append(
+                f"half_void {m['half_void']:.2f} > {ABS['half_void_max']:.2f} "
+                "(dead-void empty upper/lower half; anchor foreground/midground across vertical planes)"
+            )
         if f:
             fails.append((i, f))
     if fails:
-        print('\n  READABILITY floors failed:')
+        print('\n  READABILITY & SPATIAL COMPOSITION floors failed:')
         for i, f in fails:
             print(f'    panel {i}: ' + ', '.join(f))
     else:
-        print('\n  readability floors: OK')
+        print('\n  readability & spatial composition floors: OK')
     return fails
 
 
@@ -111,15 +134,41 @@ def panels(img):
 def measure(panel):
     lab = srgb_to_lab(np.asarray(panel.convert('RGB')))
     L = lab[..., 0]
+    chroma_map = np.hypot(lab[..., 1], lab[..., 2])
     gray = panel.convert('L')
     hp = np.abs(np.asarray(gray, np.float64) - np.asarray(gray.filter(ImageFilter.GaussianBlur(3)), np.float64))
+
+    # Spatial salience center-of-mass (com_y in [0, 1]) & 16x9 grid dead-void check
+    bg_L = float(np.median(L))
+    bg_C = float(np.median(chroma_map))
+    sal = hp + 0.30 * np.abs(L - bg_L) + 0.20 * np.abs(chroma_map - bg_C)
+    h, w = sal.shape
+    ys = (np.arange(h, dtype=np.float64) + 0.5) / max(h, 1)
+    row_sal = sal.mean(axis=1)
+    com_y = float((row_sal * ys).sum() / max(float(row_sal.sum()), 1e-6))
+
+    gh, gw = 9, 16
+    ch, cw = max(1, h // gh), max(1, w // gw)
+    void_cells = np.zeros((gh, gw), dtype=bool)
+    for r in range(gh):
+        for c in range(gw):
+            sub_hp = float(hp[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw].mean())
+            sub_dL = float(np.abs(L[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw] - bg_L).mean())
+            if sub_hp < 0.85 and sub_dL < 3.2:
+                void_cells[r, c] = True
+    top_void = float(void_cells[:4, :].mean())
+    bot_void = float(void_cells[5:, :].mean())
+    half_void = max(top_void, bot_void)
+
     return {
         'L': float(L.mean()),
         'contrast': float(L.std()),
         'p5': float(np.percentile(L, 5)),
         'p95': float(np.percentile(L, 95)),
-        'chroma': float(np.hypot(lab[..., 1], lab[..., 2]).mean()),
+        'chroma': float(chroma_map.mean()),
         'grit': float(np.median(hp)),
+        'com_y': com_y,
+        'half_void': half_void,
     }, lab
 
 

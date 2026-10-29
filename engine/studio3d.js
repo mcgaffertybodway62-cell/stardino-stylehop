@@ -20,6 +20,7 @@
 import { resolveAspectFraming, evalCameraShot, applyThreeCamera } from './camera.js';
 import { LOOK_PRESETS, createLookRig, createLookTimeline } from './look.js';
 import { createDirector } from './director.js';
+import { loadBlenderGlb, parseGlbBuffer } from './three_bridge.js';
 
 /**
  * @param {object} THREE
@@ -65,6 +66,35 @@ export function createStudio3D(THREE, { width, height, look, presets = LOOK_PRES
     return createDirector(THREE, { camera, scenes, subjects, shots, aspect: framing.aspect, lensBase: baseFov, maxDist });
   }
 
+  /**
+   * Load a high-precision `.glb` 3D prop/character asset via `engine/three_bridge.js`
+   * and optionally skin it with the style's procedural material (`materialOverride` / `materialFactory`)
+   * and add it to the scene or attach it to a parent/puppet joint.
+   */
+  async function loadModel(url, opts = {}) {
+    const gltf = await loadBlenderGlb(THREE, url, opts);
+    if (opts.position && Array.isArray(opts.position)) {
+      gltf.scene.position.fromArray(opts.position);
+    }
+    if (opts.rotationY != null) {
+      gltf.scene.rotation.y = opts.rotationY;
+    }
+    if (opts.scale != null) {
+      if (typeof opts.scale === 'number') gltf.scene.scale.multiplyScalar(opts.scale);
+      else if (Array.isArray(opts.scale)) gltf.scene.scale.fromArray(opts.scale);
+    }
+    if (opts.parent) {
+      opts.parent.add(gltf.scene);
+    } else if (opts.addToScene !== false) {
+      scene.add(gltf.scene);
+    }
+    return gltf;
+  }
+
+  function parseModelBuffer(arrayBuffer, opts = {}) {
+    return parseGlbBuffer(THREE, arrayBuffer, opts);
+  }
+
   /** Draw a frame. Pass the frame so per-scene looks (`data-look`) apply. */
   function render(frame = null) {
     if (frame && lookTimeline.animated) {
@@ -74,5 +104,5 @@ export function createStudio3D(THREE, { width, height, look, presets = LOOK_PRES
     lookRig.render(camera);
   }
 
-  return { canvas, renderer, scene, camera, framing, lookRig, applyShot, director, render };
+  return { canvas, renderer, scene, camera, framing, lookRig, applyShot, director, loadModel, parseModelBuffer, render };
 }

@@ -39,6 +39,9 @@
  *   - `pose`:       Arbitrary custom joint angle targets (`{ do: 'pose', joints: { shRAng, elRAng, ... } }`).
  */
 
+import { registerRuntimeCue } from './motion.js';
+import { recordSceneElement2D, recordInteractionCheck2D } from './studio2d.js';
+
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -261,6 +264,108 @@ export function mixPose2D(a, b, t) {
     return out;
   }
   return t < 0.5 ? a : b;
+}
+
+/**
+ * 2-Bone Analytic Inverse Kinematics solver in 2D character local space
+ * (`0 rad = straight down Math.PI * 0.5`).
+ *
+ * Given shoulder pivot `sh`, segment lengths `L1` (upperArm) and `L2` (forearm + optional tool offset),
+ * and local target `[tx, ty]`, returns `{ shAng, elAng, reachable, reachDist }`.
+ */
+export function solveLimbIK2D(sh, L1, L2, target, aThorax = 0) {
+  const dx = target.x - sh.x;
+  const dy = target.y - sh.y;
+  const rawDist = Math.hypot(dx, dy);
+  const maxReach = Math.max(1e-3, L1 + L2 - 0.5);
+  const minReach = Math.max(1.0, Math.abs(L1 - L2) + 0.5);
+  const d = clamp(rawDist, minReach, maxReach);
+
+  // Law of cosines for elbow flexion (`elAng >= 0` bends forearm forward/up)
+  const cosElbow = clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1);
+  const elAng = Math.PI - Math.acos(cosElbow);
+
+  // Law of cosines for shoulder offset from the target line
+  const cosSh = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1);
+  const shOffset = Math.acos(cosSh);
+
+  const dirAng = Math.atan2(dy, dx);
+  // In puppet2d FK: aR1 = Math.PI * 0.5 + shRAng + aThorax * 0.5, aR2 = aR1 - elRAng
+  // Since aR2 bends in the `-` direction from aR1, aR1 = dirAng + shOffset
+  const a1 = dirAng + shOffset;
+  const shAng = a1 - Math.PI * 0.5 - aThorax * 0.5;
+
+  return {
+    shAng,
+    elAng,
+    reachable: rawDist <= L1 + L2 + 8,
+    reachDist: rawDist,
+  };
+}
+
+/**
+ * Computes a continuous organic contour envelope (`computeContourEnvelope2D`) around the
+ * 26-joint skeleton so 2D brush/ink skins can paint unified, non-stick-figure body and sleeve
+ * masses without mechanical joint creases.
+ */
+export function computeContourEnvelope2D(skel) {
+  const { neckBase, thorax, lumbar, hipL, hipR, kneeL, kneeR, ankleL, ankleR, shR, elR, wrR, slMidR, slTipR, shL, elL, wrL, slMidL, slTipL, trainTip, breeze } = skel;
+  const minAnkX = Math.min(ankleL.x, ankleR.x);
+  const maxAnkX = Math.max(ankleL.x, ankleR.x);
+  const hemBackX = Math.min(minAnkX - 15 - breeze * 0.45, trainTip.x);
+  const hemFrontX = maxAnkX + 15 - breeze * 0.2;
+
+  const robeEnvelope = [
+    [neckBase.x - 7, neckBase.y + 1],
+    [thorax.x - 14, thorax.y + 2],
+    [lumbar.x - 13, lumbar.y + 2],
+    [Math.min(hipL.x, hipR.x) - 14, hipL.y + 34],
+    [Math.min(kneeL.x, kneeR.x) - 15, kneeL.y + 18],
+    [hemBackX, -6],
+    [(hemBackX + hemFrontX) * 0.5, -4],
+    [hemFrontX, -6],
+    [Math.max(kneeL.x, kneeR.x) + 14, kneeR.y + 18],
+    [Math.max(hipL.x, hipR.x) + 13, hipR.y + 34],
+    [lumbar.x + 12, lumbar.y + 2],
+    [thorax.x + 13, thorax.y + 1],
+    [neckBase.x + 7, neckBase.y + 1],
+  ];
+
+  const isElbowFoldedIn = wrR.y < elR.y - 2;
+  const droopRY = Math.max(slTipR.y, elR.y + 24);
+  const sleeveREnvelope = isElbowFoldedIn
+    ? [
+        [shR.x - 2, shR.y],
+        [lerp(shR.x, elR.x, 0.48), Math.max(shR.y, wrR.y) + 5],
+        [wrR.x - 2, wrR.y - 3],
+        [wrR.x + 5, wrR.y + 2],
+        [Math.max(elR.x + 9, wrR.x + 10), lerp(wrR.y, droopRY, 0.5)],
+        [slTipR.x, droopRY],
+        [elR.x - 2, elR.y + 18],
+        [shR.x - 3, shR.y + 15],
+      ]
+    : [
+        [shR.x - 2, shR.y],
+        [elR.x, elR.y - 3],
+        [wrR.x + 2, wrR.y - 3],
+        [wrR.x + 4, wrR.y + 4],
+        [slMidR.x + 4, slMidR.y],
+        [slTipR.x, slTipR.y],
+        [elR.x + 2, elR.y + 18],
+        [shR.x - 2, shR.y + 14],
+      ];
+
+  const sleeveLEnvelope = [
+    [shL.x - 2, shL.y + 1],
+    [elL.x - 3, elL.y - 2],
+    [wrL.x, wrL.y - 2],
+    [slMidL.x - 3, slMidL.y],
+    [slTipL.x, slTipL.y],
+    [elL.x + 6, elL.y + 15],
+    [shL.x, shL.y + 15],
+  ];
+
+  return { robeEnvelope, sleeveREnvelope, sleeveLEnvelope, hemBackX, hemFrontX };
 }
 
 /**
@@ -630,6 +735,7 @@ export function createPuppet2D(opts = {}) {
   function act(localT, actions = []) {
     const hasLocomotion = actions.some((a) => a.do === 'walk' || a.do === 'leap');
     resetPose(hasLocomotion);
+    state._pendingInteractions = [];
     for (const a of actions) {
       if (a.do === 'walk') {
         if (a.fromX != null) state.x = a.fromX;
@@ -704,6 +810,24 @@ export function createPuppet2D(opts = {}) {
           state.thighRAng = -0.04;
           state.kneeLAng = 0.02;
           state.kneeRAng = 0.02;
+
+          if (env >= 0.72) {
+            const sk = solveSkeleton(0, localT);
+            const cupX = sk.wrR.x + 8;
+            const cupY = sk.wrR.y - 4;
+            const mouthX = sk.headPivot.x + 6;
+            const mouthY = sk.headPivot.y - 6;
+            const dist = Math.hypot(cupX - mouthX, cupY - mouthY);
+            state._pendingInteractions.push({
+              actor: state.archetype || 'hero',
+              action: 'drink',
+              socket: 'cupRim',
+              targetLabel: 'mouth',
+              dist,
+              maxDist: a.maxDist ?? 36,
+              t: localT,
+            });
+          }
         }
       } else if (a.do === 'toast' || a.do === 'inviteMoon') {
         if (localT <= to) {
@@ -780,7 +904,7 @@ export function createPuppet2D(opts = {}) {
           state.handRAng = 0.04;
           state.rodBend = 0.18;
         }
-      } else if (a.do === 'wieldSword') {
+      } else if (a.do === 'wieldSword' || a.do === 'strike') {
         if (localT <= to) {
           const env = Math.sin(u * Math.PI);
           state.thighRAng = -0.32 * env;
@@ -796,7 +920,7 @@ export function createPuppet2D(opts = {}) {
           state.elLAng = 0.25;
           state.swordSlash = u;
         }
-      } else if (a.do === 'wave' || a.do === 'paint' || a.do === 'reach') {
+      } else if (a.do === 'wave' || a.do === 'paint' || a.do === 'reach' || a.do === 'touch') {
         if (localT <= to) {
           const env = Math.sin(u * Math.PI);
           state.shRAng = lerp(-0.22, -1.15 * (a.amount ?? 0.85), env);
@@ -869,6 +993,46 @@ export function createPuppet2D(opts = {}) {
       } else if (a.do === 'mood') {
         if (localT <= to) state.mood = a.mood || 'happy';
       }
+
+      // Optional 2-Bone Analytic IK toward `a.target` ([worldX, worldY] | { x, y, radius })
+      if (a.target && localT <= to) {
+        const txWorld = Array.isArray(a.target) ? a.target[0] : a.target.x;
+        const tyWorld = Array.isArray(a.target) ? a.target[1] : a.target.y;
+        if (Number.isFinite(txWorld) && Number.isFinite(tyWorld)) {
+          const env = a.hold ? smootherstep(0, 0.5, u) : Math.sin(u * Math.PI);
+          const preSkel = solveSkeleton(0, localT);
+          const localTx = (txWorld - state.x) / (preSkel.sc * state.facing);
+          const localTy = (tyWorld - (state.y + state.hopY)) / preSkel.sc;
+          const toolLen = state.heldProp === 'sword' ? 98 : state.heldProp === 'brush' ? 28 : dims.handR;
+          const ik = solveLimbIK2D(preSkel.shR, dims.upperArmR, dims.forearmR + toolLen, { x: localTx, y: localTy }, preSkel.aThorax);
+          state.shRAng = lerp(state.shRAng, ik.shAng, env);
+          state.elRAng = lerp(state.elRAng, ik.elAng, env);
+
+          if (env >= 0.65) {
+            const postSkel = solveSkeleton(0, localT);
+            const effLocal =
+              state.heldProp === 'sword'
+                ? {
+                    x: postSkel.wrR.x + Math.cos(postSkel.aR3 - Math.PI * 0.5 + Math.sin(state.swordSlash * Math.PI) * 0.75) * 98,
+                    y: postSkel.wrR.y + Math.sin(postSkel.aR3 - Math.PI * 0.5 + Math.sin(state.swordSlash * Math.PI) * 0.75) * 98,
+                  }
+                : postSkel.handTipR;
+            const effWorldX = state.x + effLocal.x * postSkel.sc * state.facing;
+            const effWorldY = state.y + state.hopY + effLocal.y * postSkel.sc;
+            const targetRadius = a.target.radius ?? 0;
+            const errDist = Math.max(0, Math.hypot(effWorldX - txWorld, effWorldY - tyWorld) - targetRadius);
+            state._pendingInteractions.push({
+              actor: state.archetype || 'hero',
+              action: a.do,
+              socket: state.heldProp === 'sword' ? 'swordTip' : 'handTipR',
+              targetLabel: a.target.label || `[${Math.round(txWorld)},${Math.round(tyWorld)}]`,
+              dist: errDist,
+              maxDist: a.maxDist ?? 42,
+              t: localT,
+            });
+          }
+        }
+      }
     }
     state.lastRodTip = solveSkeleton(0, localT).rodTipWorld;
   }
@@ -877,6 +1041,26 @@ export function createPuppet2D(opts = {}) {
     const { sx, sy } = evalSquashStretch2D(state.squash);
     const breeze = Math.sin(t * 1.8 + state.baseX * 0.01) * 2.2;
     const skel = solveSkeleton(breeze, t);
+
+    // Register hero bounding box and interaction contact telemetry into `ctx.__sceneGraph`
+    const footWorldY = state.y + state.hopY;
+    const headWorldY = footWorldY - 248 * skel.sc * sy;
+    const halfW = 42 * skel.sc * sx;
+    recordSceneElement2D(ctx, {
+      id: opts.id || state.archetype || 'hero',
+      role: 'hero',
+      kind: 'character',
+      isHero: true,
+      bbox: [state.x - halfW, headWorldY, state.x + halfW, footWorldY],
+      footY: footWorldY,
+      groundY: opts.groundY ?? state.groundY ?? null,
+      airborne: Math.abs(state.hopY) > 4,
+    });
+    if (Array.isArray(state._pendingInteractions)) {
+      for (const chk of state._pendingInteractions) {
+        recordInteractionCheck2D(ctx, chk);
+      }
+    }
 
     ctx.save();
     ctx.translate(state.x, state.y + state.hopY);

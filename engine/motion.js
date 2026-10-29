@@ -438,3 +438,30 @@ export function extractCues(root) {
     cues,
   };
 }
+
+/**
+ * Registers a deterministic semantic audio cue from 2D/3D character acting (`puppet2d.js`, `puppet.js`, `critter2d.js`)
+ * or dynamic world primitives (`drawGesturalWave`, `bookDirector` page turns) into `window.CUES.cues`.
+ * Automatically deduplicates cues of the same `kind` within 90ms so multi-frame renders stay idempotent.
+ *
+ * @param {{ t: number, kind: string, scene?: string, label?: string, intensity?: number }} cue
+ */
+export function registerRuntimeCue(cue) {
+  if (typeof window === 'undefined' || !window.CUES || !Array.isArray(window.CUES.cues)) return;
+  if (!cue || typeof cue.t !== 'number' || Number.isNaN(cue.t) || cue.t < 0) return;
+  const maxDur = window.DUR || window.CUES.dur || 60;
+  if (cue.t > maxDur) return;
+  const kind = String(cue.kind || 'card_enter');
+  const t = +cue.t.toFixed(3);
+  const list = window.CUES.cues;
+  const dup = list.some((c) => c.kind === kind && Math.abs(c.t - t) < 0.09);
+  if (dup) return;
+  list.push({
+    t,
+    kind,
+    scene: cue.scene || 'stage',
+    label: cue.label || kind,
+    intensity: +clamp(cue.intensity ?? 0.75, 0.15, 1.0).toFixed(2),
+  });
+  list.sort((a, b) => a.t - b.t);
+}

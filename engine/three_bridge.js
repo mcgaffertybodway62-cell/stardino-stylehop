@@ -118,37 +118,323 @@ export function createProceduralStudioLights(THREE, scene, preset = 'studio') {
 }
 
 /**
- * Loads a Blender `.glb` model via `GLTFLoader` and optionally binds live DOM textures
- * (`domTargets: { MaterialName: threeTexture }`) onto matching meshes.
+ * Parse a binary glTF 2.0 (`.glb`) ArrayBuffer directly into a `THREE.Group` hierarchy
+ * without requiring an external `GLTFLoader` bundle.
  *
- * @param {object} gltfLoader  Instance of `GLTFLoader`
- * @param {string} url         Path to `.glb` exported from Blender (`export_gltf`)
+ * Supports:
+ *   - GLB v2 header + JSON chunk (`0x4E4F534A`) + BIN chunk (`0x004E4942`)
+ *   - Accessors & BufferViews (`FLOAT`, `UNSIGNED_BYTE`, `UNSIGNED_SHORT`, `UNSIGNED_INT`)
+ *   - Attributes: `POSITION`, `NORMAL`, `TEXCOORD_0`, `COLOR_0`
+ *   - Node hierarchy with `translation`, `rotation` (quaternion), `scale`, or `matrix`
+ *   - `materialOverride` / `materialFactory` so any 3D style can skin `.glb` hero meshes
+ *     with its own procedural clay, paper, or studio shaders.
+ *
+ * @param {object} THREE
+ * @param {ArrayBuffer} arrayBuffer
+ * @param {object} [opts]
+ * @returns {{ scene: object, nodes: object[], meshes: Record<string, object>, animations: any[] }}
+ */
+export function parseGlbBuffer(
+  THREE,
+  arrayBuffer,
+  {
+    domTargets = {},
+    materialOverride = null,
+    materialFactory = null,
+    normalizeSize = null,
+    centerPivot = false,
+    castShadow = true,
+    receiveShadow = true,
+  } = {}
+) {
+  THREE = THREE?.BufferGeometry ? THREE : THREE?.default || globalThis.THREE;
+  const dv = new DataView(arrayBuffer);
+  const magic = dv.getUint32(0, true);
+  if (magic !== 0x46546c67) {
+    throw new Error(`Invalid GLB magic: 0x${magic.toString(16)} (expected "glTF" 0x46546c67)`);
+  }
+  const version = dv.getUint32(4, true);
+  if (version !== 2) {
+    throw new Error(`Unsupported GLB version: ${version} (expected 2)`);
+  }
+  const totalLen = dv.getUint32(8, true);
+
+  let json = null;
+  let binBuffer = null;
+  let offset = 12;
+
+  while (offset + 8 <= totalLen && offset + 8 <= arrayBuffer.byteLength) {
+    const chunkLen = dv.getUint32(offset, true);
+    const chunkType = dv.getUint32(offset + 4, true);
+    const chunkStart = offset + 8;
+    if (chunkType === 0x4e4f534a) {
+      const text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer, chunkStart, chunkLen));
+      json = JSON.parse(text);
+    } else if (chunkType === 0x004e4942) {
+      binBuffer = arrayBuffer.slice(chunkStart, chunkStart + chunkLen);
+    }
+    offset = chunkStart + chunkLen;
+  }
+
+  if (!json) throw new Error('GLB missing JSON chunk');
+
+  const COMPONENT_ARRAY = {
+    5120: Int8Array,
+    5121: Uint8Array,
+    5122: Int16Array,
+    5123: Uint16Array,
+    5125: Uint32Array,
+    5126: Float32Array,
+  };
+  const TYPE_COMPONENTS = {
+    SCALAR: 1,
+    VEC2: 2,
+    VEC3: 3,
+    VEC4: 4,
+    MAT2: 4,
+    MAT3: 9,
+    MAT4: 16,
+  };
+
+  function readAccessor(accIdx) {
+    const acc = json.accessors?.[accIdx];
+    if (!acc || !binBuffer) return null;
+    const bv = json.bufferViews?.[acc.bufferView ?? 0];
+    if (!bv) return null;
+    const TypedArr = COMPONENT_ARRAY[acc.componentType] || Float32Array;
+    const itemSize = TYPE_COMPONENTS[acc.type] || 1;
+    const byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
+    const count = acc.count || 0;
+    const byteStride = bv.byteStride || 0;
+    const bpe = TypedArr.BYTES_PER_ELEMENT;
+
+    if (byteStride && byteStride !== itemSize * bpe) {
+      const out = new TypedArr(count * itemSize);
+      const view = new DataView(binBuffer);
+      for (let i = 0; i < count; i++) {
+        const base = byteOffset + i * byteStride;
+        for (let k = 0; k < itemSize; k++) {
+          if (acc.componentType === 5126) out[i * itemSize + k] = view.getFloat32(base + k * 4, true);
+          else if (acc.componentType === 5123) out[i * itemSize + k] = view.getUint16(base + k * 2, true);
+          else if (acc.componentType === 5125) out[i * itemSize + k] = view.getUint32(base + k * 4, true);
+          else if (acc.componentType === 5121) out[i * itemSize + k] = view.getUint8(base + k);
+        }
+      }
+      return { array: out, itemSize, count, normalized: !!acc.normalized };
+    }
+    const array = new TypedArr(binBuffer, byteOffset, count * itemSize);
+    return { array, itemSize, count, normalized: !!acc.normalized };
+  }
+
+  function buildMaterial(matIdx, meshName = '') {
+    const matDef = matIdx != null ? json.materials?.[matIdx] : null;
+    const matName = matDef?.name || meshName || 'GlbMaterial';
+    if (typeof materialFactory === 'function') {
+      const custom = materialFactory(matDef, meshName);
+      if (custom) return custom;
+    }
+    if (materialOverride) {
+      const cloned = typeof materialOverride.clone === 'function' ? materialOverride.clone() : materialOverride;
+      cloned.name = matName;
+      return cloned;
+    }
+    const pbr = matDef?.pbrMetallicRoughness || {};
+    const bc = pbr.baseColorFactor || [0.85, 0.85, 0.85, 1.0];
+    const color = new THREE.Color(bc[0], bc[1], bc[2]);
+    const mat = new THREE.MeshStandardMaterial({
+      name: matName,
+      color,
+      roughness: pbr.roughnessFactor ?? 0.72,
+      metalness: pbr.metallicFactor ?? 0.08,
+      transparent: matDef?.alphaMode === 'BLEND' || bc[3] < 0.999,
+      opacity: bc[3] ?? 1.0,
+      side: matDef?.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+    });
+    const targetTex = domTargets[matName] || domTargets[meshName];
+    if (targetTex) {
+      mat.map = targetTex;
+      mat.needsUpdate = true;
+    }
+    return mat;
+  }
+
+  const meshesByName = {};
+
+  function buildMesh(meshDef) {
+    const prims = meshDef.primitives || [];
+    const group = prims.length > 1 ? new THREE.Group() : null;
+    if (group) group.name = meshDef.name || 'GlbMeshGroup';
+    let singleMesh = null;
+
+    for (let pIdx = 0; pIdx < prims.length; pIdx++) {
+      const prim = prims[pIdx];
+      const geom = new THREE.BufferGeometry();
+      const attrs = prim.attributes || {};
+      const attrMap = {
+        POSITION: 'position',
+        NORMAL: 'normal',
+        TEXCOORD_0: 'uv',
+        COLOR_0: 'color',
+      };
+      for (const [gltfAttr, threeAttr] of Object.entries(attrMap)) {
+        if (attrs[gltfAttr] != null) {
+          const data = readAccessor(attrs[gltfAttr]);
+          if (data) {
+            geom.setAttribute(threeAttr, new THREE.BufferAttribute(data.array, data.itemSize, data.normalized));
+          }
+        }
+      }
+      if (prim.indices != null) {
+        const idxData = readAccessor(prim.indices);
+        if (idxData) {
+          geom.setIndex(new THREE.BufferAttribute(idxData.array, 1));
+        }
+      }
+      if (!geom.attributes.normal && geom.attributes.position) {
+        geom.computeVertexNormals();
+      }
+      geom.computeBoundingBox();
+      geom.computeBoundingSphere();
+
+      const meshName = meshDef.name || `Mesh_${pIdx}`;
+      const mat = buildMaterial(prim.material, meshName);
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.name = meshName;
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      meshesByName[meshName] = mesh;
+
+      if (group) group.add(mesh);
+      else singleMesh = mesh;
+    }
+    return group || singleMesh || new THREE.Group();
+  }
+
+  const nodes = (json.nodes || []).map((nDef, idx) => {
+    const obj = nDef.mesh != null && json.meshes?.[nDef.mesh] ? buildMesh(json.meshes[nDef.mesh]) : new THREE.Group();
+    obj.name = nDef.name || obj.name || `Node_${idx}`;
+    if (Array.isArray(nDef.matrix) && nDef.matrix.length === 16) {
+      const m = new THREE.Matrix4().fromArray(nDef.matrix);
+      m.decompose(obj.position, obj.quaternion, obj.scale);
+    } else {
+      if (Array.isArray(nDef.translation)) obj.position.fromArray(nDef.translation);
+      if (Array.isArray(nDef.rotation)) obj.quaternion.fromArray(nDef.rotation);
+      if (Array.isArray(nDef.scale)) obj.scale.fromArray(nDef.scale);
+    }
+    return obj;
+  });
+
+  (json.nodes || []).forEach((nDef, idx) => {
+    if (Array.isArray(nDef.children)) {
+      for (const cIdx of nDef.children) {
+        if (nodes[cIdx]) nodes[idx].add(nodes[cIdx]);
+      }
+    }
+  });
+
+  const sceneRoot = new THREE.Group();
+  sceneRoot.name = 'GlbScene';
+  const activeScene = json.scenes?.[json.scene ?? 0] || { nodes: nodes.map((_, i) => i) };
+  for (const nIdx of activeScene.nodes || []) {
+    if (nodes[nIdx]) sceneRoot.add(nodes[nIdx]);
+  }
+
+  if (normalizeSize || centerPivot) {
+    sceneRoot.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(sceneRoot);
+    if (!box.isEmpty()) {
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      if (centerPivot) {
+        for (const child of sceneRoot.children) {
+          child.position.x -= center.x;
+          child.position.z -= center.z;
+          child.position.y -= box.min.y;
+        }
+      }
+      if (normalizeSize && Math.max(size.x, size.y, size.z) > 1e-5) {
+        const s = normalizeSize / Math.max(size.x, size.y, size.z);
+        sceneRoot.scale.multiplyScalar(s);
+      }
+    }
+  }
+
+  return { scene: sceneRoot, nodes, meshes: meshesByName, animations: [] };
+}
+
+/**
+ * Loads a Blender `.glb` model either via a Three.js `GLTFLoader` instance OR directly via
+ * the `THREE` namespace (using the built-in zero-dependency `parseGlbBuffer` decoder),
+ * and optionally binds live DOM textures (`domTargets`) or style-specific materials.
+ *
+ * @param {object} loaderOrThree  Instance of `GLTFLoader` OR the `THREE` namespace
+ * @param {string} url            Path to `.glb` exported from Blender (`export_gltf`)
  * @param {object} [opts]
  * @param {Record<string, object>} [opts.domTargets]  Map of material/mesh name -> Three.js texture backed by `createDomTexture`
+ * @param {object} [opts.materialOverride]            Optional Three.js material to apply to all meshes
+ * @param {function} [opts.materialFactory]           Optional `(matDef, meshName) => THREE.Material`
+ * @param {number} [opts.normalizeSize]               Optional target max dimension in world units
+ * @param {boolean} [opts.centerPivot=false]          Center X/Z and place base at Y=0
  * @param {boolean} [opts.castShadow=true]
  * @param {boolean} [opts.receiveShadow=true]
  */
-export function loadBlenderGlb(gltfLoader, url, { domTargets = {}, castShadow = true, receiveShadow = true } = {}) {
-  return new Promise((resolve, reject) => {
-    gltfLoader.load(
-      url,
-      (gltf) => {
-        gltf.scene.traverse((node) => {
-          if (!node.isMesh) return;
-          node.castShadow = castShadow;
-          node.receiveShadow = receiveShadow;
-          const matName = node.material?.name || '';
-          const targetTex = domTargets[matName] || domTargets[node.name];
-          if (targetTex && node.material) {
-            node.material = node.material.clone();
-            node.material.map = targetTex;
-            node.material.needsUpdate = true;
-          }
-        });
-        resolve(gltf);
-      },
-      undefined,
-      reject
-    );
+export async function loadBlenderGlb(
+  loaderOrThree,
+  url,
+  {
+    domTargets = {},
+    materialOverride = null,
+    materialFactory = null,
+    normalizeSize = null,
+    centerPivot = false,
+    castShadow = true,
+    receiveShadow = true,
+  } = {}
+) {
+  if (loaderOrThree && typeof loaderOrThree.load === 'function') {
+    return new Promise((resolve, reject) => {
+      loaderOrThree.load(
+        url,
+        (gltf) => {
+          gltf.scene.traverse((node) => {
+            if (!node.isMesh) return;
+            node.castShadow = castShadow;
+            node.receiveShadow = receiveShadow;
+            const matName = node.material?.name || '';
+            if (typeof materialFactory === 'function') {
+              const custom = materialFactory(node.material, node.name);
+              if (custom) node.material = custom;
+            } else if (materialOverride) {
+              node.material = typeof materialOverride.clone === 'function' ? materialOverride.clone() : materialOverride;
+            }
+            const targetTex = domTargets[matName] || domTargets[node.name];
+            if (targetTex && node.material) {
+              node.material = node.material.clone();
+              node.material.map = targetTex;
+              node.material.needsUpdate = true;
+            }
+          });
+          resolve(gltf);
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  // Zero-dependency path when `THREE` namespace is passed directly
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch GLB model: ${url} (${res.status})`);
+  }
+  const buf = await res.arrayBuffer();
+  return parseGlbBuffer(loaderOrThree, buf, {
+    domTargets,
+    materialOverride,
+    materialFactory,
+    normalizeSize,
+    centerPivot,
+    castShadow,
+    receiveShadow,
   });
 }

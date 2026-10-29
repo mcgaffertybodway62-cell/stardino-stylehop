@@ -283,6 +283,10 @@ export function createStudio2D({
    */
   function beginLayer(parallax = 1.0, opts = {}) {
     const p = clamp(parallax, 0.05, 2.5);
+    if (ctx.__sceneGraph) {
+      ctx.__sceneGraph.layerStack.push(p);
+      ctx.__sceneGraph.currentLayerZ = p;
+    }
     ctx.save();
 
     const vx = opts.vanish ? opts.vanish[0] : (activeCam.vanishX ?? cx0);
@@ -310,6 +314,11 @@ export function createStudio2D({
   }
 
   function endLayer() {
+    if (ctx.__sceneGraph && ctx.__sceneGraph.layerStack.length > 1) {
+      ctx.__sceneGraph.layerStack.pop();
+      ctx.__sceneGraph.currentLayerZ =
+        ctx.__sceneGraph.layerStack[ctx.__sceneGraph.layerStack.length - 1] ?? 1.0;
+    }
     ctx.restore();
   }
 
@@ -318,6 +327,16 @@ export function createStudio2D({
     const camOffset = [activeCam.cx - cx0, activeCam.cy - cy0];
 
     ctx.__inkFrame = frame;
+    ctx.__sceneGraph = {
+      items: [],
+      interactions: [],
+      issues: [],
+      layerStack: [1.0],
+      currentLayerZ: 1.0,
+      drawSeq: 0,
+      frame,
+    };
+
     ctx.save();
     ctx.clearRect(0, 0, width, height);
     if (typeof drawBackdrop === 'function') {
@@ -339,6 +358,12 @@ export function createStudio2D({
       drawTransition(ctx, width, height, lookState, frame);
     }
     ctx.restore();
+
+    // Evaluate 2D spatial semantics & occlusion order for `tools/audit.mjs`
+    evaluateSceneGraph2D(ctx.__sceneGraph);
+    if (typeof window !== 'undefined') {
+      window.__STYLEHOP_SPATIAL_AUDIT = ctx.__sceneGraph;
+    }
   }
 
   const studioApi = {
@@ -623,4 +648,114 @@ export function createMultiPlaneStage(opts = {}) {
     renderPlanes: (planes, renderOpts) => renderDepthPlanes(studio.ctx, studio, planes, renderOpts),
     evalTraversal: (t, waypoints, travOpts) => evalDepthTraversal(t, waypoints, travOpts),
   };
+}
+
+/**
+ * Registers a drawn 2D scene element into `ctx.__sceneGraph` for automated
+ * Z-order occlusion (`z_order_inversion`) and ground-contact (`ground_contact_error`) auditing.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {object} item
+ * @param {string} item.id
+ * @param {'bg'|'mid'|'hero'|'fg'|'prop'} [item.role='prop']
+ * @param {string} [item.kind]
+ * @param {[number, number, number, number]} item.bbox - `[x0, y0, x1, y1]` in design coordinates
+ * @param {number} [item.layerZ]
+ * @param {boolean} [item.isHero=false]
+ * @param {number} [item.footY]
+ * @param {number} [item.groundY]
+ * @param {number} [item.groundTolerance=32]
+ * @param {boolean} [item.airborne=false]
+ */
+export function recordSceneElement2D(ctx, item = {}) {
+  const sg = ctx?.__sceneGraph;
+  if (!sg || !Array.isArray(item.bbox) || item.bbox.length < 4) return;
+  const [x0, y0, x1, y1] = item.bbox;
+  if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) return;
+  sg.drawSeq += 1;
+  sg.items.push({
+    id: item.id || `${item.kind || item.role || 'item'}#${sg.drawSeq}`,
+    role: item.role || (item.isHero ? 'hero' : 'prop'),
+    kind: item.kind || item.role || 'prop',
+    layerZ: item.layerZ ?? sg.currentLayerZ ?? 1.0,
+    drawSeq: sg.drawSeq,
+    bbox: [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)],
+    isHero: Boolean(item.isHero || item.role === 'hero'),
+    footY: item.footY ?? null,
+    groundY: item.groundY ?? null,
+    groundTolerance: item.groundTolerance ?? 32,
+    airborne: Boolean(item.airborne),
+  });
+}
+
+/**
+ * Registers an interaction contact-point distance check (`interaction_miss`) into `ctx.__sceneGraph`.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {object} check - `{ actor, action, socket, dist, maxDist, targetLabel, t }`
+ */
+export function recordInteractionCheck2D(ctx, check = {}) {
+  const sg = ctx?.__sceneGraph;
+  if (!sg) return;
+  const dist = Number(check.dist ?? 0);
+  const maxDist = Number(check.maxDist ?? 28);
+  const passed = dist <= maxDist;
+  sg.interactions.push({
+    mode: '2d',
+    actor: check.actor || 'hero',
+    action: check.action || 'interact',
+    socket: check.socket || 'handTipR',
+    targetLabel: check.targetLabel || 'target',
+    dist: +dist.toFixed(2),
+    maxDist: +maxDist.toFixed(2),
+    passed,
+    t: +(check.t ?? sg.frame?.localT ?? 0).toFixed(3),
+  });
+}
+
+function evaluateSceneGraph2D(sg) {
+  if (!sg) return;
+  const heroes = sg.items.filter((it) => it.isHero);
+  for (const hero of heroes) {
+    const [hx0, hy0, hx1, hy1] = hero.bbox;
+    const hArea = Math.max(1, (hx1 - hx0) * (hy1 - hy0));
+
+    // 1. Check Z-order inversions: a deeper background layer (`layerZ < hero.layerZ - 0.05` or `role === 'bg'`)
+    // drawn AFTER the hero (`drawSeq > hero.drawSeq`) and occluding > 8% of the hero's bounding box.
+    for (const other of sg.items) {
+      if (other === hero || other.drawSeq <= hero.drawSeq) continue;
+      const isDeeperLayer = other.layerZ < hero.layerZ - 0.05 || other.role === 'bg';
+      if (!isDeeperLayer) continue;
+      const ix = Math.max(0, Math.min(hx1, other.bbox[2]) - Math.max(hx0, other.bbox[0]));
+      const iy = Math.max(0, Math.min(hy1, other.bbox[3]) - Math.max(hy0, other.bbox[1]));
+      const ratio = (ix * iy) / hArea;
+      if (ratio > 0.08) {
+        sg.issues.push({
+          kind: 'z_order_inversion',
+          detail: `Background "${other.id}" (z=${other.layerZ.toFixed(2)}, seq=${other.drawSeq}) drawn after hero "${hero.id}" (z=${hero.layerZ.toFixed(2)}, seq=${hero.drawSeq}), occluding ${(ratio * 100).toFixed(1)}%`,
+        });
+      }
+    }
+
+    // 2. Check Ground Contact (`ground_contact_error`) when explicit `groundY` is provided
+    if (hero.footY != null && hero.groundY != null && !hero.airborne) {
+      const dy = Math.abs(hero.footY - hero.groundY);
+      if (dy > hero.groundTolerance) {
+        sg.issues.push({
+          kind: 'ground_contact_error',
+          detail: `Hero "${hero.id}" footY=${hero.footY.toFixed(1)} deviates ${dy.toFixed(1)}px (> ${hero.groundTolerance}px) from groundY=${hero.groundY.toFixed(1)}`,
+        });
+      }
+    }
+  }
+
+  // 3. Check Interaction Contact Distance (`interaction_miss`)
+  for (const chk of sg.interactions) {
+    if (!chk.passed) {
+      sg.issues.push({
+        kind: 'interaction_miss',
+        detail: `${chk.actor}.${chk.action} (${chk.socket} -> ${chk.targetLabel}) missed contact: dist=${chk.dist}px > max=${chk.maxDist}px at t=${chk.t}s`,
+      });
+    }
+  }
 }

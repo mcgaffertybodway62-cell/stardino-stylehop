@@ -368,9 +368,73 @@ export function createPuppet(THREE, { height = 1.6, proportions = {}, position =
           break;
         case 'point':
         case 'reach':
-          R(`shoulder${side}`, -1.45 * w, 0, -sx * 0.1 * w);
-          R('spine', 0.08 * w);
+        case 'touch':
+        case 'strike': {
+          if (a.target) {
+            // 2-Bone Analytic 3D IK toward `a.target` ([x,y,z] | Object3D | { center })
+            root.updateMatrixWorld(true);
+            const sh = j[`shoulder${side}`];
+            const el = j[`elbow${side}`];
+            const hd = j[`hand${side}`];
+            const shWorld = new THREE.Vector3();
+            sh.getWorldPosition(shWorld);
+            const tPos = new THREE.Vector3();
+            if (Array.isArray(a.target)) {
+              tPos.set(a.target[0] ?? 0, a.target[1] ?? shWorld.y, a.target[2] ?? 0);
+            } else if (a.target.isObject3D && typeof a.target.getWorldPosition === 'function') {
+              a.target.getWorldPosition(tPos);
+            } else if (Array.isArray(a.target.center)) {
+              tPos.fromArray(a.target.center);
+            } else if (a.target.position) {
+              tPos.copy(a.target.position);
+            }
+            // Convert target into chest local space relative to shoulder pivot
+            const chestInv = j.chest.matrixWorld.clone().invert();
+            const localTarget = tPos.clone().applyMatrix4(chestInv).sub(sh.position);
+            const L1 = dims.upperArm;
+            const L2 = dims.foreArm;
+            const dist = Math.max(1e-4, Math.min(L1 + L2 - 1e-4, localTarget.length()));
+            // Law of cosines for elbow flexion (0 = straight down along -y)
+            const cosElbow = Math.max(-1, Math.min(1, (L1 * L1 + L2 * L2 - dist * dist) / (2 * L1 * L2)));
+            const elbowFlex = Math.PI - Math.acos(cosElbow);
+            const cosSh = Math.max(-1, Math.min(1, (L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist)));
+            const shFlex = Math.acos(cosSh);
+            // Direction from shoulder to target (rest arm hangs along -y: (0, -1, 0))
+            const dir = localTarget.clone().normalize();
+            const pitchToTarget = -Math.atan2(dir.z, Math.max(1e-4, -dir.y || 1e-4));
+            const rollToTarget = Math.atan2(dir.x, Math.max(1e-4, Math.hypot(dir.y, dir.z)));
+            sh.rotation.x = angleLerp(sh.rotation.x, pitchToTarget - shFlex, w);
+            sh.rotation.z = angleLerp(sh.rotation.z, rollToTarget, w);
+            el.rotation.x = angleLerp(el.rotation.x, -elbowFlex, w);
+            R('spine', 0.08 * w);
+
+            // Record interaction contact check at peak weight (`w >= 0.65`) for `tools/audit.mjs`
+            if (w >= 0.65 && typeof window !== 'undefined') {
+              root.updateMatrixWorld(true);
+              const handWorld = new THREE.Vector3();
+              hd.getWorldPosition(handWorld);
+              const errDist = handWorld.distanceTo(tPos);
+              const maxAllowed = a.maxDist ?? (dims.height * 0.28);
+              const audit = (window.__STYLEHOP_SPATIAL_AUDIT = window.__STYLEHOP_SPATIAL_AUDIT || {
+                items: [],
+                interactions: [],
+              });
+              audit.interactions.push({
+                mode: '3d',
+                action: a.do,
+                hand: side,
+                dist: +errDist.toFixed(3),
+                maxDist: +maxAllowed.toFixed(3),
+                passed: errDist <= maxAllowed,
+                t: +t.toFixed(3),
+              });
+            }
+          } else {
+            R(`shoulder${side}`, -1.45 * w, 0, -sx * 0.1 * w);
+            R('spine', 0.08 * w);
+          }
           break;
+        }
         case 'carry':
           R('shoulderL', -0.7 * w, 0, -0.1 * w);
           R('shoulderR', -0.7 * w, 0, 0.1 * w);
@@ -498,6 +562,22 @@ export function createPuppet(THREE, { height = 1.6, proportions = {}, position =
     return loc;
   }
 
+  /**
+   * Attach a high-precision `.glb` mesh or `THREE.Object3D` onto a named puppet joint
+   * (`head`, `handR`, `handL`, `chest`, `spine`, etc.).
+   */
+  function attachModel(jointName, model3D, { offset = [0, 0, 0], rotation = [0, 0, 0], scale = 1 } = {}) {
+    const targetJoint = j[jointName] || root;
+    const obj = model3D?.scene || model3D;
+    if (!obj) return null;
+    obj.position.set(offset[0] || 0, offset[1] || 0, offset[2] || 0);
+    obj.rotation.set(rotation[0] || 0, rotation[1] || 0, rotation[2] || 0);
+    if (typeof scale === 'number') obj.scale.setScalar(scale);
+    else if (Array.isArray(scale)) obj.scale.fromArray(scale);
+    targetJoint.add(obj);
+    return obj;
+  }
+
   const api = {
     root,
     joints: j,
@@ -507,6 +587,7 @@ export function createPuppet(THREE, { height = 1.6, proportions = {}, position =
     home,
     captureRest,
     limbClearance,
+    attachModel,
     /** Mouth shown when no mood asks for another one (`smile` by default). */
     setRestMouth(key) {
       defaultMouth = key;

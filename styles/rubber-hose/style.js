@@ -8,7 +8,7 @@ export default {
   defaultOverlay: 'none',
   kernel: './kernel.js',
   world: './world.js',
-  soundPreset: 'clay',
+  soundPreset: 'jazz',
   paperTexture: '../assets/textures/halftone_screen.png',
   bestFor: [
     '爵士音乐 / 摇摆舞曲 / 黑胶唱片 / 复古百老汇舞台短片',

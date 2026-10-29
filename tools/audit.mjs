@@ -129,18 +129,61 @@ async function auditSize(browser, baseUrl, opts, sizeStr, stepSec) {
     ? meta.cues.scenes
     : [{ index: 0, id: 'main', title: 'Main', start: 0, dur: meta.dur, end: meta.dur, settle: +(meta.dur * 0.75).toFixed(2) }];
 
-  // Step through timeline at `stepSec` intervals to verify deterministic motion & shader execution
+  // Step through timeline at `stepSec` intervals to verify deterministic motion, shader execution,
+  // and collect peak-action spatial/interaction issues across all frames.
+  const timelineSpatialIssuesByScene = new Map();
   for (let t = 0; t <= meta.dur + 1e-6; t += stepSec) {
     const clamped = Math.min(meta.dur, +t.toFixed(3));
-    await page.evaluate((ts) => window.render(ts), clamped);
+    const stepAudit = await page.evaluate((ts) => {
+      if (window.__STYLEHOP_SPATIAL_AUDIT) {
+        window.__STYLEHOP_SPATIAL_AUDIT.issues = [];
+        window.__STYLEHOP_SPATIAL_AUDIT.interactions = [];
+      }
+      window.render(ts);
+      const sp = window.__STYLEHOP_SPATIAL_AUDIT;
+      if (!sp) return null;
+      const iss = [...(sp.issues || [])];
+      for (const inter of sp.interactions || []) {
+        if (inter.passed === false) {
+          iss.push({
+            kind: 'interaction_miss',
+            detail: `3D action "${inter.verb}" missed target (${inter.dist} > maxDist=${inter.maxDist})`,
+          });
+        }
+      }
+      return iss.length ? iss : null;
+    }, clamped);
+
+    if (stepAudit && stepAudit.length) {
+      const ownerSc =
+        scenes.find((s) => clamped >= s.start - 1e-4 && clamped <= s.end + 1e-4) || scenes[scenes.length - 1];
+      if (ownerSc) {
+        if (!timelineSpatialIssuesByScene.has(ownerSc.id)) {
+          timelineSpatialIssuesByScene.set(ownerSc.id, new Map());
+        }
+        const map = timelineSpatialIssuesByScene.get(ownerSc.id);
+        for (const item of stepAudit) {
+          const key = `${item.kind}:${item.detail}`;
+          if (!map.has(key)) map.set(key, { kind: item.kind, detail: `${item.detail} (at t=${clamped.toFixed(2)}s)` });
+        }
+      }
+    }
   }
+
+  const totalCueCount = await page.evaluate(() => window.CUES?.cues?.length || 0);
 
   const minFontPx = Math.max(10, Math.round((Math.min(width, height) / 1080) * 12));
   const sceneReports = [];
 
   for (const sc of scenes) {
     const settleT = sc.settle ?? +(sc.start + sc.dur * 0.78).toFixed(3);
-    await page.evaluate((ts) => window.render(ts), settleT);
+    await page.evaluate((ts) => {
+      if (window.__STYLEHOP_SPATIAL_AUDIT) {
+        window.__STYLEHOP_SPATIAL_AUDIT.issues = [];
+        window.__STYLEHOP_SPATIAL_AUDIT.interactions = [];
+      }
+      window.render(ts);
+    }, settleT);
 
     const check = await page.evaluate(
       ({ width, height, minFontPx, sc }) => {
@@ -252,6 +295,26 @@ async function auditSize(browser, baseUrl, opts, sizeStr, stepSec) {
           }
         }
 
+        // 4. Spatial Semantics Gate: 2D Z-order inversions, ground contact & 2D/3D interaction contact distance
+        const sp = window.__STYLEHOP_SPATIAL_AUDIT;
+        let spatialElements = 0;
+        let interactionsChecked = 0;
+        if (sp) {
+          spatialElements = sp.elements?.length || 0;
+          interactionsChecked = sp.interactions?.length || 0;
+          for (const sIss of sp.issues || []) {
+            issues.push({ kind: sIss.kind, detail: sIss.detail });
+          }
+          for (const inter of sp.interactions || []) {
+            if (inter.passed === false) {
+              issues.push({
+                kind: 'interaction_miss',
+                detail: `Action "${inter.verb}" missed target (${inter.dist} > maxDist=${inter.maxDist})`,
+              });
+            }
+          }
+        }
+
         return {
           issues,
           stats: {
@@ -262,11 +325,24 @@ async function auditSize(browser, baseUrl, opts, sizeStr, stepSec) {
             requiredDur,
             sceneDur: sc.dur,
             maxOcclusionPct: +(maxOcclusion * 100).toFixed(1),
+            spatialElements,
+            interactionsChecked,
           },
         };
       },
       { width, height, minFontPx, sc }
     );
+
+    // Merge any timeline peak-action spatial issues that occurred during this scene
+    const scTimelineIssues = timelineSpatialIssuesByScene.get(sc.id);
+    if (scTimelineIssues) {
+      const existingKeys = new Set(check.issues.map((i) => `${i.kind}:${i.detail.replace(/ \(at t=.*$/, '')}`));
+      for (const [k, item] of scTimelineIssues.entries()) {
+        if (!existingKeys.has(k)) {
+          check.issues.push(item);
+        }
+      }
+    }
 
     sceneReports.push({
       scene: sc.id,
@@ -287,7 +363,7 @@ async function auditSize(browser, baseUrl, opts, sizeStr, stepSec) {
 
   await page.close();
   const passed = runtimeErrors.length === 0 && factIssues.length === 0 && sceneReports.every((r) => r.passed);
-  return { size: sizeStr, dur: meta.dur, cueCount: meta.cues.cues?.length || 0, passed, runtimeErrors, factIssues, scenes: sceneReports };
+  return { size: sizeStr, dur: meta.dur, cueCount: totalCueCount || meta.cues.cues?.length || 0, passed, runtimeErrors, factIssues, scenes: sceneReports };
 }
 
 async function main() {

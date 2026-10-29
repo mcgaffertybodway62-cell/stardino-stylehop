@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
 """
-StyleHop Cue-Driven Procedural Sound & Score Synthesizer (`tools/sound.py`).
+StyleHop Cue-Driven Procedural Sound, Physical Modeling & Score Synthesizer (`tools/sound.py`).
 
 Pure Python (NumPy + SciPy + stdlib `wave`) synthesizer that turns a deterministic
-DOM motion cue sheet (`window.CUES` -> `cues.json`) into a mastered 48kHz 16-bit
-stereo WAV soundtrack with ambient harmonic bed + frame-accurate tactile foley.
+DOM & runtime motion cue sheet (`window.CUES` -> `cues.json`) into a mastered 48kHz 16-bit
+stereo WAV soundtrack with medium-specific physical modeling instruments, rhythmic
+sequencers, acoustic body Impulse Response (IR) convolution, and frame-accurate foley:
+
+  - `ink` (`ink-wash`): Extended Karplus-Strong Guqin waveguide (`散音` open bass, `泛音`
+    crystalline harmonics, `走手音/吟猱` sliding press notes) convolved with a Paulownia
+    wooden soundbox IR + overblown bamboo Xiao flute (`洞箫`) + water/silk/sword foley.
+  - `jazz` (`rubber-hose`): 1930s 126-BPM Swing sequencer (2:1 swing ratio) with walking
+    upright bass, wire-brush snare groove, nonlinear waveshaped Wah-Wah plunger-muted brass
+    stabs & trombone glissando, cartoon foley, and 1930s optical film / 78rpm shellac patina.
+  - `clay` (`clay-macaron`): Euler-Bernoulli modal synthesis rosewood marimba & kalimba tine
+    arpeggiator + matte polymer clay squish & woodblock tabletop foley.
+  - `paper` (`paper-popup`): Plucked acoustic harp/guitar harmonics + multi-stage cardstock
+    crease, pop-up snap, and page-turn foley.
+  - `twilight` (`twilight-fable`): Celesta bell-tine modal synth + warm felt-piano chords +
+    bioluminescent night-forest breeze shimmer.
+  - `glass` / `cyber` / `terminal`: Modern crystalline / synth harmonic beds & UI foley.
 
 Usage:
-  python3 tools/sound.py --cues cues.json --out <work-dir>/mix.wav [--preset glass|paper|cyber|ink|terminal]
+  python3 tools/sound.py --cues cues.json --out <work-dir>/mix.wav [--preset ink|jazz|clay|paper|twilight|glass|cyber|terminal]
 """
 
 import argparse
@@ -20,6 +35,74 @@ from scipy import signal
 SR = 48000
 
 PRESETS = {
+    "ink": {
+        "scale": [146.83, 164.81, 196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33],  # D/G Guqin pentatonic
+        "chords": [
+            [98.00, 146.83, 196.00, 293.66, 392.00],   # G2 - D3 - G3 - D4 - G4 (散音五度)
+            [110.00, 164.81, 220.00, 329.63, 440.00],  # A2 - E3 - A3 - E4 - A4
+            [82.41, 123.47, 164.81, 246.94, 329.63],   # E2 - B2 - E3 - B3 - E4
+            [98.00, 146.83, 220.00, 293.66, 440.00],   # G2 - D3 - A3 - D4 - A4
+        ],
+        "pad_gain": 0.14,
+        "chime_freqs": [587.33, 880.00, 1174.66, 1567.98],
+        "tap_freq": 340.0,
+        "tick_freq": 1180.0,
+    },
+    "jazz": {
+        "bpm": 126.0,
+        "chords": [
+            [116.54, 146.83, 174.61, 207.65, 261.63],  # Bb6/7
+            [98.00, 123.47, 146.83, 174.61, 220.00],   # G7
+            [130.81, 155.56, 196.00, 233.08, 293.66],  # Cm9
+            [174.61, 220.00, 261.63, 311.13, 392.00],  # F13
+        ],
+        "bass_walk": [
+            [116.54, 146.83, 174.61, 185.00],  # Bb2 - D3 - F3 - F#3
+            [196.00, 164.81, 146.83, 123.47],  # G3 - E3 - D3 - B2
+            [130.81, 146.83, 155.56, 164.81],  # C3 - D3 - Eb3 - E3
+            [174.61, 146.83, 130.81, 110.00],  # F3 - D3 - C3 - A2
+        ],
+        "pad_gain": 0.16,
+        "chime_freqs": [466.16, 587.33, 698.46, 880.00],
+        "tap_freq": 480.0,
+        "tick_freq": 1850.0,
+    },
+    "clay": {
+        "chords": [
+            [261.63, 329.63, 392.00, 523.25, 659.25],  # Sunny Cmaj6/9
+            [349.23, 440.00, 523.25, 659.25],          # Fmaj7
+            [293.66, 392.00, 493.88, 587.33],          # G6
+            [220.00, 329.63, 392.00, 493.88, 587.33],  # Am9 -> C
+        ],
+        "pad_gain": 0.14,
+        "chime_freqs": [659.25, 783.99, 1046.50, 1318.51],
+        "tap_freq": 520.0,
+        "tick_freq": 1680.0,
+    },
+    "paper": {
+        "chords": [
+            [293.66, 369.99, 440.00, 587.33, 659.25],  # Dadd9
+            [246.94, 329.63, 392.00, 493.88, 587.33],  # Em7
+            [196.00, 293.66, 392.00, 493.88, 659.25],  # Gmaj9
+            [220.00, 293.66, 369.99, 440.00, 587.33],  # A6sus4
+        ],
+        "pad_gain": 0.13,
+        "chime_freqs": [783.99, 987.77, 1174.66, 1567.98],
+        "tap_freq": 420.0,
+        "tick_freq": 1350.0,
+    },
+    "twilight": {
+        "chords": [
+            [261.63, 329.63, 392.00, 493.88, 587.33],  # Cmaj9
+            [220.00, 261.63, 329.63, 392.00, 493.88],  # Am9
+            [174.61, 220.00, 261.63, 349.23, 440.00],  # Fmaj13
+            [196.00, 246.94, 293.66, 392.00, 587.33],  # Gadd9
+        ],
+        "pad_gain": 0.14,
+        "chime_freqs": [1046.50, 1318.51, 1567.98, 1975.53],
+        "tap_freq": 620.0,
+        "tick_freq": 1950.0,
+    },
     "glass": {
         "chords": [
             [261.63, 329.63, 392.00, 493.88, 587.33],  # Cmaj9
@@ -31,18 +114,6 @@ PRESETS = {
         "chime_freqs": [1046.50, 1318.51, 1567.98, 1975.53],
         "tap_freq": 880.0,
         "tick_freq": 2100.0,
-    },
-    "paper": {
-        "chords": [
-            [293.66, 369.99, 440.00, 523.25],  # D7sus
-            [246.94, 329.63, 392.00, 493.88],  # Em7
-            [261.63, 329.63, 392.00, 493.88],  # Cmaj7
-            [220.00, 293.66, 369.99, 440.00],  # A7sus4
-        ],
-        "pad_gain": 0.11,
-        "chime_freqs": [783.99, 987.77, 1174.66, 1567.98],
-        "tap_freq": 420.0,
-        "tick_freq": 1350.0,
     },
     "cyber": {
         "chords": [
@@ -56,18 +127,6 @@ PRESETS = {
         "tap_freq": 640.0,
         "tick_freq": 2600.0,
     },
-    "ink": {
-        "chords": [
-            [196.00, 293.66, 392.00, 440.00, 587.33],  # G pentatonic open fifths
-            [220.00, 329.63, 440.00, 493.88, 659.25],
-            [164.81, 246.94, 329.63, 392.00, 493.88],
-            [196.00, 293.66, 392.00, 523.25, 587.33],
-        ],
-        "pad_gain": 0.12,
-        "chime_freqs": [587.33, 880.00, 1174.66, 1760.00],
-        "tap_freq": 360.0,
-        "tick_freq": 1200.0,
-    },
     "terminal": {
         "chords": [
             [146.83, 220.00, 293.66, 349.23, 440.00],  # Dm
@@ -80,26 +139,20 @@ PRESETS = {
         "tap_freq": 720.0,
         "tick_freq": 2400.0,
     },
-    "clay": {
-        "chords": [
-            [261.63, 329.63, 392.00, 523.25, 659.25],  # Sunny Cmaj (Marimba / Ukulele register)
-            [349.23, 440.00, 523.25, 659.25],          # Fmaj7 (Domino bridge warmth)
-            [293.66, 392.00, 493.88, 587.33],          # G6 (Macaron bounce lift)
-            [220.00, 329.63, 392.00, 493.88, 587.33],  # Am9 -> C resolution
-        ],
-        "pad_gain": 0.125,
-        "chime_freqs": [659.25, 783.99, 1046.50, 1318.51],  # Kalimba / Rosewood Marimba overtones
-        "tap_freq": 520.0,   # Matte polymer clay squish / wooden tabletop tap
-        "tick_freq": 1680.0, # Pastel domino clack / wooden ruler tick
-    },
 }
 
 PRESET_ALIASES = {
     "glass_bento": "glass",
     "clay_desk": "clay",
     "claymation": "clay",
+    "clay-macaron": "clay",
     "riso_press": "paper",
+    "paper-popup": "paper",
     "ink_scroll": "ink",
+    "ink-wash": "ink",
+    "rubber-hose": "jazz",
+    "swing": "jazz",
+    "twilight-fable": "twilight",
     "crt_synth": "terminal",
     "blueprint_mech": "cyber",
 }
@@ -130,8 +183,486 @@ def mix_into(stereo: np.ndarray, start_idx: int, mono: np.ndarray, pan: float = 
     stereo[start_idx:end_idx, 1] += mono[:n] * r_gain
 
 
+# =============================================================================
+# 1. ACOUSTIC BODY & SPACE IMPULSE RESPONSE (IR) CONVOLUTION ENGINE
+# =============================================================================
+
+_IR_CACHE = {}
+
+
+def build_body_ir(ir_kind: str) -> np.ndarray:
+    """Builds a procedural physical-cavity + room early-reflection Impulse Response."""
+    if ir_kind in _IR_CACHE:
+        return _IR_CACHE[ir_kind]
+
+    rng = np.random.default_rng(abs(hash(ir_kind)) % 100000)
+    if ir_kind == "guqin_wood":
+        # Hollowed aged Paulownia & Catalpa wood cavity (桐木梓木琴腔) + mountain canyon air tail
+        n = int(0.85 * SR)
+        t = np.arange(n, dtype=np.float64) / SR
+        ir = np.zeros(n, dtype=np.float64)
+        ir[0] = 0.55
+        modes = [
+            (116.0, 0.22, 0.085),
+            (238.0, 0.30, 0.068),
+            (412.0, 0.26, 0.052),
+            (740.0, 0.18, 0.036),
+            (1320.0, 0.12, 0.024),
+            (2380.0, 0.07, 0.015),
+        ]
+        for freq, amp, tau in modes:
+            ir += amp * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / tau)
+        # Early canyon reflections + airy silk tail
+        for delay_ms, gain in [(19.0, 0.16), (43.0, -0.11), (88.0, 0.08), (154.0, 0.05)]:
+            idx = int(delay_ms * 0.001 * SR)
+            if idx < n:
+                ir[idx] += gain
+        tail = rng.standard_normal(n) * np.exp(-t / 0.28) * 0.012
+        sos = signal.butter(2, [180.0 / (0.5 * SR), 3200.0 / (0.5 * SR)], btype="band", output="sos")
+        ir += signal.sosfilt(sos, tail)
+    elif ir_kind == "vintage_horn":
+        # 1930s acoustic brass / gramophone horn formant + studio slapback
+        n = int(0.28 * SR)
+        t = np.arange(n, dtype=np.float64) / SR
+        ir = np.zeros(n, dtype=np.float64)
+        ir[0] = 0.62
+        for freq, amp, tau in [(510.0, 0.28, 0.018), (1180.0, 0.34, 0.014), (2150.0, 0.24, 0.011), (3100.0, 0.14, 0.008)]:
+            ir += amp * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / tau)
+        for delay_ms, gain in [(14.0, -0.18), (38.0, 0.14), (72.0, 0.07)]:
+            idx = int(delay_ms * 0.001 * SR)
+            if idx < n:
+                ir[idx] += gain
+    elif ir_kind == "marimba_resonator":
+        # Warm rosewood resonator tube + cozy tabletop reflection
+        n = int(0.32 * SR)
+        t = np.arange(n, dtype=np.float64) / SR
+        ir = np.zeros(n, dtype=np.float64)
+        ir[0] = 0.68
+        for freq, amp, tau in [(262.0, 0.26, 0.042), (524.0, 0.18, 0.028), (1048.0, 0.09, 0.016)]:
+            ir += amp * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / tau)
+        for delay_ms, gain in [(11.0, 0.14), (27.0, -0.09)]:
+            idx = int(delay_ms * 0.001 * SR)
+            if idx < n:
+                ir[idx] += gain
+    else:
+        # `forest_canyon`: Dreamy twilight glade early reflections + lush shimmer tail
+        n = int(0.95 * SR)
+        t = np.arange(n, dtype=np.float64) / SR
+        ir = np.zeros(n, dtype=np.float64)
+        ir[0] = 0.60
+        for delay_ms, gain in [(23.0, 0.18), (51.0, 0.14), (108.0, 0.10), (195.0, 0.07), (310.0, 0.045)]:
+            idx = int(delay_ms * 0.001 * SR)
+            if idx < n:
+                ir[idx] += gain
+        tail = rng.standard_normal(n) * np.exp(-t / 0.36) * 0.014
+        sos = signal.butter(2, [240.0 / (0.5 * SR), 4200.0 / (0.5 * SR)], btype="band", output="sos")
+        ir += signal.sosfilt(sos, tail)
+
+    energy = np.sqrt(np.sum(ir ** 2) + 1e-12)
+    ir = ir / max(energy, 1.0)
+    _IR_CACHE[ir_kind] = ir
+    return ir
+
+
+def convolve_body_ir(sig: np.ndarray, ir_kind: str, wet: float = 0.45) -> np.ndarray:
+    """Convolves a 1D or 2D audio signal with a physical body/space IR via `fftconvolve`."""
+    ir = build_body_ir(ir_kind)
+    if sig.ndim == 1:
+        conv = signal.fftconvolve(sig, ir, mode="full")[: len(sig)]
+        return (1.0 - wet) * sig + wet * conv
+    out = np.zeros_like(sig)
+    out[:, 0] = (1.0 - wet) * sig[:, 0] + wet * signal.fftconvolve(sig[:, 0], ir, mode="full")[: sig.shape[0]]
+    # Slightly decorrelated right channel IR for natural stereo width
+    ir_r = np.roll(ir, 11)
+    out[:, 1] = (1.0 - wet) * sig[:, 1] + wet * signal.fftconvolve(sig[:, 1], ir_r, mode="full")[: sig.shape[0]]
+    return out
+
+
+# =============================================================================
+# 2. MEDIUM-SPECIFIC PHYSICAL MODELING & SCORE ENGINES
+# =============================================================================
+
+
+def synth_guqin_note(
+    freq: float,
+    dur: float,
+    mode: str,
+    rng: np.random.Generator,
+    slide_ratio: float = 1.125,
+) -> np.ndarray:
+    """
+    Extended Karplus-Strong & modal waveguide for Chinese seven-string Guqin (`古琴`):
+      - `open` (`散音`): Deep silk-string pluck with strong fundamental & woody resonance
+      - `harmonic` (`泛音`): Crystalline 7th/9th-hui octave/fifth harmonic chime
+      - `slide` (`走手音 / 吟猱`): Expressive pitch-gliding press note with silk fingerboard friction
+    """
+    n = int(round(dur * SR))
+    t = np.arange(n, dtype=np.float64) / SR
+
+    if mode == "harmonic":
+        # 泛音: Pure high-order harmonic nodes (octave + 12th + double octave) with fingernail transient
+        f0 = freq * 2.0
+        pluck_click = rng.standard_normal(n) * np.exp(-t / 0.004) * 0.14
+        sos_click = signal.butter(2, [900.0 / (0.5 * SR), 4200.0 / (0.5 * SR)], btype="band", output="sos")
+        click = signal.sosfilt(sos_click, pluck_click)
+        env = np.clip(t / 0.006, 0.0, 1.0) * np.exp(-t / (dur * 0.58))
+        harm = (
+            0.68 * np.sin(2.0 * np.pi * f0 * t)
+            + 0.28 * np.sin(2.0 * np.pi * (f0 * 1.5008) * t + 0.3) * np.exp(-t / (dur * 0.35))
+            + 0.14 * np.sin(2.0 * np.pi * (f0 * 2.002) * t + 0.7) * np.exp(-t / (dur * 0.22))
+        )
+        return (harm * env + click) * 0.38
+
+    if mode == "slide":
+        # 走手音 + 吟猱: Pitch glides smoothly from `freq` to `freq * slide_ratio` with 5.4 Hz Yin-Nao vibrato
+        glide_curve = 0.5 - 0.5 * np.cos(np.pi * np.clip((t - 0.08) / max(0.18, dur * 0.42), 0.0, 1.0))
+        yin_nao = 0.008 * np.sin(2.0 * np.pi * 5.4 * t) * np.clip((t - 0.15) / 0.25, 0.0, 1.0)
+        inst_freq = freq * (1.0 + (slide_ratio - 1.0) * glide_curve + yin_nao)
+        phase = 2.0 * np.pi * np.cumsum(inst_freq) / SR
+
+        out = np.zeros(n, dtype=np.float64)
+        for k in range(1, 9):
+            # Inharmonicity of silk string + faster high-partial damping
+            harm_decay = np.exp(-t / (dur * (0.68 / (k ** 0.65))))
+            amp = (0.58 / (k ** 1.15)) * (1.0 + 0.25 * np.sin(k * 1.3))
+            out += amp * np.sin(k * phase) * harm_decay
+
+        # Silk string sliding friction (`走手擦弦声`) during the pitch glide window
+        slide_win = np.exp(-((t - 0.22) / 0.14) ** 2)
+        friction = rng.standard_normal(n) * slide_win * 0.055
+        sos_fr = signal.butter(2, [700.0 / (0.5 * SR), 2900.0 / (0.5 * SR)], btype="band", output="sos")
+        out += signal.sosfilt(sos_fr, friction)
+        attack = np.clip(t / 0.005, 0.0, 1.0)
+        return out * attack * 0.46
+
+    # Default `open` (`散音`): Extended Karplus-Strong delay-line waveguide
+    delay_samples = max(8, int(round(SR / max(freq, 45.0))))
+    # Pluck excitation: filtered noise burst + warm fundamental half-sine pluck shape
+    excite = rng.standard_normal(delay_samples) * 0.65
+    u = np.linspace(0.0, 1.0, delay_samples)
+    excite += 0.85 * np.sin(np.pi * u) + 0.35 * np.sin(2.0 * np.pi * u)
+    excite -= np.mean(excite)
+
+    buf = np.zeros(n, dtype=np.float64)
+    buf[:delay_samples] = excite
+    # Silk string low-pass loop damping
+    damping = 0.9965 if freq < 180.0 else 0.9945
+    blend = 0.32  # silk string warmth (more lowpass than steel string)
+    for i in range(delay_samples, n):
+        prev0 = buf[i - delay_samples]
+        prev1 = buf[i - delay_samples + 1] if (i - delay_samples + 1) < i else prev0
+        buf[i] = damping * ((1.0 - blend) * prev0 + blend * prev1)
+
+    # Layer subtle sub-body warmth for Guqin open bass
+    body_sub = 0.24 * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / (dur * 0.65))
+    return (buf * 0.42 + body_sub) * np.clip(t / 0.003, 0.0, 1.0)
+
+
+def synth_xiao_phrase(freq: float, dur: float, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes an airy Chinese vertical bamboo flute (`洞箫`) phrase with breath turbulence & vibrato."""
+    n = int(round(dur * SR))
+    t = np.arange(n, dtype=np.float64) / SR
+    attack = np.clip(t / 0.32, 0.0, 1.0)
+    release = np.clip((dur - t) / 0.42, 0.0, 1.0)
+    env = (np.sin(0.5 * np.pi * attack) ** 1.4) * np.sin(0.5 * np.pi * release)
+
+    # Abdominal vibrato (`腹震音`) that blooms after 0.35s
+    vib = 0.0055 * np.sin(2.0 * np.pi * 4.8 * t) * np.clip((t - 0.35) / 0.3, 0.0, 1.0)
+    phase = 2.0 * np.pi * np.cumsum(freq * (1.0 + vib)) / SR
+
+    pipe = (
+        0.62 * np.sin(phase)
+        + 0.24 * np.sin(2.0 * phase + 0.4)
+        + 0.14 * np.sin(3.0 * phase + 1.1)
+        + 0.05 * np.sin(4.0 * phase)
+    )
+    # Chiff / edge-tone breath noise around 1.2kHz - 3.4kHz
+    breath = rng.standard_normal(n) * (0.045 + 0.035 * np.exp(-t / 0.18))
+    sos = signal.butter(2, [950.0 / (0.5 * SR), 3200.0 / (0.5 * SR)], btype="band", output="sos")
+    breath_filt = signal.sosfilt(sos, breath)
+    return (pipe + breath_filt) * env * 0.22
+
+
+def synth_ink_guqin_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes a Song-Yuan Guqin & Xiao Flute mountain scroll score (`古琴散泛走手音 + 洞箫松风`)."""
+    n_samples = int(round(dur * SR))
+    stereo = np.zeros((n_samples, 2), dtype=np.float64)
+    if not scenes:
+        scenes = [{"start": 0.0, "dur": dur, "end": dur}]
+
+    chords = cfg["chords"]
+    for idx, sc in enumerate(scenes):
+        start_t = float(sc.get("start", 0.0))
+        sc_dur = float(sc.get("dur", max(1.0, dur - start_t)))
+        chord = chords[idx % len(chords)]
+
+        # 1. Opening deep Guqin open-string bass pluck (`散音`) at scene start
+        n_open = synth_guqin_note(chord[0], min(3.4, sc_dur * 0.95), "open", rng)
+        mix_into(stereo, int(round(start_t * SR)), n_open, pan=-0.22)
+
+        # 2. Expressive sliding press note (`走手音 / 吟猱`) at +0.65s
+        if sc_dur > 1.2:
+            n_slide = synth_guqin_note(chord[2], min(2.8, sc_dur - 0.5), "slide", rng, slide_ratio=9.0 / 8.0)
+            mix_into(stereo, int(round((start_t + 0.62) * SR)), n_slide, pan=0.18)
+
+        # 3. Crystalline Guqin harmonic phrases (`泛音`) scattered across the middle of the scene
+        harm_offsets = [1.28, 1.82, 2.45, 3.05]
+        for h_i, h_off in enumerate(harm_offsets):
+            if h_off + 0.35 < sc_dur:
+                h_freq = chord[(h_i + 1) % len(chord)]
+                n_harm = synth_guqin_note(h_freq, 1.65, "harmonic", rng)
+                pan = -0.32 if (h_i % 2 == 0) else 0.32
+                mix_into(stereo, int(round((start_t + h_off) * SR)), n_harm, pan=pan)
+
+        # 4. Distant Bamboo Xiao flute (`洞箫`) answering phrase
+        if sc_dur > 1.8:
+            xiao_freq = chord[3] if idx % 2 == 0 else chord[4]
+            xiao = synth_xiao_phrase(xiao_freq, min(2.6, sc_dur - 0.7), rng)
+            mix_into(stereo, int(round((start_t + 0.85) * SR)), xiao, pan=0.25 if idx % 2 == 0 else -0.25)
+
+    # Convolve the instrument stems with the Paulownia Guqin wood cavity & canyon IR
+    stereo = convolve_body_ir(stereo, "guqin_wood", wet=0.48)
+
+    # 5. Subtle mountain pine wind & silk stream ambience (`松风溪响`)
+    t_all = np.arange(n_samples, dtype=np.float64) / SR
+    breeze_mod = 0.55 + 0.45 * np.sin(2.0 * np.pi * 0.19 * t_all)
+    wind = rng.standard_normal((n_samples, 2)) * 0.0032 * breeze_mod[:, None]
+    sos_wind = signal.butter(2, [220.0 / (0.5 * SR), 1450.0 / (0.5 * SR)], btype="band", output="sos")
+    stereo += signal.sosfilt(sos_wind, wind, axis=0)
+    return stereo
+
+
+def synth_wah_brass_note(freq: float, dur: float, wah_open: float, rng: np.random.Generator, gliss: float = 0.0) -> np.ndarray:
+    """
+    Synthesizes a 1930s Fleischer-style Wah-Wah plunger-muted trumpet/trombone note:
+    Nonlinear brass lip-reed waveshaper + dynamic formant bandpass swept by the plunger mute.
+    """
+    n = int(round(dur * SR))
+    t = np.arange(n, dtype=np.float64) / SR
+    # Optional trombone glissando + playful vibrato
+    vib = 0.007 * np.sin(2.0 * np.pi * 6.2 * t) * np.clip((t - 0.08) / 0.12, 0.0, 1.0)
+    glide = gliss * (1.0 - np.exp(-t / max(0.06, dur * 0.4)))
+    inst_f = freq * (1.0 + glide + vib)
+    phase = 2.0 * np.pi * np.cumsum(inst_f) / SR
+
+    # Rich brass sawtooth/lip-reed excitation via tanh waveshaping
+    raw = np.sin(phase) + 0.55 * np.sin(2.0 * phase + 0.2) + 0.35 * np.sin(3.0 * phase)
+    brass = np.tanh(raw * 2.4)
+
+    # Two-stage plunger-mute formant (closed "doo" ~520Hz + open "wah" ~1850Hz)
+    sos_closed = signal.butter(2, [340.0 / (0.5 * SR), 820.0 / (0.5 * SR)], btype="band", output="sos")
+    sos_open = signal.butter(2, [950.0 / (0.5 * SR), 2650.0 / (0.5 * SR)], btype="band", output="sos")
+    closed_sig = signal.sosfilt(sos_closed, brass)
+    open_sig = signal.sosfilt(sos_open, brass)
+
+    # Plunger envelope sweeps from closed -> open -> closed ("dwaa-ooh")
+    wah_env = np.clip(wah_open * np.sin(np.pi * np.clip(t / max(0.08, dur * 0.78), 0.0, 1.0)) ** 1.3, 0.0, 1.0)
+    voiced = (1.0 - wah_env) * closed_sig + wah_env * open_sig * 1.35
+
+    # Breath attack transient
+    lip_buzz = rng.standard_normal(n) * np.exp(-t / 0.012) * 0.08
+    amp_env = np.clip(t / 0.012, 0.0, 1.0) * np.exp(-t / (dur * 0.72)) * np.clip((dur - t) / 0.025, 0.0, 1.0)
+    return (voiced + lip_buzz) * amp_env * 0.32
+
+
+def synth_upright_bass_note(freq: float, dur: float, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes a woody pizzicato upright double-bass quarter note with fingerboard slap."""
+    n = int(round(dur * SR))
+    t = np.arange(n, dtype=np.float64) / SR
+    env = np.clip(t / 0.006, 0.0, 1.0) * np.exp(-t / 0.24)
+    body = (
+        0.72 * np.sin(2.0 * np.pi * freq * t)
+        + 0.42 * np.sin(4.0 * np.pi * freq * t + 0.3) * np.exp(-t / 0.14)
+        + 0.18 * np.sin(6.0 * np.pi * freq * t) * np.exp(-t / 0.08)
+    )
+    # Woody finger slap at attack
+    slap = rng.standard_normal(n) * np.exp(-t / 0.008) * 0.12
+    sos = signal.butter(2, [650.0 / (0.5 * SR), 2200.0 / (0.5 * SR)], btype="band", output="sos")
+    return body * env * 0.38 + signal.sosfilt(sos, slap)
+
+
+def synth_jazz_swing_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
+    """
+    Synthesizes a 1930s Fleischer / Broadway 126 BPM Swing band score:
+      - Walking Upright Bass on every beat (1 - 2 - 3 - 4)
+      - Wire-Brush Snare & Swung Ride/Hi-Hat groove (2:1 triplet swing grid: `1, 2-and, 3, 4-and`)
+      - Syncopated Wah-Wah Plunger-Muted Brass section stabs & playful melody hooks
+      - 1930s optical sound-on-film horn character & subtle 78rpm shellac crackle
+    """
+    n_samples = int(round(dur * SR))
+    stereo = np.zeros((n_samples, 2), dtype=np.float64)
+    bpm = float(cfg.get("bpm", 126.0))
+    beat_sec = 60.0 / bpm
+    swing_off = beat_sec * 0.667  # 2:1 triplet swing subdivision
+
+    bass_bars = cfg["bass_walk"]
+    chords = cfg["chords"]
+    total_beats = int(np.ceil(dur / beat_sec))
+
+    # Pre-build wire-brush snare & hi-hat filters
+    sos_brush = signal.butter(2, [1400.0 / (0.5 * SR), 6800.0 / (0.5 * SR)], btype="band", output="sos")
+    sos_hat = signal.butter(2, 5200.0 / (0.5 * SR), btype="high", output="sos")
+
+    for b in range(total_beats):
+        t_beat = b * beat_sec
+        if t_beat >= dur:
+            break
+        bar_idx = (b // 4) % len(bass_bars)
+        beat_in_bar = b % 4
+
+        # 1. Walking Upright Bass on every beat
+        bass_f = bass_bars[bar_idx][beat_in_bar]
+        bass_note = synth_upright_bass_note(bass_f, beat_sec * 0.92, rng)
+        mix_into(stereo, int(round(t_beat * SR)), bass_note, pan=-0.15)
+
+        # 2. Wire-Brush Snare & Hi-Hat Swing Groove
+        # Downbeat brush tap
+        n_tap = int(0.11 * SR)
+        t_tap = np.arange(n_tap, dtype=np.float64) / SR
+        brush_hit = signal.sosfilt(sos_brush, rng.standard_normal(n_tap)) * np.exp(-t_tap / 0.032) * 0.085
+        if beat_in_bar in (1, 3):
+            # Accent backbeat on 2 and 4 with crisp snare wire + foot hi-hat chick
+            snare_body = np.sin(2.0 * np.pi * 185.0 * t_tap * np.exp(-t_tap * 6.0)) * np.exp(-t_tap / 0.038) * 0.14
+            hat_chick = signal.sosfilt(sos_hat, rng.standard_normal(n_tap)) * np.exp(-t_tap / 0.018) * 0.075
+            mix_into(stereo, int(round(t_beat * SR)), brush_hit * 1.35 + snare_body + hat_chick, pan=0.18)
+        else:
+            mix_into(stereo, int(round(t_beat * SR)), brush_hit, pan=0.16)
+
+        # Swung triplet upbeat ("skip" note on 2-and, 4-and)
+        if beat_in_bar in (1, 3) and (t_beat + swing_off) < dur:
+            skip_hit = signal.sosfilt(sos_hat, rng.standard_normal(n_tap)) * np.exp(-t_tap / 0.024) * 0.078
+            mix_into(stereo, int(round((t_beat + swing_off) * SR)), skip_hit, pan=0.22)
+
+        # 3. Syncopated Wah-Wah Plunger-Muted Brass Stabs & Melody Hooks
+        chord = chords[bar_idx]
+        if beat_in_bar == 0:
+            # Downbeat muted horn chord stab ("dwaa!")
+            for v_i, f_v in enumerate(chord[1:4]):
+                horn = synth_wah_brass_note(f_v * 2.0, beat_sec * 0.58, wah_open=0.85, rng=rng)
+                mix_into(stereo, int(round(t_beat * SR)), horn * 0.42, pan=-0.28 + 0.22 * v_i)
+        elif beat_in_bar == 1 and (t_beat + swing_off) < dur:
+            # Swung upbeat brass answer on "2-and"
+            lead_f = chord[3] * 2.0
+            horn = synth_wah_brass_note(lead_f, beat_sec * 0.65, wah_open=0.95, rng=rng, gliss=0.06)
+            mix_into(stereo, int(round((t_beat + swing_off) * SR)), horn * 0.55, pan=0.26)
+        elif beat_in_bar == 3:
+            # Playful trombone turnaround glissando at end of bar
+            tb_f = chord[2] * 1.5
+            gliss_dir = 0.12 if (bar_idx % 2 == 0) else -0.10
+            tb = synth_wah_brass_note(tb_f, beat_sec * 0.78, wah_open=0.75, rng=rng, gliss=gliss_dir)
+            mix_into(stereo, int(round(t_beat * SR)), tb * 0.48, pan=-0.24)
+
+    # Convolve with 1930s vintage horn & studio slapback IR
+    stereo = convolve_body_ir(stereo, "vintage_horn", wet=0.36)
+
+    # 4. Subtle 78rpm shellac record warmth & micro-crackle
+    crackle_mask = rng.random(n_samples) < 0.0018
+    crackle = crackle_mask.astype(np.float64) * rng.normal(0.0, 0.018, n_samples)
+    sos_cr = signal.butter(2, [1200.0 / (0.5 * SR), 5500.0 / (0.5 * SR)], btype="band", output="sos")
+    crackle = signal.sosfilt(sos_cr, crackle)
+    stereo[:, 0] += crackle
+    stereo[:, 1] += crackle * 0.9
+    return stereo
+
+
+def synth_marimba_note(freq: float, dur: float, rng: np.random.Generator) -> np.ndarray:
+    """Euler-Bernoulli modal synthesis for a rosewood Marimba bar (`1 : 3.98 : 9.18` overtones)."""
+    n = int(round(dur * SR))
+    t = np.arange(n, dtype=np.float64) / SR
+    # Yarn mallet strike transient
+    strike = rng.standard_normal(n) * np.exp(-t / 0.0035) * 0.09
+    sos = signal.butter(2, [400.0 / (0.5 * SR), 3200.0 / (0.5 * SR)], btype="band", output="sos")
+    strike = signal.sosfilt(sos, strike)
+
+    modes = (
+        0.74 * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / 0.26)
+        + 0.22 * np.sin(2.0 * np.pi * (freq * 3.98) * t + 0.4) * np.exp(-t / 0.055)
+        + 0.06 * np.sin(2.0 * np.pi * (freq * 9.18) * t + 1.1) * np.exp(-t / 0.018)
+    )
+    return (modes * np.clip(t / 0.002, 0.0, 1.0) + strike) * 0.34
+
+
+def synth_clay_marimba_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes a cozy stop-motion Rosewood Marimba & Kalimba arpeggiated score (`clay-macaron`)."""
+    n_samples = int(round(dur * SR))
+    stereo = np.zeros((n_samples, 2), dtype=np.float64)
+    step_sec = 60.0 / 112.0 / 2.0  # 112 BPM eighth-note grid
+    chords = cfg["chords"]
+    total_steps = int(np.ceil(dur / step_sec))
+    arp_pattern = [0, 2, 1, 3, 2, 4, 1, 2]
+
+    for s in range(total_steps):
+        t_s = s * step_sec
+        if t_s >= dur:
+            break
+        bar_idx = (s // 8) % len(chords)
+        chord = chords[bar_idx]
+        deg = arp_pattern[s % len(arp_pattern)] % len(chord)
+        freq = chord[deg]
+        note = synth_marimba_note(freq, 0.42, rng)
+        pan = -0.26 + 0.13 * (s % 5)
+        mix_into(stereo, int(round(t_s * SR)), note, pan=pan)
+
+        # Every 4th step, add a warm bass marimba root
+        if s % 4 == 0:
+            bass = synth_marimba_note(chord[0] * 0.5, 0.58, rng) * 0.85
+            mix_into(stereo, int(round(t_s * SR)), bass, pan=0.0)
+
+    return convolve_body_ir(stereo, "marimba_resonator", wet=0.40)
+
+
+def synth_paper_harp_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes an acoustic plucked harp/guitar harmonic bed for `paper-popup`."""
+    n_samples = int(round(dur * SR))
+    stereo = np.zeros((n_samples, 2), dtype=np.float64)
+    step_sec = 0.34
+    chords = cfg["chords"]
+    total_steps = int(np.ceil(dur / step_sec))
+
+    for s in range(total_steps):
+        t_s = s * step_sec
+        if t_s >= dur:
+            break
+        chord = chords[(s // 6) % len(chords)]
+        freq = chord[s % len(chord)]
+        pluck = synth_guqin_note(freq, 0.95, "open", rng) * 0.68
+        pan = -0.30 if (s % 2 == 0) else 0.30
+        mix_into(stereo, int(round(t_s * SR)), pluck, pan=pan)
+
+    return convolve_body_ir(stereo, "marimba_resonator", wet=0.35)
+
+
+def synth_twilight_celesta_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes a dreamy Celesta bell-tine + warm felt-piano lullaby for `twilight-fable`."""
+    # Start with warm low-passed felt-piano harmonic pad
+    stereo = synth_ambient_bed(dur, scenes, cfg, rng) * 0.82
+    chords = cfg["chords"]
+    step_sec = 0.48
+    total_steps = int(np.ceil(dur / step_sec))
+
+    for s in range(total_steps):
+        t_s = s * step_sec
+        if t_s >= dur:
+            break
+        chord = chords[(s // 6) % len(chords)]
+        f0 = chord[(s * 2) % len(chord)] * 2.0
+        n = int(0.88 * SR)
+        t = np.arange(n, dtype=np.float64) / SR
+        # Celesta bell-tine modal overtones (fundamental + 5th + inharmonic bell partial 2.76x)
+        env = np.clip(t / 0.005, 0.0, 1.0) * np.exp(-t / 0.34)
+        tine = (
+            0.65 * np.sin(2.0 * np.pi * f0 * t)
+            + 0.24 * np.sin(2.0 * np.pi * (f0 * 2.0) * t) * np.exp(-t / 0.18)
+            + 0.11 * np.sin(2.0 * np.pi * (f0 * 2.756) * t) * np.exp(-t / 0.09)
+        ) * env * 0.18
+        pan = np.sin(s * 0.9) * 0.35
+        mix_into(stereo, int(round(t_s * SR)), tine, pan=pan)
+
+    return convolve_body_ir(stereo, "forest_canyon", wet=0.46)
+
+
 def synth_ambient_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
-    """Synthesizes a warm evolving stereo harmonic pad across scenes."""
+    """Synthesizes a warm evolving stereo harmonic pad across scenes (for glass/cyber/terminal)."""
     n_samples = int(round(dur * SR))
     stereo = np.zeros((n_samples, 2), dtype=np.float64)
 
@@ -149,7 +680,6 @@ def synth_ambient_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Genera
         t = np.arange(n, dtype=np.float64) / SR
         chord = chords[idx % len(chords)]
 
-        # Smooth fade-in and release envelope
         attack = np.clip(t / 0.45, 0.0, 1.0)
         release = np.clip((pad_len - t) / 0.55, 0.0, 1.0)
         env = np.sin(0.5 * np.pi * attack) * np.sin(0.5 * np.pi * release)
@@ -165,7 +695,6 @@ def synth_ambient_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Genera
             left += sig_l * lfo * weight
             right += sig_r * lfo * weight
 
-        # Gentle low-pass warmth
         sos = signal.butter(2, 1600.0 / (0.5 * SR), btype="low", output="sos")
         left = signal.sosfilt(sos, left) * env * cfg["pad_gain"]
         right = signal.sosfilt(sos, right) * env * cfg["pad_gain"]
@@ -175,43 +704,76 @@ def synth_ambient_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Genera
         stereo[s0:s1, 0] += left[: s1 - s0]
         stereo[s0:s1, 1] += right[: s1 - s0]
 
-    # Subtle room air
     air = rng.standard_normal((n_samples, 2)) * 0.0012
     sos_air = signal.butter(2, [250.0 / (0.5 * SR), 3800.0 / (0.5 * SR)], btype="band", output="sos")
     stereo += signal.sosfilt(sos_air, air, axis=0)
     return stereo
 
 
+# =============================================================================
+# 3. FRAME-ACCURATE SEMANTIC FOLEY & SCENE TRANSITION CUES
+# =============================================================================
+
+
 def synth_scene_cut(cfg: dict, preset: str, intensity: float, idx: int, rng: np.random.Generator) -> np.ndarray:
-    """Low-end sub whoosh + crystalline chime or paper turn."""
+    """Medium-authentic scene transition cue: Guqin harmonic gliss, Jazz rimshot/brass, or multi-stage cardstock fold."""
+    if preset == "ink":
+        # Guqin 7th-hui harmonic chime + soft Xuan-paper scroll unfurl
+        chord = cfg["chords"][idx % len(cfg["chords"])]
+        harm = synth_guqin_note(chord[2], 1.15, "harmonic", rng)
+        n = len(harm)
+        t = np.arange(n, dtype=np.float64) / SR
+        scroll = rng.standard_normal(n) * (np.sin(np.pi * np.clip(t / 0.45, 0.0, 1.0)) ** 2) * 0.055
+        sos = signal.butter(2, [280.0 / (0.5 * SR), 1900.0 / (0.5 * SR)], btype="band", output="sos")
+        return (harm + signal.sosfilt(sos, scroll)) * intensity
+
+    if preset == "jazz":
+        # Crisp drum rimshot + muted brass flourish
+        f0 = cfg["chime_freqs"][idx % len(cfg["chime_freqs"])]
+        brass = synth_wah_brass_note(f0, 0.48, wah_open=0.92, rng=rng, gliss=0.08)
+        n = len(brass)
+        t = np.arange(n, dtype=np.float64) / SR
+        rim = np.sin(2.0 * np.pi * 390.0 * t * np.exp(-t * 14.0)) * np.exp(-t / 0.022) * 0.25
+        return (brass + rim) * intensity
+
+    if preset == "paper":
+        # Multi-layered cardstock page turn & pop-up snap (`立体书翻页与卡纸弹起`)
+        dur = 0.62
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        sos = signal.butter(2, [550.0 / (0.5 * SR), 3600.0 / (0.5 * SR)], btype="band", output="sos")
+        # Three distinct paper-fold friction bursts + crisp pop-up lock snap
+        env = (
+            0.7 * np.exp(-((t - 0.08) / 0.045) ** 2)
+            + 1.0 * np.exp(-((t - 0.24) / 0.08) ** 2)
+            + 0.85 * np.exp(-((t - 0.42) / 0.035) ** 2)
+        )
+        paper_turn = signal.sosfilt(sos, noise) * env * 0.16
+        f0 = cfg["chime_freqs"][idx % len(cfg["chime_freqs"])]
+        snap = np.sin(2.0 * np.pi * f0 * t) * np.exp(-t / 0.14) * 0.14
+        return (paper_turn + snap) * intensity
+
     dur = 0.68
     n = int(round(dur * SR))
     t = np.arange(n, dtype=np.float64) / SR
-
-    # Sub-bass pitch drop (92Hz -> 44Hz)
     phase = 2.0 * np.pi * (44.0 * t + 48.0 * (1.0 - np.exp(-t / 0.14)) * 0.14)
     sub = np.sin(phase) * np.exp(-t / 0.22) * np.clip(t / 0.012, 0.0, 1.0) * 0.36
-
-    # Filtered whoosh / paper turn noise
     noise = rng.standard_normal(n)
-    cutoff = 1900.0 if preset in ("paper", "ink") else 2800.0
-    sos = signal.butter(2, [180.0 / (0.5 * SR), cutoff / (0.5 * SR)], btype="band", output="sos")
+    sos = signal.butter(2, [180.0 / (0.5 * SR), 2800.0 / (0.5 * SR)], btype="band", output="sos")
     whoosh_env = np.sin(np.pi * np.clip(t / 0.32, 0.0, 1.0)) ** 2
     whoosh = signal.sosfilt(sos, noise) * whoosh_env * 0.11
-
-    # Crystalline harmonic bell
     f0 = cfg["chime_freqs"][idx % len(cfg["chime_freqs"])]
     bell = (
         np.sin(2.0 * np.pi * f0 * t) * np.exp(-t / 0.28)
         + 0.42 * np.sin(2.0 * np.pi * (f0 * 1.5) * t) * np.exp(-t / 0.16)
         + 0.22 * np.sin(2.0 * np.pi * (f0 * 2.02) * t) * np.exp(-t / 0.09)
     ) * np.clip(t / 0.005, 0.0, 1.0) * 0.18
-
     return (sub + whoosh + bell) * intensity
 
 
 def synth_card_enter(cfg: dict, intensity: float, idx: int, rng: np.random.Generator) -> np.ndarray:
-    """Soft damped felt tap / glass resonant tick."""
+    """Soft damped felt tap / woodblock / resonant tick."""
     dur = 0.16
     n = int(round(dur * SR))
     t = np.arange(n, dtype=np.float64) / SR
@@ -223,7 +785,7 @@ def synth_card_enter(cfg: dict, intensity: float, idx: int, rng: np.random.Gener
 
 
 def synth_layer_float(cfg: dict, intensity: float, idx: int, rng: np.random.Generator) -> np.ndarray:
-    """Airy magnetic lift shimmer for 3D floating [data-layer] cards."""
+    """Airy magnetic lift shimmer for floating [data-layer] cards."""
     dur = 0.42
     n = int(round(dur * SR))
     t = np.arange(n, dtype=np.float64) / SR
@@ -245,22 +807,92 @@ def synth_count_tick(cfg: dict, intensity: float, idx: int) -> np.ndarray:
 
 
 def synth_stroke_draw(preset: str, intensity: float, rng: np.random.Generator) -> np.ndarray:
-    """Subtle brush/stylus friction sweep for SVG [data-draw] paths."""
-    dur = 0.36
+    """Calligraphic wolf-hair brush sweep on raw Xuan paper (`毛笔扫纸沙沙声`) or stylus friction."""
+    dur = 0.38
     n = int(round(dur * SR))
     t = np.arange(n, dtype=np.float64) / SR
     noise = rng.standard_normal(n)
-    band = [600.0 / (0.5 * SR), 3400.0 / (0.5 * SR)] if preset in ("paper", "ink") else [900.0 / (0.5 * SR), 4800.0 / (0.5 * SR)]
+    band = [480.0 / (0.5 * SR), 3200.0 / (0.5 * SR)] if preset in ("paper", "ink") else [900.0 / (0.5 * SR), 4800.0 / (0.5 * SR)]
     sos = signal.butter(2, band, btype="band", output="sos")
-    env = np.sin(np.pi * np.clip(t / dur, 0.0, 1.0)) ** 1.4
-    return signal.sosfilt(sos, noise) * env * 0.055 * intensity
+    env = np.sin(np.pi * np.clip(t / dur, 0.0, 1.0)) ** 1.3
+    return signal.sosfilt(sos, noise) * env * 0.075 * intensity
 
 
-def master_bus(stereo: np.ndarray, ceiling_db: float = -1.5) -> np.ndarray:
-    """Applies DC block, soft-knee bus compression, and true-peak limiting (-1.5 dBTP)."""
-    # High-pass at 28Hz to remove DC/rumble
-    sos_hp = signal.butter(2, 28.0 / (0.5 * SR), btype="high", output="sos")
+def synth_runtime_foley(kind: str, preset: str, intensity: float, rng: np.random.Generator) -> np.ndarray:
+    """Synthesizes semantic action foley emitted at runtime by 2D/3D characters and world primitives."""
+    if kind == "wave_surge":
+        # Cresting river/sea wave roar + foam spray (`惊涛拍岸水声`)
+        dur = 0.92
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        sos_low = signal.butter(2, [90.0 / (0.5 * SR), 580.0 / (0.5 * SR)], btype="band", output="sos")
+        sos_spray = signal.butter(2, [1100.0 / (0.5 * SR), 4400.0 / (0.5 * SR)], btype="band", output="sos")
+        env_low = np.sin(np.pi * np.clip(t / dur, 0.0, 1.0)) ** 1.2
+        env_spray = np.exp(-((t - 0.38) / 0.24) ** 2)
+        wave_sig = signal.sosfilt(sos_low, noise) * env_low * 0.16 + signal.sosfilt(sos_spray, noise) * env_spray * 0.09
+        return wave_sig * intensity
+
+    if kind == "sword_slash":
+        # Wuxia bamboo/steel sword air-cleave whoosh + metallic ring (`剑锋破空铮鸣`)
+        dur = 0.36
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        sos = signal.butter(2, [750.0 / (0.5 * SR), 4600.0 / (0.5 * SR)], btype="band", output="sos")
+        whoosh = signal.sosfilt(sos, noise) * np.exp(-((t - 0.09) / 0.065) ** 2) * 0.18
+        ring = (
+            np.sin(2.0 * np.pi * 1760.0 * t) * np.exp(-t / 0.18) * 0.09
+            + np.sin(2.0 * np.pi * 2840.0 * t) * np.exp(-t / 0.11) * 0.06
+        )
+        return (whoosh + ring) * intensity
+
+    if kind == "drink_sip":
+        # Delicate porcelain wine cup clink / liquid droplet (`执盏微酌水滴声`)
+        dur = 0.24
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        # Rising water-droplet bubble pitch (520Hz -> 980Hz) + porcelain rim chime
+        f_drop = 520.0 + 460.0 * np.clip(t / 0.09, 0.0, 1.0)
+        phase = 2.0 * np.pi * np.cumsum(f_drop) / SR
+        drop = np.sin(phase) * np.exp(-t / 0.045) * 0.16
+        porcelain = np.sin(2.0 * np.pi * 2180.0 * t) * np.exp(-t / 0.085) * 0.08
+        return (drop + porcelain) * intensity
+
+    if kind == "boing_hop":
+        # Playful 1930s rubber-hose / clay spring hop (`弹簧跳跃音`)
+        dur = 0.28
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        f_curve = 220.0 * (1.0 + 0.85 * (1.0 - np.exp(-t / 0.09)) + 0.14 * np.sin(2.0 * np.pi * 19.0 * t))
+        phase = 2.0 * np.pi * np.cumsum(f_curve) / SR
+        return np.sin(phase) * np.exp(-t / 0.14) * 0.18 * intensity
+
+    if kind == "foot_step":
+        # Soft cloth/straw shoe step on stone/wood (`轻步踏地`)
+        dur = 0.11
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        thud = np.sin(2.0 * np.pi * 135.0 * t * np.exp(-t * 12.0)) * np.exp(-t / 0.028) * 0.14
+        scuff = rng.standard_normal(n) * np.exp(-t / 0.018) * 0.04
+        sos = signal.butter(2, 1400.0 / (0.5 * SR), btype="low", output="sos")
+        return signal.sosfilt(sos, thud + scuff) * intensity
+
+    # Default `brush_sweep`
+    return synth_stroke_draw(preset, intensity, rng)
+
+
+def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1.5) -> np.ndarray:
+    """Applies medium-appropriate tonal shaping, DC block, soft-knee bus compression, and true-peak limiting."""
+    # High-pass to remove DC/rumble (1930s optical film rolls off below 95Hz; modern/ink keeps deep bass down to 28Hz)
+    hp_hz = 95.0 if preset == "jazz" else 28.0
+    sos_hp = signal.butter(2, hp_hz / (0.5 * SR), btype="high", output="sos")
     out = signal.sosfilt(sos_hp, stereo, axis=0)
+
+    if preset == "jazz":
+        # Vintage 1930s optical sound-on-film high roll-off at 5.6 kHz for authentic warm celluloid tone
+        sos_lp = signal.butter(2, 5600.0 / (0.5 * SR), btype="low", output="sos")
+        out = signal.sosfilt(sos_lp, out, axis=0)
 
     # Soft-knee tanh saturation / RMS leveling
     rms = np.sqrt(np.mean(out ** 2) + 1e-12)
@@ -296,7 +928,18 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
     scenes = cue_data.get("scenes", [])
     cues = cue_data.get("cues", [])
 
-    stereo = synth_ambient_bed(dur, scenes, cfg, rng)
+    if preset == "ink":
+        stereo = synth_ink_guqin_bed(dur, scenes, cfg, rng)
+    elif preset == "jazz":
+        stereo = synth_jazz_swing_bed(dur, scenes, cfg, rng)
+    elif preset == "clay":
+        stereo = synth_clay_marimba_bed(dur, scenes, cfg, rng)
+    elif preset == "paper":
+        stereo = synth_paper_harp_bed(dur, scenes, cfg, rng)
+    elif preset == "twilight":
+        stereo = synth_twilight_celesta_bed(dur, scenes, cfg, rng)
+    else:
+        stereo = synth_ambient_bed(dur, scenes, cfg, rng)
 
     for idx, cue in enumerate(cues):
         t = float(cue.get("t", 0.0))
@@ -314,12 +957,14 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
             mono = synth_count_tick(cfg, intensity, idx)
         elif kind == "stroke_draw":
             mono = synth_stroke_draw(preset, intensity, rng)
+        elif kind in ("wave_surge", "sword_slash", "drink_sip", "brush_sweep", "foot_step", "boing_hop"):
+            mono = synth_runtime_foley(kind, preset, intensity, rng)
         else:
             mono = synth_card_enter(cfg, intensity, idx, rng)
 
         mix_into(stereo, start_sample, mono, pan=pan)
 
-    return master_bus(stereo, ceiling_db=-1.5)
+    return master_bus(stereo, preset=preset, ceiling_db=-1.5)
 
 
 def write_wav(path: Path, stereo: np.ndarray):
@@ -347,13 +992,14 @@ def default_cue_sheet() -> dict:
             {"t": 0.18, "kind": "card_enter", "intensity": 0.78},
             {"t": 0.42, "kind": "stroke_draw", "intensity": 0.65},
             {"t": 1.1, "kind": "layer_float", "intensity": 0.85},
+            {"t": 1.6, "kind": "drink_sip", "intensity": 0.72},
             {"t": 3.5, "kind": "scene_cut", "intensity": 1.0},
             {"t": 3.72, "kind": "card_enter", "intensity": 0.75},
             {"t": 3.95, "kind": "count_tick", "intensity": 0.55},
-            {"t": 4.5, "kind": "layer_float", "intensity": 0.85},
+            {"t": 4.5, "kind": "sword_slash", "intensity": 0.85},
             {"t": 7.2, "kind": "scene_cut", "intensity": 1.0},
             {"t": 7.45, "kind": "card_enter", "intensity": 0.75},
-            {"t": 7.8, "kind": "stroke_draw", "intensity": 0.65},
+            {"t": 7.8, "kind": "wave_surge", "intensity": 0.8},
             {"t": 8.3, "kind": "layer_float", "intensity": 0.85},
             {"t": 10.8, "kind": "scene_cut", "intensity": 1.0},
             {"t": 11.05, "kind": "card_enter", "intensity": 0.75},
@@ -363,13 +1009,13 @@ def default_cue_sheet() -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cue-driven procedural sound & score synthesizer for StyleHop.")
+    parser = argparse.ArgumentParser(description="Cue-driven procedural sound & physical modeling score synthesizer for StyleHop.")
     parser.add_argument("--cues", required=False, default=None, help="Path to cues.json extracted from window.CUES")
     parser.add_argument("--out", required=True, help="Output 48kHz stereo WAV path")
     parser.add_argument(
         "--preset",
         default="glass",
-        help="Sonic palette preset (glass, clay, paper, cyber, ink, terminal, or aliases like glass_bento, clay_desk)",
+        help="Sonic palette preset (ink, jazz, clay, paper, twilight, glass, cyber, terminal, or style aliases)",
     )
     args = parser.parse_args()
 

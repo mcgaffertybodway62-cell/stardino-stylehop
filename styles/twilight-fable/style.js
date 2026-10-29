@@ -8,7 +8,7 @@ export default {
   defaultOverlay: 'none',
   kernel: './kernel.js',
   world: './world.js',
-  soundPreset: 'glass',
+  soundPreset: 'twilight',
   paperTexture: null,
   bestFor: [
     '治愈绘本童话 / 奇幻森林冒险 / 萌宠与自然生灵温情故事',
