@@ -301,18 +301,24 @@ export async function main(argv = process.argv.slice(2)) {
       );
 
       // Collect any runtime acting/foley cues emitted into `window.CUES.cues` across all worker pages
-      const mergedCueMap = new Map();
-      for (const c of cues?.cues || []) {
-        mergedCueMap.set(`${c.kind}@${(+c.t).toFixed(2)}`, c);
-      }
+      const rawCollected = [...(cues?.cues || [])];
       for (const wp of pages) {
         const pageCues = await wp.evaluate(() => window.CUES?.cues || []);
-        for (const c of pageCues) {
-          const key = `${c.kind}@${(+c.t).toFixed(2)}`;
-          if (!mergedCueMap.has(key)) mergedCueMap.set(key, c);
-        }
+        for (const c of pageCues) rawCollected.push(c);
       }
-      const allCollectedCues = [...mergedCueMap.values()].sort((a, b) => a.t - b.t);
+      rawCollected.sort((a, b) => a.t - b.t);
+      const allCollectedCues = [];
+      for (const c of rawCollected) {
+        const cId = `${c.kind}:${c.label || c.kind}`;
+        const dup = allCollectedCues.some(
+          (p) => `${p.kind}:${p.label || p.kind}` === cId && Math.abs(p.t - c.t) < 0.08
+        );
+        if (!dup) allCollectedCues.push(c);
+      }
+      if (cues) cues.cues = allCollectedCues;
+      await page.evaluate((merged) => {
+        if (window.CUES) window.CUES.cues = merged;
+      }, allCollectedCues);
 
       for (let w = 1; w < pages.length; w++) {
         await pages[w].close();
@@ -370,7 +376,7 @@ export async function main(argv = process.argv.slice(2)) {
           '-pix_fmt',
           'yuv420p',
           '-af',
-          'loudnorm=I=-14:TP=-1.2:LRA=11',
+          'loudnorm=I=-15:TP=-1.2:LRA=20',
           '-c:a',
           'aac',
           '-b:a',
@@ -390,6 +396,7 @@ export async function main(argv = process.argv.slice(2)) {
         workers: workerCount,
         audio: Boolean(wavPath),
         soundPreset: wavPath ? soundPreset : null,
+        cues: allCollectedCues.length,
         seconds: +((performance.now() - t0) / 1000).toFixed(1),
       };
     }

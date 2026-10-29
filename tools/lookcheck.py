@@ -73,29 +73,57 @@ ABS = {
     'half_void_max': 0.72,
 }
 
+# Medium-specific overrides: Chinese ink-wash (`ink-wash`) honors classical `计白当黑`
+# (expansive blank Xuan-paper sky/cloud/river voids up to `half_void <= 0.88` and high/low
+# horizon `com_y in [0.24, 0.78]`) as well as stark nocturnal martial scenes (`肃杀暗场`:
+# dark ink ground with gleaming white blade & cinnabar accents down to `L_min = 18.0`).
+STYLE_ABS_OVERRIDES = {
+    'ink-wash': {
+        'L_min': 18.0,
+        'com_y_min': 0.24,
+        'com_y_max': 0.78,
+        'half_void_max': 0.88,
+    },
+}
 
-def absolute_check(path):
+
+def resolve_panel_floors(style=None, path=None):
+    eff_style = style
+    if not eff_style and path:
+        base = os.path.basename(str(path))
+        for k in STYLE_ABS_OVERRIDES:
+            if k in base:
+                eff_style = k
+                break
+    floors = dict(ABS)
+    if eff_style in STYLE_ABS_OVERRIDES:
+        floors.update(STYLE_ABS_OVERRIDES[eff_style])
+    return floors
+
+
+def absolute_check(path, style=None):
     img = Image.open(path).convert('RGB')
+    floors = resolve_panel_floors(style=style, path=path)
     fails = []
     for i, p in enumerate(panels(img)):
         m = measure(p)[0]
         f = []
-        if not ABS['L_min'] <= m['L'] <= ABS['L_max']:
-            f.append(f"L {m['L']:.1f} outside [{ABS['L_min']:.0f}, {ABS['L_max']:.0f}]")
-        if m['p95'] < ABS['p95_min']:
-            f.append(f"p95 {m['p95']:.1f} < {ABS['p95_min']:.0f} (nothing catches light)")
-        if m['contrast'] < ABS['contrast_min']:
-            f.append(f"contrast {m['contrast']:.1f} < {ABS['contrast_min']:.0f} (flat)")
-        if m['p95'] - m['p5'] < ABS['range_min']:
-            f.append(f"tonal range {m['p95'] - m['p5']:.1f} < {ABS['range_min']:.0f}")
-        if not ABS['com_y_min'] <= m['com_y'] <= ABS['com_y_max']:
+        if not floors['L_min'] <= m['L'] <= floors['L_max']:
+            f.append(f"L {m['L']:.1f} outside [{floors['L_min']:.0f}, {floors['L_max']:.0f}]")
+        if m['p95'] < floors['p95_min']:
+            f.append(f"p95 {m['p95']:.1f} < {floors['p95_min']:.0f} (nothing catches light)")
+        if m['contrast'] < floors['contrast_min']:
+            f.append(f"contrast {m['contrast']:.1f} < {floors['contrast_min']:.0f} (flat)")
+        if m['p95'] - m['p5'] < floors['range_min']:
+            f.append(f"tonal range {m['p95'] - m['p5']:.1f} < {floors['range_min']:.0f}")
+        if not floors['com_y_min'] <= m['com_y'] <= floors['com_y_max']:
             f.append(
-                f"com_y {m['com_y']:.3f} outside [{ABS['com_y_min']:.2f}, {ABS['com_y_max']:.2f}] "
+                f"com_y {m['com_y']:.3f} outside [{floors['com_y_min']:.2f}, {floors['com_y_max']:.2f}] "
                 "(vertical center-of-mass imbalance: top-heavy or bottom-heavy frame)"
             )
-        if m['half_void'] > ABS['half_void_max']:
+        if m['half_void'] > floors['half_void_max']:
             f.append(
-                f"half_void {m['half_void']:.2f} > {ABS['half_void_max']:.2f} "
+                f"half_void {m['half_void']:.2f} > {floors['half_void_max']:.2f} "
                 "(dead-void empty upper/lower half; anchor foreground/midground across vertical planes)"
             )
         if f:
@@ -330,7 +358,7 @@ def main():
         current = os.path.join(OUT_ROOT, 'look', f'{o.style}_{o.tag}.jpg')
         os.makedirs(os.path.dirname(current), exist_ok=True)
         render_sheet(o.style, current, o.world, o.look, o.content)
-        abs_fails = absolute_check(current)
+        abs_fails = absolute_check(current, style=o.style)
         orig_fails = originality_check(
             current,
             originality_references(o.style, own_dir=style_dir if o.world else None, is_showcase=not o.world, extra=o.originality_ref),

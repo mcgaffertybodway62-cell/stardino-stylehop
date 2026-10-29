@@ -383,10 +383,120 @@ def synth_xiao_phrase(freq: float, dur: float, rng: np.random.Generator) -> np.n
     return (pipe + breath_filt) * env * 0.22
 
 
-def synth_ink_guqin_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Generator) -> np.ndarray:
-    """Synthesizes a Song-Yuan Guqin & Xiao Flute mountain scroll score (`古琴散泛走手音 + 洞箫松风`)."""
+def synth_taiko_impact(intensity: float, rng: np.random.Generator) -> np.ndarray:
+    """
+    Synthesizes a heavy Chinese Da-Tang-Gu / War Taiko drum slam (`重低音大堂鼓/太鼓轰击`):
+      - Pitch-dropping sub-bass skin membrane fundamental (92Hz -> 44Hz)
+      - Inharmonic circular membrane modes (1.59x, 2.14x) + wooden shell cavity resonance
+      - Heavy leather mallet transient & rim crack
+    """
+    dur = 1.45
+    n = int(round(dur * SR))
+    t = np.arange(n, dtype=np.float64) / SR
+    f_env = 44.0 + 52.0 * np.exp(-t / 0.045)
+    phase = 2.0 * np.pi * np.cumsum(f_env) / SR
+
+    sub_skin = np.sin(phase) * np.exp(-t / 0.38) * 0.62
+    mode2 = np.sin(1.59 * phase + 0.3) * np.exp(-t / 0.19) * 0.28
+    mode3 = np.sin(2.14 * phase + 0.8) * np.exp(-t / 0.11) * 0.15
+
+    # Mallet impact transient & drumhead roar
+    noise = rng.standard_normal(n)
+    sos_thump = signal.butter(2, [65.0 / (0.5 * SR), 420.0 / (0.5 * SR)], btype="band", output="sos")
+    sos_crack = signal.butter(2, [950.0 / (0.5 * SR), 3400.0 / (0.5 * SR)], btype="band", output="sos")
+    thump = signal.sosfilt(sos_thump, noise) * np.exp(-t / 0.055) * 0.32
+    crack = signal.sosfilt(sos_crack, noise) * np.exp(-t / 0.014) * 0.22
+
+    attack = np.clip(t / 0.0025, 0.0, 1.0)
+    sig = (sub_skin + mode2 + mode3 + thump + crack) * attack
+    return np.tanh(sig * 1.45) * 0.72 * intensity
+
+
+def synth_qin_strumming_slash(chord: list, dur: float, intensity: float, rng: np.random.Generator) -> np.ndarray:
+    """
+    Synthesizes a fierce martial Guqin/Pipa strumming roll (`古琴滚拂 / 琵琶杀伐扫弦摧音`):
+    Rapid 7-string cascade with fingernail scrape transient, metallic string buzz (`煞音`), and urgent tremolando.
+    """
+    n = int(round(dur * SR))
+    out = np.zeros(n, dtype=np.float64)
+    base_freqs = list(chord) + [chord[0] * 2.0, chord[1] * 2.0]
+
+    # 1. Rapid initial 7-string sweep (`杀伐滚拂扫弦`, 16ms inter-string cascade)
+    for s_idx, f_str in enumerate(base_freqs):
+        s_off = int(round(s_idx * 0.016 * SR))
+        if s_off >= n:
+            break
+        rem_dur = max(0.25, dur - s_idx * 0.016)
+        note = synth_guqin_note(f_str, rem_dur, "open", rng)
+        t_n = np.arange(len(note), dtype=np.float64) / SR
+        # Add fierce Pipa/Guqin fingernail attack & string-fret buzz (`杀伐煞音`)
+        nail = rng.standard_normal(len(note)) * np.exp(-t_n / 0.006) * 0.18
+        sos_nail = signal.butter(2, [1400.0 / (0.5 * SR), 5800.0 / (0.5 * SR)], btype="band", output="sos")
+        buzz = np.tanh(note * 2.8) * 0.38 + signal.sosfilt(sos_nail, nail)
+        end_i = min(n, s_off + len(note))
+        out[s_off:end_i] += (note[: end_i - s_off] * 0.75 + buzz[: end_i - s_off]) * (0.85 + 0.05 * s_idx)
+
+    # 2. Secondary urgent martial tremolando / reverse sweep (`拂弦余威`) at +0.36s and +0.74s
+    for accent_t, gain in [(0.36, 0.68), (0.74, 0.52)]:
+        if accent_t + 0.3 < dur:
+            for s_idx, f_str in enumerate(reversed(base_freqs[:5])):
+                s_off = int(round((accent_t + s_idx * 0.012) * SR))
+                if s_off >= n:
+                    break
+                note = synth_guqin_note(f_str * 1.5, min(0.95, dur - accent_t), "slide", rng, slide_ratio=1.06)
+                end_i = min(n, s_off + len(note))
+                out[s_off:end_i] += note[: end_i - s_off] * gain
+
+    return out * 0.58 * intensity
+
+
+def _infer_ink_scene_mood(sc: dict, idx: int, total_scenes: int, cues: list) -> str:
+    """Resolves the dramatic score mood (`serene | suspend | kill_burst | vast_aftermath`) for an ink scene."""
+    explicit = str(sc.get("mood") or "").strip().lower()
+    if explicit in ("serene", "suspend", "kill_burst", "vast_aftermath"):
+        return explicit
+
+    sc_id = f"{sc.get('id', '')} {sc.get('title', '')}".lower()
+    start_t = float(sc.get("start", 0.0))
+    end_t = float(sc.get("end", start_t + float(sc.get("dur", 4.0))))
+    sc_cues = [
+        f"{c.get('kind', '')}:{c.get('label', '')}".lower()
+        for c in (cues or [])
+        if start_t - 0.05 <= float(c.get("t", -1.0)) <= end_t + 0.05
+    ]
+    joined_cues = " ".join(sc_cues)
+
+    if any(k in joined_cues for k in ("blade_cleave", "blood_splatter", "calligraphy_slam", "taiko_impact")) or any(
+        k in sc_id for k in ("kill", "burst", "sha", "climax")
+    ):
+        return "kill_burst"
+    if "blade_clique" in joined_cues or any(k in sc_id for k in ("suspend", "tense", "unsheathe", "heng", "kneel")):
+        return "suspend"
+    if "blade_sheathe" in joined_cues or any(k in sc_id for k in ("aftermath", "sheathe", "qianli", "gone")):
+        return "vast_aftermath"
+    return "serene"
+
+
+def synth_ink_guqin_bed(
+    dur: float,
+    scenes: list,
+    cfg: dict,
+    rng: np.random.Generator,
+    cues: list = None,
+) -> np.ndarray:
+    """
+    Synthesizes a Scene-Dramatic Song-Yuan Guqin, Xiao Flute & Wuxia War-Drum Score (`Scene Dramatic Score Envelope`):
+      - `serene` (`平缓疏朗`): Sparse Guqin open bass (`散音`), expressive sliding `走手吟猱`, and pine breeze breathing space.
+      - `suspend` (`肃杀蓄力`): Tense press-slide decrescendo into a **0.45s–0.60s absolute breathless silence hold (`silence hold`)**.
+      - `kill_burst` (`杀伐爆发`): **0.45s anticipation silence** followed by **Da-Tang-Gu war drum (`taiko_impact`) + fierce Guqin/Pipa strumming (`qin_strumming_slash`)**.
+      - `vast_aftermath` (`收刀拉远 · 余韵`): Intimate quiet opening for sword sheathing -> deep open bass & cascading harmonics (`泛音`) dissolving into mountain wind.
+    """
     n_samples = int(round(dur * SR))
     stereo = np.zeros((n_samples, 2), dtype=np.float64)
+    climax_stereo = np.zeros((n_samples, 2), dtype=np.float64)
+    silence_mask = np.ones(n_samples, dtype=np.float64)
+    wind_mask = np.ones(n_samples, dtype=np.float64)
+
     if not scenes:
         scenes = [{"start": 0.0, "dur": dur, "end": dur}]
 
@@ -394,41 +504,144 @@ def synth_ink_guqin_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Gene
     for idx, sc in enumerate(scenes):
         start_t = float(sc.get("start", 0.0))
         sc_dur = float(sc.get("dur", max(1.0, dur - start_t)))
+        end_t = min(dur, start_t + sc_dur)
         chord = chords[idx % len(chords)]
+        mood = _infer_ink_scene_mood(sc, idx, len(scenes), cues or [])
 
-        # 1. Opening deep Guqin open-string bass pluck (`散音`) at scene start
-        n_open = synth_guqin_note(chord[0], min(3.4, sc_dur * 0.95), "open", rng)
-        mix_into(stereo, int(round(start_t * SR)), n_open, pan=-0.22)
+        if mood == "suspend":
+            # Find `blade_clique` cue inside scene if present, else place silence window in the final third
+            clique_t = None
+            for c in cues or []:
+                ct = float(c.get("t", -1.0))
+                ck = f"{c.get('kind', '')}:{c.get('label', '')}".lower()
+                if start_t <= ct <= end_t and ("blade_clique" in ck or "unsheathe" in ck):
+                    clique_t = ct - start_t
+                    break
+            sil_end_local = clique_t if clique_t is not None else min(sc_dur - 0.45, sc_dur * 0.72)
+            sil_start_local = max(0.65, sil_end_local - 0.56)
 
-        # 2. Expressive sliding press note (`走手音 / 吟猱`) at +0.65s
-        if sc_dur > 1.2:
-            n_slide = synth_guqin_note(chord[2], min(2.8, sc_dur - 0.5), "slide", rng, slide_ratio=9.0 / 8.0)
-            mix_into(stereo, int(round((start_t + 0.62) * SR)), n_slide, pan=0.18)
+            # Opening tense Guqin open fifth + low sliding press note before the silence hold
+            n_open = synth_guqin_note(chord[0], min(sil_start_local + 0.15, 1.65), "open", rng) * 0.85
+            mix_into(stereo, int(round(start_t * SR)), n_open, pan=-0.20)
+            if sil_start_local > 0.75:
+                n_slide = synth_guqin_note(chord[1], sil_start_local - 0.35, "slide", rng, slide_ratio=16.0 / 15.0) * 0.78
+                mix_into(stereo, int(round((start_t + 0.38) * SR)), n_slide, pan=0.18)
 
-        # 3. Crystalline Guqin harmonic phrases (`泛音`) scattered across the middle of the scene
-        harm_offsets = [1.28, 1.82, 2.45, 3.05]
-        for h_i, h_off in enumerate(harm_offsets):
-            if h_off + 0.35 < sc_dur:
-                h_freq = chord[(h_i + 1) % len(chord)]
-                n_harm = synth_guqin_note(h_freq, 1.65, "harmonic", rng)
-                pan = -0.32 if (h_i % 2 == 0) else 0.32
-                mix_into(stereo, int(round((start_t + h_off) * SR)), n_harm, pan=pan)
+            # Carve out the 0.55s breathless silence hold (`绝对屏息死寂`)
+            s0 = max(0, int(round((start_t + sil_start_local) * SR)))
+            s1 = min(n_samples, int(round((start_t + min(sc_dur, sil_end_local + 0.25)) * SR)))
+            fade_len = min(int(0.12 * SR), max(1, (s1 - s0) // 4))
+            if s1 > s0:
+                silence_mask[s0:s1] = 0.0
+                if s0 - fade_len >= 0:
+                    silence_mask[s0 - fade_len : s0] = np.linspace(1.0, 0.0, fade_len)
+                wind_mask[max(0, s0 - fade_len) : min(n_samples, int(round(end_t * SR)))] = 0.05
 
-        # 4. Distant Bamboo Xiao flute (`洞箫`) answering phrase
-        if sc_dur > 1.8:
-            xiao_freq = chord[3] if idx % 2 == 0 else chord[4]
-            xiao = synth_xiao_phrase(xiao_freq, min(2.6, sc_dur - 0.7), rng)
-            mix_into(stereo, int(round((start_t + 0.85) * SR)), xiao, pan=0.25 if idx % 2 == 0 else -0.25)
+        elif mood == "kill_burst":
+            # Find burst timestamp (default +0.45s anticipation stillness -> burst!)
+            burst_local = 0.46
+            for c in cues or []:
+                ct = float(c.get("t", -1.0))
+                ck = f"{c.get('kind', '')}:{c.get('label', '')}".lower()
+                if start_t + 0.15 <= ct <= end_t and any(
+                    w in ck for w in ("blade_cleave", "taiko_impact", "kill", "burst")
+                ):
+                    burst_local = clamp_val = max(0.35, min(1.1, ct - start_t))
+                    break
 
-    # Convolve the instrument stems with the Paulownia Guqin wood cavity & canyon IR
-    stereo = convolve_body_ir(stereo, "guqin_wood", wet=0.48)
+            # 1. 0.45s Anticipation Silence Hold (`蓄力绝对静默`)
+            s0 = max(0, int(round(start_t * SR)))
+            s1 = min(n_samples, int(round((start_t + burst_local) * SR)))
+            if s1 > s0:
+                silence_mask[s0:s1] = 0.0
+                wind_mask[s0:s1] = 0.0
 
-    # 5. Subtle mountain pine wind & silk stream ambience (`松风溪响`)
+            # 2. Explosive Burst: Heavy Taiko War Drum + Fierce Guqin/Pipa Strumming Slash!
+            burst_idx = int(round((start_t + burst_local) * SR))
+            taiko_main = synth_taiko_impact(1.0, rng)
+            mix_into(climax_stereo, burst_idx, taiko_main, pan=0.0)
+
+            rem_dur = max(1.2, sc_dur - burst_local)
+            qin_slash = synth_qin_strumming_slash(chord, rem_dur, 0.96, rng)
+            mix_into(climax_stereo, burst_idx, qin_slash, pan=-0.12)
+            mix_into(climax_stereo, burst_idx + int(0.018 * SR), qin_slash * 0.82, pan=0.22)
+
+            # Secondary war-drum punctuation hits syncing with calligraphy slam
+            for sub_off, sub_int, sub_pan in [(0.42, 0.78, -0.18), (0.88, 0.85, 0.18)]:
+                if burst_local + sub_off + 0.3 < sc_dur:
+                    mix_into(
+                        climax_stereo,
+                        int(round((start_t + burst_local + sub_off) * SR)),
+                        synth_taiko_impact(sub_int, rng),
+                        pan=sub_pan,
+                    )
+
+        elif mood == "vast_aftermath":
+            # Keep first ~1.15s quiet & intimate so close-up slow-motion `blade_sheathe` rings out clearly
+            sheathe_window = min(1.15, sc_dur * 0.32)
+            s0 = max(0, int(round(start_t * SR)))
+            s1 = min(n_samples, int(round((start_t + sheathe_window * 0.85) * SR)))
+            if s1 > s0:
+                silence_mask[s0:s1] = 0.18
+
+            # At `start_t + sheathe_window`, as camera pulls back (2.4x -> 1.0x), bloom deep Guqin open bass + cascading harmonics + lone Xiao flute
+            reveal_t = start_t + sheathe_window
+            rem = max(1.5, end_t - reveal_t)
+            n_open = synth_guqin_note(chord[0], min(3.8, rem), "open", rng) * 0.95
+            mix_into(stereo, int(round(reveal_t * SR)), n_open, pan=-0.18)
+
+            if rem > 1.4:
+                n_slide = synth_guqin_note(chord[2], min(3.0, rem - 0.3), "slide", rng, slide_ratio=9.0 / 8.0) * 0.85
+                mix_into(stereo, int(round((reveal_t + 0.45) * SR)), n_slide, pan=0.16)
+
+            for h_i, h_off in enumerate([0.25, 0.92, 1.65, 2.38, 3.10]):
+                if sheathe_window + h_off + 0.3 < sc_dur:
+                    h_freq = chord[(h_i + 1) % len(chord)]
+                    n_harm = synth_guqin_note(h_freq, 1.95, "harmonic", rng) * (0.92 - 0.1 * h_i)
+                    pan = -0.35 if (h_i % 2 == 0) else 0.35
+                    mix_into(stereo, int(round((reveal_t + h_off) * SR)), n_harm, pan=pan)
+
+            if rem > 1.6:
+                xiao = synth_xiao_phrase(chord[3], min(3.2, rem - 0.4), rng) * 0.92
+                mix_into(stereo, int(round((reveal_t + 0.55) * SR)), xiao, pan=0.24)
+
+        else:
+            # Default `serene`: Unhurried Song-Yuan mountain scroll (`古琴散音/走手吟猱 + 松风留白`)
+            n_open = synth_guqin_note(chord[0], min(3.4, sc_dur * 0.95), "open", rng)
+            mix_into(stereo, int(round(start_t * SR)), n_open, pan=-0.22)
+
+            if sc_dur > 1.2:
+                n_slide = synth_guqin_note(chord[2], min(2.8, sc_dur - 0.5), "slide", rng, slide_ratio=9.0 / 8.0)
+                mix_into(stereo, int(round((start_t + 0.68) * SR)), n_slide, pan=0.18)
+
+            # Sparse, unhurried harmonics (2 gentle notes instead of a mechanical 4-note metronome)
+            for h_i, h_off in enumerate([1.55, 2.68]):
+                if h_off + 0.35 < sc_dur:
+                    h_freq = chord[(h_i + 2) % len(chord)]
+                    n_harm = synth_guqin_note(h_freq, 1.75, "harmonic", rng) * 0.85
+                    pan = -0.30 if (h_i % 2 == 0) else 0.30
+                    mix_into(stereo, int(round((start_t + h_off) * SR)), n_harm, pan=pan)
+
+            if sc_dur > 1.9:
+                xiao_freq = chord[3] if idx % 2 == 0 else chord[4]
+                xiao = synth_xiao_phrase(xiao_freq, min(2.5, sc_dur - 0.8), rng) * 0.85
+                mix_into(stereo, int(round((start_t + 0.95) * SR)), xiao, pan=0.25 if idx % 2 == 0 else -0.25)
+
+    # Convolve melodic Guqin/Xiao stems with Paulownia wood cavity IR, then enforce `silence_mask`
+    stereo = convolve_body_ir(stereo, "guqin_wood", wet=0.46)
+    stereo *= silence_mask[:, None]
+
+    # Add climax war-drum & martial strumming with lighter canyon room reflection so transients stay razor-sharp
+    if np.max(np.abs(climax_stereo)) > 1e-6:
+        climax_stereo = convolve_body_ir(climax_stereo, "guqin_wood", wet=0.22)
+        stereo += climax_stereo
+
+    # Mountain pine wind & silk stream ambience (`松风呼吸`), gated by `wind_mask * silence_mask`
     t_all = np.arange(n_samples, dtype=np.float64) / SR
     breeze_mod = 0.55 + 0.45 * np.sin(2.0 * np.pi * 0.19 * t_all)
     wind = rng.standard_normal((n_samples, 2)) * 0.0032 * breeze_mod[:, None]
     sos_wind = signal.butter(2, [220.0 / (0.5 * SR), 1450.0 / (0.5 * SR)], btype="band", output="sos")
-    stereo += signal.sosfilt(sos_wind, wind, axis=0)
+    stereo += signal.sosfilt(sos_wind, wind, axis=0) * (wind_mask * silence_mask)[:, None]
     return stereo
 
 
@@ -820,6 +1033,149 @@ def synth_stroke_draw(preset: str, intensity: float, rng: np.random.Generator) -
 
 def synth_runtime_foley(kind: str, preset: str, intensity: float, rng: np.random.Generator) -> np.ndarray:
     """Synthesizes semantic action foley emitted at runtime by 2D/3D characters and world primitives."""
+    if kind == "blade_clique":
+        # Thumb pushes sword guard open an inch of cold steel (`拇指推锷寸许出鞘寒鸣`)
+        dur = 0.56
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        # 1. Bronze sword-guard (`剑格/吞口`) thumb-release mechanical click at t=0..0.025s
+        guard_click = (
+            np.sin(2.0 * np.pi * 940.0 * t * np.exp(-t * 18.0)) * np.exp(-t / 0.014) * 0.24
+            + np.sin(2.0 * np.pi * 2480.0 * t) * np.exp(-t / 0.008) * 0.18
+        )
+        # 2. 1-inch cold steel sliding against scabbard mouth (`寸许出鞘金属刮擦`) at t=0.012..0.12s
+        scrape_env = np.exp(-((t - 0.052) / 0.034) ** 2) * np.clip((t - 0.008) / 0.012, 0.0, 1.0)
+        sos_scrape = signal.butter(2, [2200.0 / (0.5 * SR), 6800.0 / (0.5 * SR)], btype="band", output="sos")
+        scrape = signal.sosfilt(sos_scrape, rng.standard_normal(n)) * scrape_env * 0.22
+        # 3. High-Q forged steel crystalline modal ring (`寒芒清越余鸣`) hanging in the silence
+        ring_env = np.clip((t - 0.018) / 0.006, 0.0, 1.0) * np.exp(-np.maximum(0.0, t - 0.018) / 0.24)
+        f_sweep = 1.0 + 0.018 * np.exp(-np.maximum(0.0, t - 0.018) / 0.04)
+        ring = (
+            0.28 * np.sin(2.0 * np.pi * 2640.0 * f_sweep * t)
+            + 0.22 * np.sin(2.0 * np.pi * 4180.0 * f_sweep * t + 0.4)
+            + 0.14 * np.sin(2.0 * np.pi * 6850.0 * t) * np.exp(-t / 0.15)
+            + 0.08 * np.sin(2.0 * np.pi * 9120.0 * t) * np.exp(-t / 0.09)
+        ) * ring_env
+        return (guard_click + scrape + ring) * intensity
+
+    if kind == "blade_cleave":
+        # Lethal Wuxia heavy blade air-cleave + high-frequency metallic ring + low-frequency air shockwave (`破空斩击+高频金属铮鸣+低频气浪`)
+        dur = 0.68
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        # 1. Low-frequency air displacement shockwave (`低频破空气浪`)
+        f_sub = 54.0 + 135.0 * np.exp(-t / 0.042)
+        phase_sub = 2.0 * np.pi * np.cumsum(f_sub) / SR
+        sub_wave = np.sin(phase_sub) * np.exp(-t / 0.14) * np.clip(t / 0.003, 0.0, 1.0) * 0.42
+        # 2. Fast Doppler air-cleave whip (`凌厉刀风破空`)
+        sos_low_whip = signal.butter(2, [280.0 / (0.5 * SR), 1850.0 / (0.5 * SR)], btype="band", output="sos")
+        sos_hi_whip = signal.butter(2, [1800.0 / (0.5 * SR), 6400.0 / (0.5 * SR)], btype="band", output="sos")
+        whip_env = np.exp(-((t - 0.055) / 0.045) ** 2) + 0.45 * np.exp(-((t - 0.12) / 0.075) ** 2)
+        whip = (
+            signal.sosfilt(sos_low_whip, noise) * whip_env * 0.30
+            + signal.sosfilt(sos_hi_whip, noise) * np.exp(-((t - 0.048) / 0.032) ** 2) * 0.26
+        )
+        # 3. High-frequency forged blade lethal ring (`高频白刃铮鸣`)
+        ring_env = np.clip((t - 0.02) / 0.004, 0.0, 1.0) * (0.65 * np.exp(-t / 0.26) + 0.35 * np.exp(-t / 0.48))
+        shimmer = 1.0 + 0.18 * np.sin(2.0 * np.pi * 24.0 * t)
+        steel_ring = (
+            0.24 * np.sin(2.0 * np.pi * 1920.0 * t)
+            + 0.20 * np.sin(2.0 * np.pi * 3140.0 * t + 0.7)
+            + 0.15 * np.sin(2.0 * np.pi * 5120.0 * t + 1.3)
+            + 0.09 * np.sin(2.0 * np.pi * 7480.0 * t) * np.exp(-t / 0.16)
+        ) * ring_env * shimmer
+        return (sub_wave + whip + steel_ring) * intensity
+
+    if kind == "blood_splatter":
+        # Explosive thick ink / arterial splatter + heavy body collapse onto ground (`浓墨朱砂飞溅与敌手重物坠地`)
+        dur = 0.62
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        # 1. Arterial / wet ink burst (`朱砂浓墨喷溅`, t=0.00..0.24s)
+        sos_wet = signal.butter(2, [620.0 / (0.5 * SR), 4800.0 / (0.5 * SR)], btype="band", output="sos")
+        wet_env = np.exp(-((t - 0.035) / 0.028) ** 2)
+        for drop_t, drop_g in ((0.075, 0.65), (0.115, 0.48), (0.165, 0.32), (0.21, 0.22)):
+            wet_env += drop_g * np.exp(-((t - drop_t) / 0.014) ** 2)
+        splatter = signal.sosfilt(sos_wet, noise) * wet_env * 0.28
+        # 2. Heavy struck silhouette collapsing to the ground (`受创剪影倾倒坠地闷响`, t=0.15..0.55s)
+        t_fall = np.maximum(0.0, t - 0.15)
+        fall_gate = (t >= 0.15).astype(np.float64) * np.clip(t_fall / 0.006, 0.0, 1.0)
+        f_thud = 46.0 + 78.0 * np.exp(-t_fall / 0.045)
+        phase_thud = 2.0 * np.pi * np.cumsum(f_thud) / SR
+        body_thud = np.sin(phase_thud) * np.exp(-t_fall / 0.13) * fall_gate * 0.36
+        sos_cloth = signal.butter(2, [180.0 / (0.5 * SR), 1200.0 / (0.5 * SR)], btype="band", output="sos")
+        cloth_rustle = signal.sosfilt(sos_cloth, noise) * np.exp(-((t - 0.19) / 0.08) ** 2) * 0.16
+        return (splatter + body_thud + cloth_rustle) * intensity
+
+    if kind == "calligraphy_slam":
+        # Wild cursive heavy brush slamming onto Xuan paper + flying-white bristle tear (`狂草重笔砸纸+飞白裂痕扫擦`)
+        dur = 0.54
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        # 1. Heavy brush-heel impact onto stretched Xuan paper (`重笔砸纸闷响`)
+        f_slam = 62.0 + 95.0 * np.exp(-t / 0.030)
+        phase_slam = 2.0 * np.pi * np.cumsum(f_slam) / SR
+        slam_thud = np.sin(phase_slam) * np.exp(-t / 0.075) * np.clip(t / 0.003, 0.0, 1.0) * 0.34
+        # 2. Aggressive flying-white wolf-hair bristle tear (`焦墨飞白疾扫裂纸声`)
+        sos_body = signal.butter(2, [420.0 / (0.5 * SR), 1900.0 / (0.5 * SR)], btype="band", output="sos")
+        sos_bristle = signal.butter(2, [2100.0 / (0.5 * SR), 6400.0 / (0.5 * SR)], btype="band", output="sos")
+        ripple = 0.78 + 0.22 * np.sin(2.0 * np.pi * 32.0 * t)
+        sweep_env = np.clip(t / 0.015, 0.0, 1.0) * np.exp(-np.maximum(0.0, t - 0.04) / 0.18) * ripple
+        tear = (
+            signal.sosfilt(sos_body, noise) * sweep_env * 0.24
+            + signal.sosfilt(sos_bristle, noise) * sweep_env * 0.20
+        )
+        return (slam_thud + tear) * intensity
+
+    if kind == "blade_sheathe":
+        # Slow-motion metallic slide into scabbard + crisp collar lock snap (`慢动作金属滑入剑鞘+归鞘入扣脆响`)
+        dur = 0.78
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        noise = rng.standard_normal(n)
+        # 1. Smooth metallic glide along wooden/lacquered scabbard (`慢动作滑入剑鞘`, t=0.00..0.44s)
+        glide_win = np.sin(np.pi * np.clip(t / 0.44, 0.0, 1.0)) ** 0.85 * (t <= 0.44).astype(np.float64)
+        sos_glide = signal.butter(2, [1400.0 / (0.5 * SR), 5200.0 / (0.5 * SR)], btype="band", output="sos")
+        f_slide = 1520.0 + 1680.0 * np.clip(t / 0.44, 0.0, 1.0) ** 1.2
+        phase_slide = 2.0 * np.pi * np.cumsum(f_slide) / SR
+        glide = (
+            signal.sosfilt(sos_glide, noise) * 0.13
+            + np.sin(phase_slide) * 0.075
+            + np.sin(phase_slide * 1.58) * 0.045
+        ) * glide_win
+        # 2. Crisp bronze collar lock snap (`归鞘入扣清脆卡扣声`, t=0.47..0.76s)
+        t_lock = np.maximum(0.0, t - 0.47)
+        lock_gate = (t >= 0.47).astype(np.float64) * np.clip(t_lock / 0.002, 0.0, 1.0)
+        wood_knock = np.sin(2.0 * np.pi * 760.0 * t_lock * np.exp(-t_lock * 14.0)) * np.exp(-t_lock / 0.026) * 0.30
+        metal_clasp = (
+            np.sin(2.0 * np.pi * 2920.0 * t_lock) * np.exp(-t_lock / 0.048) * 0.24
+            + np.sin(2.0 * np.pi * 4680.0 * t_lock + 0.5) * np.exp(-t_lock / 0.032) * 0.16
+            + rng.standard_normal(n) * np.exp(-t_lock / 0.005) * 0.14
+        )
+        return (glide + (wood_knock + metal_clasp) * lock_gate) * intensity
+
+    if kind == "cinnabar_seal_stamp":
+        # Heavy stone seal stamp onto Xuan paper (`朱砂方印落定`)
+        dur = 0.32
+        n = int(round(dur * SR))
+        t = np.arange(n, dtype=np.float64) / SR
+        f_stone = 88.0 + 110.0 * np.exp(-t / 0.022)
+        phase_stone = 2.0 * np.pi * np.cumsum(f_stone) / SR
+        stone_thud = np.sin(phase_stone) * np.exp(-t / 0.065) * 0.32
+        sos_grit = signal.butter(2, [950.0 / (0.5 * SR), 4200.0 / (0.5 * SR)], btype="band", output="sos")
+        grit = signal.sosfilt(sos_grit, rng.standard_normal(n)) * np.exp(-t / 0.028) * 0.14
+        return (stone_thud + grit) * intensity
+
+    if kind == "taiko_impact":
+        return synth_taiko_impact(intensity, rng)
+
+    if kind == "qin_strumming_slash":
+        chord = PRESETS.get(preset, PRESETS["ink"]).get("chords", [[146.83, 196.00, 220.00, 293.66, 329.63]])[2 % 4]
+        return synth_qin_strumming_slash(chord, 1.35, intensity, rng)
+
     if kind == "wave_surge":
         # Cresting river/sea wave roar + foam spray (`惊涛拍岸水声`)
         dur = 0.92
@@ -882,10 +1238,83 @@ def synth_runtime_foley(kind: str, preset: str, intensity: float, rng: np.random
     return synth_stroke_draw(preset, intensity, rng)
 
 
-def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1.5) -> np.ndarray:
-    """Applies medium-appropriate tonal shaping, DC block, soft-knee bus compression, and true-peak limiting."""
-    # High-pass to remove DC/rumble (1930s optical film rolls off below 95Hz; modern/ink keeps deep bass down to 28Hz)
-    hp_hz = 95.0 if preset == "jazz" else 28.0
+def _resolve_cue_semantic_action(kind: str, label: str, preset: str) -> str:
+    """Maps (kind, label) from HTML data-cues and runtime cues to exact acoustic synthesis primitives."""
+    k = (kind or "").strip().lower()
+    lbl = (label or "").strip().lower()
+
+    direct_foley = {
+        "blade_clique",
+        "blade_cleave",
+        "blood_splatter",
+        "calligraphy_slam",
+        "blade_sheathe",
+        "cinnabar_seal_stamp",
+        "taiko_impact",
+        "qin_strumming_slash",
+        "wave_surge",
+        "sword_slash",
+        "drink_sip",
+        "brush_sweep",
+        "foot_step",
+        "boing_hop",
+    }
+    if k in direct_foley:
+        return k
+    if lbl in direct_foley:
+        return lbl
+
+    # Semantic substring matching on label so `0.95:impact:cinnabar_seal_stamp:0.98` or `0.50:impact:blade_cleave:1.0` routes accurately
+    for token in (lbl, k):
+        if not token:
+            continue
+        if any(w in token for w in ("blade_clique", "clique", "unsheathe", "thumb_hilt", "guard_push")):
+            return "blade_clique"
+        if any(w in token for w in ("blade_cleave", "cleave", "kill_slash", "crescent_slash")):
+            return "blade_cleave"
+        if any(w in token for w in ("blood_splatter", "blood", "splatter", "crimson_burst")):
+            return "blood_splatter"
+        if any(w in token for w in ("calligraphy_slam", "kuangcao", "verse_slam", "brush_slam")):
+            return "calligraphy_slam"
+        if any(w in token for w in ("blade_sheathe", "sheathe", "scabbard_lock")):
+            return "blade_sheathe"
+        if any(w in token for w in ("cinnabar", "seal_stamp", "seal")):
+            return "cinnabar_seal_stamp"
+        if any(w in token for w in ("taiko", "war_drum", "drum_slam")):
+            return "taiko_impact"
+        if any(w in token for w in ("qin_strumming", "strumming_slash", "pipa_slash")):
+            return "qin_strumming_slash"
+        if "sword" in token or "slash" in token:
+            return "sword_slash"
+        if "wave" in token or "surge" in token:
+            return "wave_surge"
+        if "drink" in token or "wine" in token or "sip" in token:
+            return "drink_sip"
+        if "step" in token or "walk" in token or "stride" in token:
+            return "foot_step"
+        if any(w in token for w in ("xingcao", "verse", "colophon", "brush", "stroke", "inscription")):
+            return "stroke_draw"
+
+    if k in ("scene_cut", "cut"):
+        return "scene_cut"
+    if k in ("layer_float", "float", "mist"):
+        return "layer_float"
+    if k in ("count_tick", "tick"):
+        return "count_tick"
+    if k in ("stroke_draw", "stroke"):
+        return "stroke_draw"
+    if k in ("impact", "hit", "slam"):
+        return "cinnabar_seal_stamp" if preset == "ink" else "card_enter"
+    if k in ("enter", "card_enter"):
+        return "stroke_draw" if preset == "ink" else "card_enter"
+
+    return "card_enter"
+
+
+def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1.2) -> np.ndarray:
+    """Applies medium-appropriate tonal shaping, DC block, dynamic-range-preserving leveling, and true-peak limiting."""
+    # High-pass to remove DC/rumble (1930s optical film rolls off below 95Hz; modern/ink keeps deep Taiko sub-bass down to 26Hz)
+    hp_hz = 95.0 if preset == "jazz" else 26.0
     sos_hp = signal.butter(2, hp_hz / (0.5 * SR), btype="high", output="sos")
     out = signal.sosfilt(sos_hp, stereo, axis=0)
 
@@ -894,19 +1323,36 @@ def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1
         sos_lp = signal.butter(2, 5600.0 / (0.5 * SR), btype="low", output="sos")
         out = signal.sosfilt(sos_lp, out, axis=0)
 
-    # Soft-knee tanh saturation / RMS leveling
-    rms = np.sqrt(np.mean(out ** 2) + 1e-12)
-    target_rms = 0.14  # approx -17 dBFS RMS before peak limiting
-    gain = np.clip(target_rms / rms, 0.5, 4.5)
-    out = np.tanh(out * gain * 1.15) / 1.15
+    # Measure RMS only on active (non-silent) regions so dramatic silence holds are never pumped up
+    mono_abs = np.max(np.abs(out), axis=1)
+    active_mask = mono_abs > 1.5e-3
+    if np.any(active_mask):
+        active_rms = np.sqrt(np.mean(out[active_mask] ** 2) + 1e-12)
+    else:
+        active_rms = np.sqrt(np.mean(out ** 2) + 1e-12)
 
-    # True-peak ceiling at -1.5 dBTP
+    # Preserve wide Crest Factor for dramatic ink-wash scores while keeping healthy loudness
+    target_rms = 0.115 if preset == "ink" else 0.135
+    max_gain = 2.4 if preset == "ink" else 3.6
+    gain = float(np.clip(target_rms / active_rms, 0.55, max_gain))
+    out = out * gain
+
+    # Soft-knee transparent limiting only above knee_thresh (0.68 ~ -3.3 dBFS) so silence & quiet passages stay linear
+    knee_thresh = 0.68
+    mag = np.abs(out)
+    over = mag > knee_thresh
+    if np.any(over):
+        sign = np.sign(out[over])
+        excess = (mag[over] - knee_thresh) / (1.0 - knee_thresh)
+        out[over] = sign * (knee_thresh + (1.0 - knee_thresh) * np.tanh(excess))
+
+    # True-peak ceiling at ceiling_db (-1.2 dBTP)
     ceiling = 10.0 ** (ceiling_db / 20.0)
-    peak = np.max(np.abs(out))
+    peak = float(np.max(np.abs(out)))
     if peak > ceiling:
         out *= ceiling / peak
-    else:
-        out *= min(1.35, ceiling / max(peak, 1e-6))
+    elif peak > 1e-5:
+        out *= min(1.22, ceiling / peak)
 
     # Gentle 40ms fade-in and 120ms fade-out
     n = out.shape[0]
@@ -929,7 +1375,7 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
     cues = cue_data.get("cues", [])
 
     if preset == "ink":
-        stereo = synth_ink_guqin_bed(dur, scenes, cfg, rng)
+        stereo = synth_ink_guqin_bed(dur, scenes, cfg, rng, cues=cues)
     elif preset == "jazz":
         stereo = synth_jazz_swing_bed(dur, scenes, cfg, rng)
     elif preset == "clay":
@@ -941,30 +1387,64 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
     else:
         stereo = synth_ambient_bed(dur, scenes, cfg, rng)
 
+    foley_actions = {
+        "blade_clique",
+        "blade_cleave",
+        "blood_splatter",
+        "calligraphy_slam",
+        "blade_sheathe",
+        "cinnabar_seal_stamp",
+        "taiko_impact",
+        "qin_strumming_slash",
+        "wave_surge",
+        "sword_slash",
+        "drink_sip",
+        "brush_sweep",
+        "foot_step",
+        "boing_hop",
+    }
+
     for idx, cue in enumerate(cues):
         t = float(cue.get("t", 0.0))
-        kind = cue.get("kind", "card_enter")
+        kind = str(cue.get("kind", "card_enter"))
+        label = str(cue.get("label", ""))
         intensity = float(cue.get("intensity", 0.75))
         start_sample = int(round(t * SR))
         pan = float(((idx * 37) % 100 - 50) / 140.0)  # subtle stereo placement (-0.35 .. +0.35)
 
-        if kind == "scene_cut":
+        action = _resolve_cue_semantic_action(kind, label, preset)
+
+        if action == "scene_cut":
+            # If this cut lands at the start of an ink `kill_burst` scene, suppress the bright chime
+            # so the 0.45s pre-strike anticipation silence hold remains dead silent.
+            if preset == "ink":
+                cut_mood = ""
+                for s_idx, s in enumerate(scenes):
+                    if abs(float(s.get("start", 0.0)) - t) < 0.08:
+                        cut_mood = _infer_ink_scene_mood(s, s_idx, len(scenes), cues)
+                        break
+                if cut_mood == "kill_burst":
+                    continue
+                if cut_mood == "suspend":
+                    intensity *= 0.45
             mono = synth_scene_cut(cfg, preset, intensity, idx, rng)
             pan = 0.0
-        elif kind == "layer_float":
+        elif action == "layer_float":
             mono = synth_layer_float(cfg, intensity, idx, rng)
-        elif kind == "count_tick":
+        elif action == "count_tick":
             mono = synth_count_tick(cfg, intensity, idx)
-        elif kind == "stroke_draw":
+        elif action == "stroke_draw":
             mono = synth_stroke_draw(preset, intensity, rng)
-        elif kind in ("wave_surge", "sword_slash", "drink_sip", "brush_sweep", "foot_step", "boing_hop"):
-            mono = synth_runtime_foley(kind, preset, intensity, rng)
+        elif action in foley_actions:
+            mono = synth_runtime_foley(action, preset, intensity, rng)
+            if action in ("taiko_impact", "blade_cleave", "blade_clique", "blade_sheathe"):
+                pan = 0.0
         else:
             mono = synth_card_enter(cfg, intensity, idx, rng)
 
         mix_into(stereo, start_sample, mono, pan=pan)
 
-    return master_bus(stereo, preset=preset, ceiling_db=-1.5)
+    return master_bus(stereo, preset=preset, ceiling_db=-1.2)
 
 
 def write_wav(path: Path, stereo: np.ndarray):

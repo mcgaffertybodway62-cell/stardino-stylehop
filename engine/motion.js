@@ -372,21 +372,35 @@ export function extractCues(root) {
     }
 
     // Support explicit action foley cues on pure-3D / Canvas scenes:
-    // e.g. data-cues="0.22:card_enter:drop, 0.68:layer_float:open, 1.35:count_tick:step"
+    // e.g. data-cues="0.22:card_enter:drop, 0.95:impact:cinnabar_seal_stamp:0.98, 2.18:blade_clique:unsheathe:0.95"
     if (s.el.dataset.cues) {
       for (const token of s.el.dataset.cues.split(',')) {
-        const parts = token.trim().split(':');
+        const parts = token.trim().split(':').map((p) => p.trim());
         const offset = parseFloat(parts[0]);
         if (Number.isNaN(offset) || offset < 0 || offset >= s.dur) continue;
-        const kind = parts[1] || 'card_enter';
-        const label = parts[2] || s.id;
-        const intensity = parts[3] ? parseFloat(parts[3]) : 0.78;
+        const rawKind = parts[1] || 'card_enter';
+        let label = s.id;
+        let intensity = 0.78;
+        if (parts.length >= 4) {
+          label = parts[2] || rawKind;
+          const parsedInt = parseFloat(parts[3]);
+          if (!Number.isNaN(parsedInt)) intensity = parsedInt;
+        } else if (parts.length === 3) {
+          if (/^\d+(\.\d+)?$/.test(parts[2])) {
+            label = rawKind;
+            intensity = parseFloat(parts[2]);
+          } else {
+            label = parts[2] || rawKind;
+          }
+        } else {
+          label = rawKind;
+        }
         rawCues.push({
           t: +(s.start + offset).toFixed(3),
-          kind,
+          kind: rawKind,
           scene: s.id,
           label,
-          intensity,
+          intensity: +clamp(intensity, 0.1, 1.0).toFixed(2),
         });
       }
     } else if (i === 0 && s.layers.length === 0) {
@@ -416,10 +430,11 @@ export function extractCues(root) {
 
   rawCues.sort((a, b) => a.t - b.t);
 
-  // Deduplicate near-simultaneous cues of the same kind within 45ms
+  // Deduplicate near-simultaneous cues of the same (kind, label) within 45ms
   const cues = [];
   for (const c of rawCues) {
-    const prev = cues.findLast((p) => p.kind === c.kind);
+    const cKey = `${c.kind}:${c.label || c.kind}`;
+    const prev = cues.findLast((p) => `${p.kind}:${p.label || p.kind}` === cKey);
     if (prev && Math.abs(c.t - prev.t) < 0.045) continue;
     cues.push(c);
   }
@@ -434,6 +449,9 @@ export function extractCues(root) {
       dur: s.dur,
       end: s.end,
       settle: s.settle,
+      mood: s.el?.dataset?.mood || null,
+      look: s.el?.dataset?.look || null,
+      silence: s.el?.dataset?.silence || null,
     })),
     cues,
   };
@@ -441,8 +459,8 @@ export function extractCues(root) {
 
 /**
  * Registers a deterministic semantic audio cue from 2D/3D character acting (`puppet2d.js`, `puppet.js`, `critter2d.js`)
- * or dynamic world primitives (`drawGesturalWave`, `bookDirector` page turns) into `window.CUES.cues`.
- * Automatically deduplicates cues of the same `kind` within 90ms so multi-frame renders stay idempotent.
+ * or dynamic world primitives (`drawGesturalWave`, `bookDirector` page turns, Wuxia action primitives) into `window.CUES.cues`.
+ * Automatically deduplicates cues of the same `(kind, label)` within 90ms so multi-frame renders stay idempotent.
  *
  * @param {{ t: number, kind: string, scene?: string, label?: string, intensity?: number }} cue
  */
@@ -452,15 +470,16 @@ export function registerRuntimeCue(cue) {
   const maxDur = window.DUR || window.CUES.dur || 60;
   if (cue.t > maxDur) return;
   const kind = String(cue.kind || 'card_enter');
+  const label = String(cue.label || kind);
   const t = +cue.t.toFixed(3);
   const list = window.CUES.cues;
-  const dup = list.some((c) => c.kind === kind && Math.abs(c.t - t) < 0.09);
+  const dup = list.some((c) => c.kind === kind && (c.label || c.kind) === label && Math.abs(c.t - t) < 0.09);
   if (dup) return;
   list.push({
     t,
     kind,
     scene: cue.scene || 'stage',
-    label: cue.label || kind,
+    label,
     intensity: +clamp(cue.intensity ?? 0.75, 0.15, 1.0).toFixed(2),
   });
   list.sort((a, b) => a.t - b.t);

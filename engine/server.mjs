@@ -33,8 +33,16 @@ export function startStaticServer(rootDir, port = 0) {
           return;
         }
         if (relPath.endsWith('/')) relPath += 'index.html';
-        const absPath = path.resolve(rootDir, '.' + relPath);
-        if (!absPath.startsWith(rootDir)) {
+        const outRoot = path.resolve(process.env.STYLEHOP_OUT || path.join(rootDir, '..', 'out'));
+        let absPath = path.resolve(rootDir, '.' + relPath);
+        if (relPath.startsWith('/out/') && !fs.existsSync(absPath)) {
+          const outSubPath = relPath.slice('/out/'.length);
+          const candidate = path.resolve(outRoot, outSubPath);
+          if (candidate.startsWith(outRoot)) {
+            absPath = candidate;
+          }
+        }
+        if (!absPath.startsWith(rootDir) && !absPath.startsWith(outRoot)) {
           res.writeHead(403);
           res.end('Forbidden');
           return;

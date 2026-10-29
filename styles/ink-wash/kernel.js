@@ -3383,24 +3383,49 @@ export function drawCinnabarSeal(ctx, cx, cy, opts = {}) {
 }
 
 /**
- * Renders a Vertical Classical Calligraphic Inscription (`竖排题跋落款 + 朱印`).
- * By default (`screenSpace: true`), anchors the inscription in the scroll-margin negative space
- * (`画幅留白题跋层`) so camera zoom/glides onto the subject never crop or sweep the poem off-screen
- * before the viewer finishes reading it.
+ * Renders an In-Painting Calligraphic Verse Performance (`画内诗画同源书法演出层`).
+ *
+ * Breaks out of small margin-only colophons to perform one poetic verse per scene directly
+ * inside the painting's negative space, with two expressive calligraphic modes:
+ *   - `'xingcao'` (`温润行草`): Warm running-cursive brushwork, soft wet-ink capillary bloom
+ *     (`淡墨水晕`), delicate filament links (`游丝牵丝`), and breathing negative space.
+ *   - `'kuangcao'` (`焦墨狂草`): High-tension wild-cursive impact for martial climaxes —
+ *     charcoal ink (`TONE.jiao`) slamming onto the canvas with per-character staccato punch
+ *     (`顿挫砸纸`), dry-bristle flying-white fissures (`飞白裂痕`), and cinnabar vermilion
+ *     splatter accents (`朱砂飞溅印记`).
  */
-export function drawVerticalColophon(ctx, x, y, opts = {}) {
+export function drawCalligraphicVerse(ctx, x, y, opts = {}) {
   const {
-    lines = ['山高水长 · 四时丹青'],
-    sealText = '丹青',
+    lines = ['十步杀一人'],
+    style = 'xingcao', // 'xingcao' | 'kuangcao' | 'kaishu'
+    layout = 'vertical', // 'vertical' | 'staggered' | 'horizontal'
+    sealText = '',
     reveal = 1.0,
     color = INK_PALETTE.inkJiao,
-    fontSize = 24,
+    accentColor = INK_PALETTE.zhuSha,
+    fontSize = style === 'kuangcao' ? 76 : 32,
     screenSpace = true,
+    freePlacement = true,
+    withSplatter = style === 'kuangcao',
+    seed = 307,
   } = opts;
-  // Accelerate brush-in so the poem finishes revealing early in the scene and holds steadily for reading
+
+  const isKuangcao = style === 'kuangcao';
   const rawU = clamp(reveal, 0, 1);
-  const u = clamp(Math.pow(rawU, 0.58) * 1.38, 0, 1);
-  if (u <= 0.02) return;
+  const u = isKuangcao
+    ? clamp(Math.pow(rawU, 0.72) * 1.25, 0, 1)
+    : clamp(Math.pow(rawU, 0.58) * 1.38, 0, 1);
+  if (u <= 0.015) return;
+
+  if (isKuangcao && rawU > 0.05 && rawU < 0.45 && ctx.__inkFrame) {
+    registerRuntimeCue({
+      t: ctx.__inkFrame.t ?? 0,
+      kind: 'calligraphy_slam',
+      scene: ctx.__inkFrame.scene?.id || 'stage',
+      label: 'calligraphy_slam',
+      intensity: 0.96,
+    });
+  }
 
   ctx.save();
   let drawX = x;
@@ -3413,29 +3438,34 @@ export function drawVerticalColophon(ctx, x, y, opts = {}) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.translate(width * 0.5, height * 0.5);
     ctx.scale(vpScale, vpScale);
-    const driftX = cam ? (cam.panX || 0) * 0.05 : 0;
-    const driftY = cam ? (cam.panY || 0) * 0.05 : 0;
+    const driftFactor = isKuangcao ? 0.02 : 0.05;
+    const driftX = cam ? (cam.panX || 0) * driftFactor : 0;
+    const driftY = cam ? (cam.panY || 0) * driftFactor : 0;
     ctx.translate(-960 - driftX, -540 - driftY);
-    // Anchor in the left or right scroll margin (`天头边栏留白`) so central hero close-ups never collide with text
-    drawX = x < 960 ? clamp(x, 155, 245) : clamp(x, 1665, 1765);
-    drawY = clamp(y, 105, 210);
+    if (!freePlacement) {
+      drawX = x < 960 ? clamp(x, 155, 285) : clamp(x, 1625, 1765);
+      drawY = clamp(y, 100, 230);
+    } else {
+      drawX = clamp(x, 130, 1790);
+      drawY = clamp(y, 88, 920);
+    }
   }
 
-  const textAlpha = 0.92 * Math.min(1, rawU * 2.2);
+  const rng = mulberry32(seed);
+  const textAlpha = clamp(isKuangcao ? Math.min(1, rawU * 3.2) : 0.94 * Math.min(1, rawU * 2.2), 0, 1);
   const [tr, tg, tb] = hexToRgb(color);
   const isLightText = (tr * 0.299 + tg * 0.587 + tb * 0.114) > 150;
-  const lineSpacing = fontSize * 1.62;
-  const charStep = fontSize * 1.22;
+  const lineSpacing = fontSize * (isKuangcao ? 1.48 : 1.62);
+  const charStep = fontSize * (isKuangcao ? 1.18 : 1.24);
 
-  // Sanitize vertical classical lines: strip horizontal book-title marks 《》/"" and convert
-  // modern horizontal punctuation (·, ，, 。, 、) into traditional vertical breathing gaps (`句读留白`)
-  const parsedLines = lines.map((rawLine) => {
+  const rawList = Array.isArray(lines) ? lines : [String(lines)];
+  const parsedLines = rawList.map((rawLine) => {
     const clean = String(rawLine).replace(/[《》〈〉「」『』"“”'‘’]/g, ' ');
     const tokens = [];
     for (const ch of clean) {
       if (/[·•，。、；：,.;:\s]/.test(ch)) {
         if (tokens.length > 0 && tokens[tokens.length - 1].type !== 'gap') {
-          tokens.push({ type: 'gap', step: charStep * 0.52 });
+          tokens.push({ type: 'gap', step: charStep * 0.5 });
         }
       } else {
         tokens.push({ type: 'char', ch, step: charStep });
@@ -3444,67 +3474,274 @@ export function drawVerticalColophon(ctx, x, y, opts = {}) {
     return tokens;
   });
 
-  ctx.save();
-  ctx.fillStyle = rgba(color, textAlpha);
-  ctx.font = `600 ${fontSize}px "STKaiti", "Kaiti SC", "FZKai-Z03S", "AR PL UKai CN", "Noto Serif CJK SC", "WenQuanYi Zen Hei", serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.shadowColor = isLightText ? rgba(INK_PALETTE.inkJiao, 0.78 * textAlpha) : rgba(INK_PALETTE.xuanWarm, 0.88 * textAlpha);
-  ctx.shadowBlur = 10;
+  const totalChars = Math.max(
+    1,
+    parsedLines.reduce((acc, tkList) => acc + tkList.filter((tk) => tk.type === 'char').length, 0)
+  );
 
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  let globalCharIdx = 0;
   let maxColHeight = 0;
+  let lastCharPos = [drawX, drawY];
+
   parsedLines.forEach((tokens, colIdx) => {
-    const cx = drawX - colIdx * lineSpacing;
-    const charTokens = tokens.filter((tk) => tk.type === 'char');
-    const visibleChars = Math.ceil(charTokens.length * u);
-    let seenChars = 0;
-    let curY = drawY;
+    const colBaseX =
+      layout === 'horizontal'
+        ? drawX
+        : drawX - colIdx * lineSpacing;
+    const colBaseY =
+      layout === 'horizontal'
+        ? drawY + colIdx * lineSpacing
+        : drawY + (layout === 'staggered' ? colIdx * fontSize * 0.45 : 0);
+
+    let curX = colBaseX;
+    let curY = colBaseY;
+    let prevCharPt = null;
+
     for (let i = 0; i < tokens.length; i++) {
       const tk = tokens[i];
       if (tk.type === 'gap') {
-        if (seenChars < visibleChars) {
-          // Subtle traditional cinnabar pause dot (`朱砂句读点`) inside vertical breathing gap
+        const prevRevealed = globalCharIdx / totalChars <= u;
+        if (prevRevealed) {
           ctx.save();
-          ctx.fillStyle = rgba(INK_PALETTE.zhuSha, 0.58 * textAlpha);
+          ctx.fillStyle = rgba(accentColor, 0.72 * textAlpha);
           ctx.beginPath();
-          ctx.arc(cx, curY + tk.step * 0.36, Math.max(2.0, fontSize * 0.09), 0, Math.PI * 2);
+          const gx = layout === 'horizontal' ? curX + tk.step * 0.35 : curX;
+          const gy = layout === 'horizontal' ? curY : curY + tk.step * 0.35;
+          ctx.arc(gx, gy, Math.max(2.5, fontSize * 0.095), 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
-          curY += tk.step;
         }
+        if (layout === 'horizontal') curX += tk.step;
+        else curY += tk.step;
         continue;
       }
-      if (seenChars >= visibleChars) break;
-      seenChars++;
-      // Render with subtle calligraphic brush posture (`右上取势 · 提按墨韵`)
-      ctx.save();
-      ctx.translate(cx, curY);
-      ctx.transform(1, -0.035, -0.04, 1, 0, 0);
-      ctx.strokeStyle = rgba(color, 0.28 * textAlpha);
-      ctx.lineWidth = 0.9;
-      ctx.strokeText(tk.ch, 0, 0);
-      ctx.fillText(tk.ch, 0, 0);
-      ctx.restore();
-      curY += tk.step;
+
+      const charStartU = (globalCharIdx / totalChars) * 0.78;
+      const charDurU = Math.max(0.16, 0.55 / totalChars);
+      const charProg = clamp((u - charStartU) / charDurU, 0, 1);
+      globalCharIdx++;
+
+      if (charProg <= 0.01) {
+        if (layout === 'horizontal') curX += tk.step;
+        else curY += tk.step;
+        continue;
+      }
+
+      const jitterX = (rng() - 0.5) * fontSize * (isKuangcao ? 0.16 : 0.06);
+      const jitterY = (rng() - 0.5) * fontSize * (isKuangcao ? 0.1 : 0.04);
+      const staggerX = layout === 'staggered' ? (globalCharIdx - 1) * fontSize * 0.22 : 0;
+      const cx = curX + jitterX + staggerX;
+      const cy = curY + fontSize * 0.5 + jitterY;
+      lastCharPos = [cx, cy];
+
+      if (isKuangcao) {
+        // Kuangcao staccato slam scale: 1.72x -> 0.96x -> 1.0x
+        const slamScale =
+          charProg < 0.45
+            ? lerp(1.72, 0.96, smootherstep(0, 0.45, charProg))
+            : lerp(0.96, 1.0, smootherstep(0.45, 1.0, charProg));
+        const charAlpha = clamp(charProg * 2.5, 0, 1) * textAlpha;
+
+        // 1. High-contrast negative-space paper/mist backing halo so dark ink cuts through dark scenes
+        const bgGrad = ctx.createRadialGradient(cx, cy, fontSize * 0.08, cx, cy, fontSize * 0.95);
+        const haloCol = isLightText ? INK_PALETTE.inkJiao : INK_PALETTE.xuanWarm;
+        bgGrad.addColorStop(0, rgba(haloCol, (isLightText ? 0.65 : 0.52) * charAlpha));
+        bgGrad.addColorStop(0.55, rgba(haloCol, (isLightText ? 0.32 : 0.22) * charAlpha));
+        bgGrad.addColorStop(1, rgba(haloCol, 0));
+        ctx.fillStyle = bgGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, fontSize * 0.95, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Flying-white dry-bristle slash fissure (`飞白破空裂痕`) behind character
+        const slashAng = -0.38 + (rng() - 0.5) * 0.35;
+        const slashLen = fontSize * (0.78 + rng() * 0.28);
+        const sx0 = cx - Math.cos(slashAng) * slashLen;
+        const sy0 = cy - Math.sin(slashAng) * slashLen;
+        const sx1 = cx + Math.cos(slashAng) * slashLen;
+        const sy1 = cy + Math.sin(slashAng) * slashLen;
+        stroke(
+          ctx,
+          [
+            [sx0, sy0],
+            [cx + (rng() - 0.5) * 8, cy + (rng() - 0.5) * 8],
+            [sx1, sy1],
+          ],
+          {
+            w: fontSize * 0.28,
+            tone: 0.42 * charAlpha,
+            dry: 0.74,
+            prof: 'nail',
+            color: isLightText ? INK_PALETTE.inkJiao : color,
+            seed: seed + globalCharIdx * 19,
+          },
+          charProg,
+          charAlpha
+        );
+
+        // 3. Cinnabar vermilion splatter accents (`朱砂飞溅印记`)
+        if (withSplatter) {
+          const nSp = 3 + (globalCharIdx % 3);
+          for (let sp = 0; sp < nSp; sp++) {
+            const ang = rng() * Math.PI * 2;
+            const dist = fontSize * (0.36 + rng() * 0.48) * clamp(charProg * 1.4, 0, 1);
+            const rDot = (2.2 + rng() * 4.6) * (fontSize / 72);
+            drawInkBlot(
+              ctx,
+              cx + Math.cos(ang) * dist,
+              cy + Math.sin(ang) * dist,
+              rDot,
+              (0.68 + rng() * 0.28) * charAlpha,
+              ang,
+              0.48 + rng() * 0.35,
+              seed + globalCharIdx * 37 + sp,
+              sp === 0 ? INK_PALETTE.yinZhu : accentColor
+            );
+          }
+        }
+
+        // 4. Bold Kuangcao glyph with dry-brush double-offset stroke & aggressive tilt
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(slamScale, slamScale);
+        const rot = -0.07 + (rng() - 0.5) * 0.08;
+        ctx.rotate(rot);
+        ctx.transform(1, -0.08, -0.11, 1, 0, 0);
+        ctx.font = `900 ${Math.round(fontSize)}px "STKaiti", "Kaiti SC", "FZKai-Z03S", "AR PL UKai CN", "Noto Serif CJK SC", "WenQuanYi Zen Hei", serif`;
+        ctx.shadowColor = isLightText ? rgba(INK_PALETTE.inkJiao, 0.92 * charAlpha) : rgba(INK_PALETTE.xuanWarm, 0.92 * charAlpha);
+        ctx.shadowBlur = 14;
+
+        // Outer dry-bristle offset ghost for hand-brushed calligraphic edge roughness
+        ctx.strokeStyle = rgba(accentColor, 0.42 * charAlpha);
+        ctx.lineWidth = Math.max(2.2, fontSize * 0.055);
+        ctx.strokeText(tk.ch, 2.2, -1.5);
+
+        ctx.strokeStyle = rgba(color, 0.88 * charAlpha);
+        ctx.lineWidth = Math.max(2.8, fontSize * 0.068);
+        ctx.strokeText(tk.ch, -1.2, 1.0);
+
+        ctx.fillStyle = rgba(color, charAlpha);
+        ctx.fillText(tk.ch, 0, 0);
+        ctx.restore();
+      } else {
+        // Xingcao (`温润行草 · 呼吸留白 · 淡墨晕染逐笔浮现`)
+        const bloomU = smootherstep(0, 1, charProg);
+        const charAlpha = bloomU * textAlpha;
+        const charScale = lerp(1.14, 1.0, bloomU);
+
+        // 1. Soft wet-ink capillary bloom (`淡墨水晕`) behind emerging character
+        const bloomR = fontSize * (0.62 + 0.22 * (1 - bloomU));
+        const bgGrad = ctx.createRadialGradient(cx, cy, 2, cx, cy, bloomR);
+        const washCol = isLightText ? INK_PALETTE.inkNong : INK_PALETTE.inkDan;
+        bgGrad.addColorStop(0, rgba(washCol, 0.14 * charAlpha * (1.25 - 0.5 * bloomU)));
+        bgGrad.addColorStop(0.6, rgba(washCol, 0.06 * charAlpha));
+        bgGrad.addColorStop(1, rgba(washCol, 0));
+        ctx.fillStyle = bgGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, bloomR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Delicate cursive filament link (`行草游丝牵丝`) from previous character in column
+        if (prevCharPt && bloomU > 0.15) {
+          stroke(
+            ctx,
+            [
+              [prevCharPt[0], prevCharPt[1] + fontSize * 0.34],
+              [(prevCharPt[0] + cx) * 0.5 + (rng() - 0.5) * 6, (prevCharPt[1] + cy) * 0.5],
+              [cx, cy - fontSize * 0.34],
+            ],
+            {
+              w: Math.max(1.1, fontSize * 0.045),
+              tone: 0.28 * charAlpha,
+              dry: 0.62,
+              prof: 'tip',
+              color,
+              seed: seed + globalCharIdx * 11,
+            },
+            bloomU,
+            charAlpha
+          );
+        }
+
+        // 3. Calligraphic glyph with right-upward brush posture (`右上取势 · 提按墨韵`)
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(charScale, charScale);
+        ctx.transform(1, -0.045, -0.055, 1, 0, 0);
+        ctx.font = `600 ${Math.round(fontSize)}px "STKaiti", "Kaiti SC", "FZKai-Z03S", "AR PL UKai CN", "Noto Serif CJK SC", "WenQuanYi Zen Hei", serif`;
+        ctx.shadowColor = isLightText ? rgba(INK_PALETTE.inkJiao, 0.82 * charAlpha) : rgba(INK_PALETTE.xuanWarm, 0.9 * charAlpha);
+        ctx.shadowBlur = 11;
+        ctx.strokeStyle = rgba(color, 0.34 * charAlpha);
+        ctx.lineWidth = Math.max(1.0, fontSize * 0.036);
+        ctx.strokeText(tk.ch, 0, 0);
+        ctx.fillStyle = rgba(color, charAlpha);
+        ctx.fillText(tk.ch, 0, 0);
+        ctx.restore();
+      }
+
+      prevCharPt = [cx, cy];
+      if (layout === 'horizontal') curX += tk.step;
+      else curY += tk.step;
     }
+
     if (colIdx === parsedLines.length - 1) {
-      maxColHeight = curY - drawY;
+      maxColHeight = curY - colBaseY;
     }
   });
   ctx.restore();
 
-  // Mini red seal stamp below last column
-  const lastColX = drawX - (parsedLines.length - 1) * lineSpacing;
-  const lastColH = maxColHeight || fontSize * 6;
-  if (u > 0.65) {
-    drawCinnabarSeal(ctx, lastColX, drawY + lastColH + 22, {
-      size: fontSize * 1.45,
+  // Optional Cinnabar Seal stamp at the end of the verse (with generous clearance below last glyph)
+  if (sealText && u > 0.62) {
+    const sealSize = clamp(fontSize * (isKuangcao ? 0.86 : 1.16), 32, 74);
+    const sealX = layout === 'horizontal' ? lastCharPos[0] + fontSize * 1.15 : lastCharPos[0];
+    const sealY = layout === 'horizontal' ? lastCharPos[1] : lastCharPos[1] + fontSize * 0.78 + sealSize * 0.68;
+    drawCinnabarSeal(ctx, sealX, sealY, {
+      size: sealSize,
       text: sealText,
-      withShockwave: false,
-      stampProgress: (u - 0.65) / 0.35,
+      withShockwave: isKuangcao,
+      stampProgress: (u - 0.62) / 0.38,
+      seed: seed + 99,
     });
   }
+
   ctx.restore();
+}
+
+/**
+ * Renders a Vertical Classical Calligraphic Inscription (`竖排题跋落款 + 朱印`).
+ * Supports both scroll-margin anchoring and in-painting `'xingcao'` / `'kuangcao'` verse performance.
+ */
+export function drawVerticalColophon(ctx, x, y, opts = {}) {
+  if (opts.style === 'kuangcao' || opts.style === 'xingcao' || opts.freePlacement) {
+    drawCalligraphicVerse(ctx, x, y, {
+      style: opts.style || 'xingcao',
+      freePlacement: Boolean(opts.freePlacement || opts.style === 'kuangcao'),
+      ...opts,
+    });
+    return;
+  }
+  const {
+    lines = ['山高水长 · 四时丹青'],
+    sealText = '丹青',
+    reveal = 1.0,
+    color = INK_PALETTE.inkJiao,
+    fontSize = 24,
+    screenSpace = true,
+  } = opts;
+  drawCalligraphicVerse(ctx, x, y, {
+    lines,
+    sealText,
+    reveal,
+    color,
+    fontSize,
+    screenSpace,
+    freePlacement: false,
+    style: 'xingcao',
+  });
 }
 
 // ============================================================================
@@ -5379,6 +5616,1310 @@ export function createInkCharacter(opts = {}) {
 }
 
 export { createPuppet2D, drawSkeleton2D } from '../../engine/puppet2d.js';
+
+// ============================================================================
+// TIER 4A+ · WUXIA DRAMATIC KEYFRAME & PO-MO ACTION PRIMITIVES (`武侠高张力造型与破墨特效`)
+// ============================================================================
+
+/**
+ * Renders a razor-sharp crescent/diagonal Wuxia blade arc & Po-Mo ink-cleaving fissure
+ * (`凌厉弧形刀光 / 剑气破墨裂痕：焦墨飞白 + 留白切口`).
+ */
+export function drawBladeArcSlash(ctx, cx, cy, opts = {}) {
+  const {
+    radiusX = 540,
+    radiusY = 235,
+    tilt = -0.36,
+    startAngle = -2.45,
+    endAngle = 0.58,
+    thickness = 48,
+    progress = 1.0,
+    bladeColor = INK_PALETTE.geFen,
+    inkColor = INK_PALETTE.inkJiao,
+    accentColor = INK_PALETTE.zhuSha,
+    seed = 409,
+  } = opts;
+
+  const u = clamp(progress, 0, 1);
+  if (u <= 0.01) return;
+
+  if (u > 0.04 && u < 0.38 && ctx.__inkFrame) {
+    registerRuntimeCue({
+      t: ctx.__inkFrame.t ?? 0,
+      kind: 'blade_cleave',
+      scene: ctx.__inkFrame.scene?.id || 'stage',
+      label: 'blade_cleave',
+      intensity: 0.98,
+    });
+  }
+
+  const rng = mulberry32(seed);
+  const sweepU = clamp(Math.pow(u, 0.45) * 1.18, 0, 1);
+  const curEnd = lerp(startAngle, endAngle, sweepU);
+  const steps = 36;
+  const outerPts = [];
+  const innerPts = [];
+  const spinePts = [];
+
+  for (let i = 0; i <= steps; i++) {
+    const s = i / steps;
+    const ang = lerp(startAngle, curEnd, s);
+    // Taper to needle-sharp tips at both ends of the crescent
+    const env = Math.sin(Math.PI * s) ** 0.78;
+    const halfW = thickness * 0.5 * env;
+    const bx = Math.cos(ang) * radiusX;
+    const by = Math.sin(ang) * radiusY;
+    const nx = Math.cos(ang);
+    const ny = Math.sin(ang);
+    spinePts.push([bx, by]);
+    outerPts.push([bx + nx * halfW, by + ny * halfW]);
+    innerPts.push([bx - nx * halfW * 0.65, by - ny * halfW * 0.65]);
+  }
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt);
+
+  // 1. Outer flying-white (`飞白`) dry-bristle dark ink shockwave halo
+  stroke(
+    ctx,
+    outerPts,
+    LOAD(thickness * 0.92, TONE.jiao, [0, 1], {
+      dry: 0.72,
+      prof: 'lens',
+      color: inkColor,
+      seed: seed + 3,
+    }),
+    1.0,
+    0.88
+  );
+  stroke(
+    ctx,
+    innerPts,
+    {
+      w: thickness * 0.42,
+      tone: TONE.nong,
+      dry: 0.68,
+      prof: 'tip',
+      color: inkColor,
+      seed: seed + 7,
+    },
+    1.0,
+    0.76
+  );
+
+  // 2. Pure negative-space clam-white cleave body (`留白切口白刃弧光`)
+  ctx.beginPath();
+  for (let i = 0; i < outerPts.length; i++) {
+    const [px, py] = outerPts[i];
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  for (let i = innerPts.length - 1; i >= 0; i--) {
+    const [px, py] = innerPts[i];
+    ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.save();
+  ctx.shadowColor = rgba(bladeColor, 0.95);
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = rgba(bladeColor, 0.98);
+  ctx.fill();
+  ctx.restore();
+
+  // 3. Razor-sharp charcoal-ink (`焦墨`) blade spine & flying-white speed fissures inside the cleave
+  stroke(
+    ctx,
+    spinePts,
+    {
+      w: Math.max(3.2, thickness * 0.12),
+      tone: TONE.jiao,
+      dry: 0.58,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 19,
+    },
+    1.0,
+    0.92
+  );
+
+  // 4. Tangential sword-qi air-cleave streaks & shattering ink splinters
+  for (let k = 0; k < 14; k++) {
+    const idx = Math.min(spinePts.length - 1, Math.floor(rng() * spinePts.length));
+    const [px, py] = spinePts[idx];
+    const len = 45 + rng() * 110;
+    const offY = (rng() - 0.5) * thickness * 1.35;
+    stroke(
+      ctx,
+      [
+        [px - len * 0.4, py + offY],
+        [px + len * 0.6, py + offY + (rng() - 0.5) * 14],
+      ],
+      {
+        w: 1.8 + rng() * 2.6,
+        tone: k % 4 === 0 ? 0.85 : TONE.jiao,
+        dry: 0.65,
+        prof: 'cone',
+        color: k % 4 === 0 ? accentColor : k % 2 === 0 ? bladeColor : inkColor,
+        seed: seed + 40 + k,
+      },
+      1.0,
+      0.85
+    );
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Renders an explosive Po-Mo dark ink & piercing Cinnabar Vermilion blood-ink burst
+ * (`爆发性浓墨与一点刺目朱砂喷溅粒子`).
+ */
+export function drawBloodInkBurst(ctx, x, y, opts = {}) {
+  const {
+    angle = -0.38,
+    spread = 0.72,
+    scale = 1.0,
+    progress = 1.0,
+    color = INK_PALETTE.zhuSha,
+    brightColor = INK_PALETTE.yinZhu,
+    inkColor = INK_PALETTE.inkJiao,
+    count = 36,
+    seed = 521,
+  } = opts;
+
+  const u = clamp(progress, 0, 1);
+  if (u <= 0.01) return;
+
+  if (u > 0.04 && u < 0.36 && ctx.__inkFrame) {
+    registerRuntimeCue({
+      t: ctx.__inkFrame.t ?? 0,
+      kind: 'blood_splatter',
+      scene: ctx.__inkFrame.scene?.id || 'stage',
+      label: 'blood_splatter',
+      intensity: 0.96,
+    });
+  }
+
+  const rng = mulberry32(seed);
+  const burstK = clamp(Math.pow(u, 0.38) * 1.15, 0, 1);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  // 1. Capillary wet Cinnabar & Po-Mo bloom (`朱砂宿墨水晕`) on Xuan paper
+  const haloR = 115 * (0.55 + 0.45 * burstK);
+  const hg = ctx.createRadialGradient(0, 0, 4, 0, 0, haloR);
+  hg.addColorStop(0.0, rgba(color, 0.46));
+  hg.addColorStop(0.45, rgba(color, 0.18));
+  hg.addColorStop(1.0, rgba(color, 0));
+  ctx.fillStyle = hg;
+  ctx.beginPath();
+  ctx.arc(0, 0, haloR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Dark charcoal-ink (`焦墨`) rupture core mass
+  const corePts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const r = (22 + rng() * 28) * burstK;
+    corePts.push([Math.cos(a) * r, Math.sin(a) * r * 0.75]);
+  }
+  drawInkMass(ctx, corePts, {
+    tone: 0.78,
+    color: inkColor,
+    jitter: 3.5,
+    seed: seed + 1,
+  });
+
+  // 3. High-velocity directional Cinnabar Vermilion slash jets (`刺目朱砂喷溅射流`)
+  const nJets = 9;
+  for (let j = 0; j < nJets; j++) {
+    const jetAng = angle + (rng() - 0.5) * spread;
+    const jetLen = (95 + rng() * 230) * burstK;
+    const midLen = jetLen * 0.52;
+    const bend = (rng() - 0.5) * 26;
+    const jCol = j % 3 === 0 ? brightColor : j % 5 === 0 ? inkColor : color;
+    stroke(
+      ctx,
+      [
+        [Math.cos(jetAng) * 8, Math.sin(jetAng) * 8],
+        [Math.cos(jetAng) * midLen - Math.sin(jetAng) * bend, Math.sin(jetAng) * midLen + Math.cos(jetAng) * bend],
+        [Math.cos(jetAng) * jetLen, Math.sin(jetAng) * jetLen],
+      ],
+      {
+        w: 6.5 + rng() * 9.5,
+        tone: 0.96,
+        dry: 0.32 + rng() * 0.35,
+        wet: 0.65,
+        prof: 'cone',
+        color: jCol,
+        seed: seed + 10 + j,
+      },
+      1.0,
+      0.95
+    );
+  }
+
+  // 4. Suspended arterial Cinnabar & Po-Mo ink droplets (`朱砂血墨飞沫定格`)
+  for (let i = 0; i < count; i++) {
+    const isCinnabar = i % 4 !== 3;
+    const dAng = angle + (rng() - 0.48) * (spread * 1.45);
+    const dist = (24 + Math.pow(rng(), 0.75) * 290) * burstK;
+    const dx = Math.cos(dAng) * dist;
+    const dy = Math.sin(dAng) * dist + (rng() - 0.35) * 28 * burstK;
+    const rDot = isCinnabar ? 3.2 + rng() * 12.5 : 2.5 + rng() * 8.5;
+    const dCol = isCinnabar ? (i % 2 === 0 ? brightColor : color) : inkColor;
+    drawInkBlot(
+      ctx,
+      dx,
+      dy,
+      rDot,
+      0.88 + rng() * 0.12,
+      dAng,
+      0.42 + rng() * 0.4,
+      seed + 100 + i,
+      dCol
+    );
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Renders a background/midground adversary ink silhouette (`背景受创剪影倾倒溃散`):
+ * looms menacingly before the strike (`collapseProgress = 0`), then cleaves along a negative-space
+ * slash fissure and tilts/disperses into wet ink fragments (`collapseProgress: 0 -> 1`).
+ */
+export function drawStruckEnemySilhouette(ctx, x, y, opts = {}) {
+  const {
+    scale = 1.0,
+    facing = -1,
+    collapseProgress = 0.0,
+    slashAngle = -0.35,
+    color = INK_PALETTE.inkNong,
+    fissureColor = INK_PALETTE.geFen,
+    seed = 613,
+  } = opts;
+
+  const u = clamp(collapseProgress, 0, 1);
+  const rng = mulberry32(seed);
+  const shear = smootherstep(0, 1, u);
+  const tilt = -facing * shear * 0.46;
+  const splitGap = shear * 26;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  // 1. Lower torso & wide martial stance (buckling as `shear` increases)
+  ctx.save();
+  ctx.rotate(tilt * 0.35);
+  drawInkMass(
+    ctx,
+    [
+      [-32, -88 + shear * 12],
+      [34, -84 + shear * 12],
+      [48 - facing * 12, -4],
+      [-52 - facing * 8, -4],
+    ],
+    {
+      tone: 0.62 * (1 - shear * 0.25),
+      color,
+      jitter: 2.8 + shear * 4.0,
+      seed: seed + 1,
+    }
+  );
+  stroke(
+    ctx,
+    [
+      [-26, -86 + shear * 12],
+      [-46 - facing * 8, -2],
+    ],
+    LOAD(14, 0.78, [-1, 0], { dry: 0.52, color, seed: seed + 2 })
+  );
+  stroke(
+    ctx,
+    [
+      [28, -84 + shear * 12],
+      [44 - facing * 10, -2],
+    ],
+    LOAD(13, 0.72, [1, 0], { dry: 0.55, color, seed: seed + 3 })
+  );
+  ctx.restore();
+
+  // 2. Upper torso, head/hat & dropped weapon (shearing and tilting backward along `slashAngle`)
+  ctx.save();
+  const shiftX = -facing * shear * 42;
+  const shiftY = -splitGap + shear * 18;
+  ctx.translate(shiftX, shiftY);
+  ctx.rotate(tilt);
+
+  drawInkMass(
+    ctx,
+    [
+      [-38, -172],
+      [40, -168],
+      [32, -88],
+      [-30, -90],
+    ],
+    {
+      tone: 0.68 * (1 - shear * 0.22),
+      color,
+      jitter: 2.6 + shear * 4.5,
+      seed: seed + 5,
+    }
+  );
+
+  // Conical bamboo hat / warrior helmet flying off
+  ctx.save();
+  ctx.translate(-facing * shear * 28, -184 - shear * 16);
+  ctx.rotate(tilt * 1.4);
+  drawInkMass(
+    ctx,
+    [
+      [0, -22],
+      [-42, 4],
+      [0, 8],
+      [42, 4],
+    ],
+    { tone: 0.76, color, jitter: 2.0, seed: seed + 8 }
+  );
+  ctx.restore();
+
+  // Enemy weapon flying/dropping from hand
+  const wpX = facing * 42 + shiftX * 0.3;
+  const wpY = -132 + shear * 45;
+  ctx.save();
+  ctx.translate(wpX, wpY);
+  ctx.rotate(facing * 0.55 + tilt * 1.8);
+  stroke(
+    ctx,
+    [
+      [-18, 0],
+      [88 * facing, -24],
+    ],
+    { w: 3.8, tone: 0.84, dry: 0.35, prof: 'cone', color, seed: seed + 12 }
+  );
+  ctx.restore();
+  ctx.restore();
+
+  // 3. White negative-space cleave line & dispersing Po-Mo ink fragments when struck (`u > 0.02`)
+  if (u > 0.02) {
+    const fLen = 96;
+    const fx0 = -Math.cos(slashAngle) * fLen;
+    const fy0 = -92 - Math.sin(slashAngle) * fLen;
+    const fx1 = Math.cos(slashAngle) * fLen;
+    const fy1 = -92 + Math.sin(slashAngle) * fLen;
+    stroke(
+      ctx,
+      [
+        [fx0, fy0],
+        [0, -92],
+        [fx1, fy1],
+      ],
+      {
+        w: 7.5 * (1 - 0.35 * shear),
+        tone: 0.94,
+        dry: 0.2,
+        prof: 'lens',
+        color: fissureColor,
+        seed: seed + 21,
+      }
+    );
+
+    // Dispersing ink blots (`破墨溃散碎片`)
+    for (let k = 0; k < 12; k++) {
+      const ang = rng() * Math.PI * 2;
+      const dist = (18 + rng() * 82) * shear;
+      drawInkBlot(
+        ctx,
+        shiftX * 0.6 + Math.cos(ang) * dist,
+        -115 + Math.sin(ang) * dist,
+        2.5 + rng() * 6.5,
+        0.72 * (1 - 0.3 * shear),
+        ang,
+        0.55,
+        seed + 30 + k,
+        k % 4 === 0 ? INK_PALETTE.zhuSha : color
+      );
+    }
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Renders a high-tension Wuxia protagonist keyframe pose (`drawWuxiaHeroPose`):
+ * Breaks out of the upright `y = -6` trapezoid robe and `98px` straight stick-sword to support
+ * foreshortened martial stances, wide billowing xieyi cloaks, curved Wuxia sabres (`吴钩/长刀`),
+ * and 4 signature dramatic keyframes:
+ *   - `'loneWalk'` (`独行/微酌`): Wind-swept profile stride with curved Wu-hook sabre & vermilion tassel.
+ *   - `'thumbHilt'` (`脱剑膝前横 · 拇指推锷寸许寒光`): Low-angle half-crouch holding sword horizontally across front;
+ *     thumb pushes the bronze guard open (`unsheatheFrac: 0..1`) with an icy steel glint.
+ *   - `'crouchBlade'` (`十步杀一人 · 正面深蹲蓄力 -> 破空挥斩`): Frontal low-angle foreshortened deep crouch (`slashProgress: 0..1`),
+ *     coiled behind horizontal scabbard then exploding into a wide 245px gleaming blade follow-through.
+ *   - `'sheatheBack'` (`事了拂衣去 · 背影慢动作归鞘与远行`): Dorsal rear view (`sheatheProgress: 0..1`) guiding the long
+ *     blade smoothly into the scabbard with a collar-lock glint and wide sleeve flick.
+ */
+export function drawWuxiaHeroPose(ctx, x, y, opts = {}) {
+  const {
+    pose = 'loneWalk', // 'loneWalk' | 'thumbHilt' | 'crouchBlade' | 'sheatheBack'
+    scale = 1.0,
+    facing = 1,
+    t = 0.0,
+    stridePhase = 0.0,
+    unsheatheFrac = 0.0,
+    slashProgress = 0.0,
+    sheatheProgress = 0.0,
+    withWine = false,
+    inkColor = INK_PALETTE.inkJiao,
+    cloakTone = TONE.nong,
+    tasselColor = INK_PALETTE.zhuSha,
+    bladeColor = INK_PALETTE.geFen,
+    groundY = null,
+    id = 'wuxiaHero',
+    seed = 701,
+  } = opts;
+
+  const breeze = Math.sin(t * 2.4) * 7.5 + Math.cos(t * 1.3) * 3.5;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  // Subtle ground contact shadow on Xuan paper
+  ctx.save();
+  ctx.scale(1.0, 0.18);
+  const shR = pose === 'crouchBlade' ? 95 : 64;
+  const sh = ctx.createRadialGradient(0, 0, 4, 0, 0, shR);
+  sh.addColorStop(0.0, rgba(inkColor, 0.32));
+  sh.addColorStop(1.0, rgba(inkColor, 0.0));
+  ctx.fillStyle = sh;
+  ctx.beginPath();
+  ctx.arc(0, 0, shR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  let bboxLocal = [-75, -210, 75, 4];
+
+  if (pose === 'crouchBlade' || pose === 'slashBurst') {
+    const sp = clamp(slashProgress, 0, 1);
+    const burst = smootherstep(0.06, 0.42, sp);
+    const crouchY = lerp(0, -14, burst);
+    const twistX = lerp(0, 22 * facing, burst);
+    bboxLocal = [-145, -185, 185, 6];
+
+    // 1. Wide-stance planted martial boots & bent knees (`深蹲跨步双足`)
+    const bootLX = -58 - burst * 12;
+    const bootRX = 62 + burst * 18;
+    const kneeLX = -48 - burst * 8;
+    const kneeLY = -44 + crouchY * 0.4;
+    const kneeRX = 52 + burst * 14;
+    const kneeRY = -42 + crouchY * 0.4;
+
+    stroke(ctx, [[kneeLX, kneeLY], [bootLX, -4], [bootLX - 14, 0]], {
+      w: 11,
+      tone: TONE.jiao,
+      dry: 0.28,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 1,
+    });
+    stroke(ctx, [[kneeRX, kneeRY], [bootRX, -4], [bootRX + 16, 0]], {
+      w: 11.5,
+      tone: TONE.jiao,
+      dry: 0.25,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 2,
+    });
+
+    // 2. Billowing wide split-hem martial cloak & robe (`泼墨侧锋大披风与分叉下摆`)
+    const cloakWingL = -112 - breeze * 1.4 - burst * 34;
+    const cloakWingR = 108 - breeze * 0.8 + burst * 42;
+    const shY = -124 + crouchY;
+    const waistY = -66 + crouchY * 0.6;
+
+    drawInkMass(
+      ctx,
+      [
+        [-38 + twistX, shY],
+        [42 + twistX, shY],
+        [cloakWingR, -28 - burst * 18],
+        [bootRX - 8, -10],
+        [0, waistY + 12],
+        [bootLX + 8, -10],
+        [cloakWingL, -22 + burst * 10],
+      ],
+      {
+        tone: 0.56,
+        color: inkColor,
+        jitter: 3.4,
+        seed: seed + 3,
+      }
+    );
+
+    // Bold loaded side-brush strokes along left and right cloak wings
+    stroke(
+      ctx,
+      [
+        [-34 + twistX, shY + 4],
+        [-74, waistY - 8],
+        [cloakWingL, -22 + burst * 10],
+      ],
+      LOAD(24, TONE.jiao, [-1, -0.4], { dry: 0.52, prof: 'robe', color: inkColor, seed: seed + 4 })
+    );
+    stroke(
+      ctx,
+      [
+        [36 + twistX, shY + 4],
+        [78, waistY - 10],
+        [cloakWingR, -28 - burst * 18],
+      ],
+      LOAD(24, TONE.jiao, [1, -0.4], { dry: 0.48, prof: 'robe', color: inkColor, seed: seed + 5 })
+    );
+
+    // Inner robe V-collar & crimson/vermilion waist sash
+    stroke(
+      ctx,
+      [
+        [-22 + twistX, shY + 6],
+        [2 + twistX, waistY - 6],
+        [22 + twistX, shY + 6],
+      ],
+      { w: 5.5, tone: 0.9, dry: 0.25, prof: 'tip', color: bladeColor, seed: seed + 6 }
+    );
+    stroke(
+      ctx,
+      [
+        [-32 + twistX * 0.6, waistY],
+        [34 + twistX * 0.6, waistY - 2],
+        [58 + burst * 28, waistY + 18 - breeze],
+      ],
+      { w: 6.5, tone: 0.95, dry: 0.28, prof: 'brush', color: tasselColor, seed: seed + 7 }
+    );
+
+    // 3. Foreshortened low-pressed Bamboo Hat (`斗笠压眉大透视`)
+    const hatX = twistX * 0.85;
+    const hatY = -134 + crouchY + (1 - burst) * 8;
+    const hatW = 76;
+    drawInkMass(
+      ctx,
+      [
+        [hatX, hatY - 34],
+        [hatX - hatW, hatY + 8],
+        [hatX, hatY + 18],
+        [hatX + hatW, hatY + 6],
+      ],
+      { tone: 0.88, color: inkColor, jitter: 2.0, seed: seed + 8 }
+    );
+    // Crisp clam-white rim highlight on bamboo hat so silhouette pops on dark night canvas
+    stroke(
+      ctx,
+      [
+        [hatX - hatW, hatY + 8],
+        [hatX, hatY - 34],
+        [hatX + hatW, hatY + 6],
+      ],
+      { w: 3.6, tone: 0.82, dry: 0.45, prof: 'tip', color: bladeColor, seed: seed + 9 }
+    );
+    stroke(
+      ctx,
+      [
+        [hatX - hatW, hatY + 8],
+        [hatX, hatY + 17],
+        [hatX + hatW, hatY + 6],
+      ],
+      { w: 4.8, tone: TONE.jiao, dry: 0.35, prof: 'nail', color: inkColor, seed: seed + 10 }
+    );
+    // Trailing silk hat ribbon (`缦胡缨`)
+    stroke(
+      ctx,
+      [
+        [hatX - 18, hatY - 6],
+        [hatX - 65 - breeze * 1.5, hatY - 18 - burst * 16],
+        [hatX - 108 - breeze * 2.2, hatY - 8 - burst * 24],
+      ],
+      { w: 3.4, tone: 0.92, dry: 0.38, prof: 'tip', color: tasselColor, seed: seed + 11 }
+    );
+
+    // 4. Scabbard & Coiled / Slashing Long Wuxia Blade (`横刀按鞘蓄力 -> 霜雪长刀破空`)
+    if (burst < 0.15) {
+      // Anticipation Hold: Horizontal scabbard across crouched chest/knees, thumb on guard
+      const scabL = [-88, waistY - 16];
+      const scabR = [64, waistY - 26];
+      stroke(ctx, [scabL, scabR], {
+        w: 9.5,
+        tone: TONE.jiao,
+        dry: 0.2,
+        prof: 'even',
+        color: inkColor,
+        seed: seed + 12,
+      });
+      // Exposed 1-inch cold steel gleam at guard (`寸许寒光`)
+      stroke(ctx, [scabR, [scabR[0] + 28, scabR[1] - 3]], {
+        w: 6.2,
+        tone: 0.98,
+        dry: 0.05,
+        prof: 'even',
+        color: bladeColor,
+        seed: seed + 13,
+      });
+      // Hilt & coiled right fist
+      stroke(ctx, [[scabR[0] + 24, scabR[1] - 14], [scabR[0] + 26, scabR[1] + 10]], {
+        w: 5.5,
+        tone: 0.96,
+        dry: 0.15,
+        prof: 'even',
+        color: tasselColor,
+        seed: seed + 14,
+      });
+      stroke(ctx, [[scabR[0] + 26, scabR[1] - 3], [scabR[0] + 62, scabR[1] - 6]], {
+        w: 7.0,
+        tone: TONE.jiao,
+        dry: 0.25,
+        prof: 'nail',
+        color: inkColor,
+        seed: seed + 15,
+      });
+      // Intense specular glint star at the thumb-pressed guard
+      ctx.save();
+      ctx.translate(scabR[0] + 18, scabR[1] - 3);
+      ctx.fillStyle = rgba(bladeColor, 0.96);
+      ctx.beginPath();
+      ctx.arc(0, 0, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+      stroke(ctx, [[-38, 0], [38, 0]], { w: 2.6, tone: 0.95, dry: 0.1, prof: 'lens', color: bladeColor });
+      stroke(ctx, [[0, -24], [0, 24]], { w: 2.4, tone: 0.95, dry: 0.1, prof: 'lens', color: bladeColor });
+      ctx.restore();
+    } else {
+      // Burst & Follow-Through: Scabbard thrust left, 245px gleaming white-core Wuxia blade swept wide right!
+      stroke(
+        ctx,
+        [
+          [-24 + twistX, waistY - 12],
+          [-128, waistY + 14],
+        ],
+        { w: 8.5, tone: TONE.jiao, dry: 0.25, prof: 'even', color: inkColor, seed: seed + 16 }
+      );
+
+      // Extended right arm & sleeve
+      const handX = 82 + burst * 28;
+      const handY = shY + 12 - burst * 16;
+      stroke(
+        ctx,
+        [
+          [28 + twistX, shY + 8],
+          [58 + twistX, shY + 14],
+          [handX, handY],
+        ],
+        LOAD(18, TONE.jiao, [0, 1], { dry: 0.42, prof: 'robe', color: inkColor, seed: seed + 17 })
+      );
+
+      // Foreshortened 245px curved Wu-hook sabre (`吴钩霜雪长刃`)
+      const tipX = handX + 215 * burst;
+      const tipY = handY - 92 * burst;
+      const midBladeX = lerp(handX, tipX, 0.55);
+      const midBladeY = lerp(handY, tipY, 0.55) + 14;
+
+      // Clam-white gleaming blade body
+      stroke(
+        ctx,
+        [
+          [handX - 18, handY + 8],
+          [handX, handY],
+          [midBladeX, midBladeY],
+          [tipX, tipY],
+        ],
+        { w: 12.5, tone: 0.98, dry: 0.08, prof: 'cone', color: bladeColor, seed: seed + 18 }
+      );
+      // Charcoal-ink back spine of sabre
+      stroke(
+        ctx,
+        [
+          [handX, handY + 3],
+          [midBladeX, midBladeY + 4],
+          [tipX, tipY],
+        ],
+        { w: 3.8, tone: TONE.jiao, dry: 0.35, prof: 'tip', color: inkColor, seed: seed + 19 }
+      );
+      // Whipping vermilion sword tassel (`朱砂刀穗`)
+      stroke(
+        ctx,
+        [
+          [handX - 16, handY + 8],
+          [handX - 48 - breeze, handY + 36],
+          [handX - 82 - breeze * 1.8, handY + 54],
+        ],
+        { w: 4.2, tone: 0.96, dry: 0.28, prof: 'brush', color: tasselColor, seed: seed + 20 }
+      );
+    }
+  } else if (pose === 'thumbHilt' || pose === 'kneelSword') {
+    // Act 2: 「闲过信陵饮，脱剑膝前横」 — Low-angle poised half-crouch, sword horizontal across knees, thumb pushing guard open an inch
+    const uOpen = clamp(unsheatheFrac, 0, 1);
+    bboxLocal = [-135, -205, 145, 6];
+
+    if (uOpen > 0.08 && uOpen < 0.55 && ctx.__inkFrame) {
+      registerRuntimeCue({
+        t: ctx.__inkFrame.t ?? 0,
+        kind: 'blade_clique',
+        scene: ctx.__inkFrame.scene?.id || 'stage',
+        label: 'blade_clique',
+        intensity: 0.96,
+      });
+    }
+
+    // 1. Seated / half-crouched wide martial robe & cloak base mass
+    drawInkMass(
+      ctx,
+      [
+        [-28, -148],
+        [32, -146],
+        [68, -68],
+        [82, -6],
+        [-86, -6],
+        [-64, -72],
+      ],
+      { tone: 0.42, color: inkColor, jitter: 2.8, seed: seed + 21 }
+    );
+    stroke(
+      ctx,
+      [
+        [-26, -144],
+        [-58, -76],
+        [-82, -6],
+      ],
+      LOAD(22, cloakTone, [-1, 0], { dry: 0.46, prof: 'robe', color: inkColor, seed: seed + 22 })
+    );
+    stroke(
+      ctx,
+      [
+        [28, -144],
+        [56, -74],
+        [78, -6],
+      ],
+      LOAD(20, cloakTone, [1, 0], { dry: 0.48, prof: 'robe', color: inkColor, seed: seed + 23 })
+    );
+    // Crossed collar & sash
+    stroke(ctx, [[-14, -146], [2, -112], [16, -146]], {
+      w: 3.6,
+      tone: TONE.jiao,
+      dry: 0.3,
+      prof: 'tip',
+      color: inkColor,
+      seed: seed + 24,
+    });
+
+    // 2. Bamboo hat tilted low over shadowed brow (`斗笠压眉`)
+    const hatY = -166;
+    drawInkMass(
+      ctx,
+      [
+        [0, hatY - 30],
+        [-68, hatY + 8],
+        [0, hatY + 16],
+        [68, hatY + 7],
+      ],
+      { tone: 0.78, color: inkColor, jitter: 1.8, seed: seed + 25 }
+    );
+    stroke(ctx, [[0, hatY - 30], [-68, hatY + 8]], {
+      w: 4.5,
+      tone: TONE.jiao,
+      dry: 0.45,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 26,
+    });
+    stroke(ctx, [[0, hatY - 30], [68, hatY + 7]], {
+      w: 4.5,
+      tone: TONE.jiao,
+      dry: 0.45,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 27,
+    });
+    // Flowing hat ribbon (`缦胡缨`)
+    stroke(
+      ctx,
+      [
+        [-18, hatY + 4],
+        [-56 - breeze * 0.8, hatY + 18],
+        [-92 - breeze * 1.4, hatY + 28],
+      ],
+      { w: 3.0, tone: 0.92, dry: 0.35, prof: 'tip', color: tasselColor, seed: seed + 28 }
+    );
+
+    // 3. Left & right wide sleeves descending to the horizontal sword
+    const guardX = 36;
+    const swordY = -74;
+    const gapPx = uOpen * 32; // 1 inch (`寸许`) of gleaming steel pushed open!
+
+    stroke(
+      ctx,
+      [
+        [-28, -136],
+        [-54, -98],
+        [-28, swordY - 2],
+      ],
+      LOAD(16, 0.68, [-1, 0.5], { dry: 0.45, color: inkColor, seed: seed + 29 })
+    );
+    stroke(
+      ctx,
+      [
+        [28, -136],
+        [62, -98],
+        [guardX + gapPx + 14, swordY - 2],
+      ],
+      LOAD(16, 0.72, [1, 0.5], { dry: 0.45, color: inkColor, seed: seed + 30 })
+    );
+
+    // 4. Horizontal Scabbard (`脱剑膝前横`) from [-125, swordY+4] to [guardX, swordY]
+    stroke(
+      ctx,
+      [
+        [-128, swordY + 5],
+        [-40, swordY + 2],
+        [guardX, swordY],
+      ],
+      { w: 10.5, tone: TONE.jiao, dry: 0.22, prof: 'even', color: inkColor, seed: seed + 31 }
+    );
+
+    // 5. Exposed 1-inch gleaming frost-white steel (`拇指按锷推开寸许寒光`)
+    if (gapPx > 1.0) {
+      stroke(
+        ctx,
+        [
+          [guardX - 2, swordY],
+          [guardX + gapPx + 4, swordY - 1],
+        ],
+        { w: 7.2, tone: 1.0, dry: 0.0, prof: 'even', color: bladeColor, seed: seed + 32 }
+      );
+      // Horizontal razor glint & concentric qi-freeze ripple
+      const glintAlpha = clamp(uOpen * 1.35, 0, 1);
+      ctx.save();
+      ctx.translate(guardX + gapPx * 0.5, swordY);
+      const rg = ctx.createRadialGradient(0, 0, 2, 0, 0, 56 * glintAlpha);
+      rg.addColorStop(0, rgba(bladeColor, 0.95 * glintAlpha));
+      rg.addColorStop(0.4, rgba(INK_PALETTE.huaQingLight, 0.38 * glintAlpha));
+      rg.addColorStop(1, rgba(bladeColor, 0));
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.arc(0, 0, 56 * glintAlpha, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Piercing horizontal & vertical cold-light cross-flare
+      stroke(
+        ctx,
+        [
+          [-110 * glintAlpha, 0],
+          [110 * glintAlpha, 0],
+        ],
+        { w: 3.2, tone: 0.96 * glintAlpha, dry: 0.08, prof: 'lens', color: bladeColor }
+      );
+      stroke(
+        ctx,
+        [
+          [0, -36 * glintAlpha],
+          [0, 36 * glintAlpha],
+        ],
+        { w: 2.6, tone: 0.92 * glintAlpha, dry: 0.08, prof: 'lens', color: bladeColor }
+      );
+      ctx.restore();
+    }
+
+    // 6. Bronze Sword Guard (`刀锷`), Hilt & Vermilion Tassel (`朱砂剑穗`)
+    const hiltX = guardX + gapPx;
+    stroke(
+      ctx,
+      [
+        [hiltX, swordY - 15],
+        [hiltX, swordY + 14],
+      ],
+      { w: 5.8, tone: 0.96, dry: 0.15, prof: 'even', color: tasselColor, seed: seed + 33 }
+    );
+    stroke(
+      ctx,
+      [
+        [hiltX + 2, swordY - 1],
+        [hiltX + 58, swordY - 3],
+      ],
+      { w: 8.0, tone: TONE.jiao, dry: 0.25, prof: 'nail', color: inkColor, seed: seed + 34 }
+    );
+    // Vermilion tassel hanging from pommel
+    stroke(
+      ctx,
+      [
+        [hiltX + 56, swordY - 3],
+        [hiltX + 62 - breeze * 0.4, swordY + 26],
+        [hiltX + 58 - breeze * 0.8, swordY + 54],
+      ],
+      { w: 3.6, tone: 0.95, dry: 0.28, prof: 'brush', color: tasselColor, seed: seed + 35 }
+    );
+  } else if (pose === 'sheatheBack') {
+    // Act 4: 「千里不留行 · 事了拂衣去，深藏身与名」 — Dorsal rear view, slow-motion blade sheathing + sleeve flick
+    const uSh = clamp(sheatheProgress, 0, 1);
+    const slideU = smootherstep(0.0, 0.72, uSh);
+    const lockU = smootherstep(0.68, 0.82, uSh);
+    const flickU = smootherstep(0.75, 1.0, uSh);
+    const stepBob = Math.abs(Math.sin(stridePhase * Math.PI * 2)) * 4.5;
+    bboxLocal = [-95, -205, 115, 6];
+
+    if (uSh > 0.62 && uSh < 0.86 && ctx.__inkFrame) {
+      registerRuntimeCue({
+        t: ctx.__inkFrame.t ?? 0,
+        kind: 'blade_sheathe',
+        scene: ctx.__inkFrame.scene?.id || 'stage',
+        label: 'blade_sheathe',
+        intensity: 0.94,
+      });
+    }
+
+    // 1. Boots below rear split cloak
+    const legSpread = 16 + Math.sin(stridePhase * Math.PI * 2) * 8;
+    stroke(ctx, [[-legSpread, -24], [-legSpread, 0]], { w: 6.5, tone: TONE.jiao, dry: 0.25, prof: 'even', color: inkColor });
+    stroke(ctx, [[legSpread, -24], [legSpread, 0]], { w: 6.5, tone: TONE.jiao, dry: 0.25, prof: 'even', color: inkColor });
+
+    // 2. Broad-shouldered rear martial cloak & wind-swept hem (`拂衣背影`)
+    const sleeveFlickX = flickU * 38 - breeze * 1.1;
+    drawInkMass(
+      ctx,
+      [
+        [-34, -148 - stepBob],
+        [36, -148 - stepBob],
+        [52 + sleeveFlickX * 0.4, -76],
+        [48 - breeze * 0.9, -6],
+        [0, -14],
+        [-52 - breeze * 1.2, -6],
+        [-48, -78],
+      ],
+      { tone: 0.54, color: inkColor, jitter: 2.6, seed: seed + 41 }
+    );
+    stroke(
+      ctx,
+      [
+        [-32, -146 - stepBob],
+        [-46, -80],
+        [-54 - breeze * 1.2, -6],
+      ],
+      LOAD(20, TONE.jiao, [-1, 0], { dry: 0.44, prof: 'robe', color: inkColor, seed: seed + 42 })
+    );
+    stroke(
+      ctx,
+      [
+        [34, -146 - stepBob],
+        [48 + sleeveFlickX * 0.5, -78],
+        [48 - breeze * 0.9, -6],
+      ],
+      LOAD(20, TONE.jiao, [1, 0], { dry: 0.44, prof: 'robe', color: inkColor, seed: seed + 43 })
+    );
+
+    // 3. Scabbard projecting diagonally across the back-left (`[-118, -14]` -> `[-22, -96]`)
+    const scabMouthX = 32;
+    const scabMouthY = -98 - stepBob;
+    stroke(
+      ctx,
+      [
+        [-98, -22 - stepBob],
+        [-28, -64 - stepBob],
+        [scabMouthX, scabMouthY],
+      ],
+      { w: 8.5, tone: TONE.jiao, dry: 0.22, prof: 'even', color: inkColor, seed: seed + 44 }
+    );
+
+    // 4. Slow-motion blade sliding into scabbard (`2.4x 近景慢动作归鞘入扣`)
+    // Projects out to the upper-right beyond the cloak silhouette so the frost-white steel & collar glint read clearly
+    const exposedLen = lerp(146, 0, slideU);
+    const dirX = 0.82;
+    const dirY = -0.57;
+    const hiltX = scabMouthX + dirX * exposedLen;
+    const hiltY = scabMouthY + dirY * exposedLen;
+
+    if (exposedLen > 1.5) {
+      stroke(
+        ctx,
+        [
+          [scabMouthX, scabMouthY],
+          [hiltX, hiltY],
+        ],
+        { w: 6.8, tone: 1.0, dry: 0.0, prof: 'even', color: bladeColor, seed: seed + 45 }
+      );
+      // Cold steel edge highlight along the sliding blade
+      stroke(
+        ctx,
+        [
+          [scabMouthX, scabMouthY - 1.5],
+          [hiltX, hiltY - 1.5],
+        ],
+        { w: 3.2, tone: 0.98, dry: 0.0, prof: 'even', color: '#FFFFFF', seed: seed + 55 }
+      );
+    }
+
+    // Bronze Sword Guard (`刀锷`), Hilt & Vermilion Tassel (`朱砂剑穗`)
+    stroke(
+      ctx,
+      [
+        [hiltX - 9, hiltY - 11],
+        [hiltX + 9, hiltY + 11],
+      ],
+      { w: 5.5, tone: 0.98, dry: 0.12, prof: 'even', color: tasselColor, seed: seed + 46 }
+    );
+    stroke(
+      ctx,
+      [
+        [hiltX, hiltY],
+        [hiltX + dirX * 42, hiltY + dirY * 42],
+      ],
+      { w: 7.2, tone: TONE.jiao, dry: 0.22, prof: 'nail', color: inkColor, seed: seed + 47 }
+    );
+    stroke(
+      ctx,
+      [
+        [hiltX + dirX * 40, hiltY + dirY * 40],
+        [hiltX + dirX * 40 + 18 - breeze * 0.9, hiltY + dirY * 40 + 28],
+        [hiltX + dirX * 40 + 28 - breeze * 1.6, hiltY + dirY * 40 + 58],
+      ],
+      { w: 4.0, tone: 0.96, dry: 0.24, prof: 'brush', color: tasselColor, seed: seed + 48 }
+    );
+
+    // Collar-lock star glint (`归鞘入扣寒星`) visible throughout sheathing & peaking at lock
+    const glintEnv = uSh < 0.96 ? clamp(0.45 + 0.55 * Math.sin(clamp((uSh - 0.15) / 0.78, 0, 1) * Math.PI), 0, 1) : 0;
+    if (glintEnv > 0.05) {
+      ctx.save();
+      ctx.translate(scabMouthX, scabMouthY);
+      const rg = ctx.createRadialGradient(0, 0, 2, 0, 0, 44 * glintEnv);
+      rg.addColorStop(0, rgba('#FFFFFF', 0.95 * glintEnv));
+      rg.addColorStop(0.45, rgba(bladeColor, 0.52 * glintEnv));
+      rg.addColorStop(1, rgba(bladeColor, 0));
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.arc(0, 0, 44 * glintEnv, 0, Math.PI * 2);
+      ctx.fill();
+      stroke(ctx, [[-68 * glintEnv, -8], [68 * glintEnv, 8]], { w: 3.0, tone: 0.98 * glintEnv, dry: 0.05, prof: 'lens', color: '#FFFFFF' });
+      stroke(ctx, [[-8, -42 * glintEnv], [8, 42 * glintEnv]], { w: 2.6, tone: 0.94 * glintEnv, dry: 0.05, prof: 'lens', color: bladeColor });
+      ctx.restore();
+    }
+
+    // Right wide sleeve guiding the hilt then flicking (`事了拂衣去`)
+    const wrX = lerp(hiltX + dirX * 14, 68 + sleeveFlickX, flickU);
+    const wrY = lerp(hiltY + dirY * 14, -104 - stepBob, flickU);
+    stroke(
+      ctx,
+      [
+        [32, -142 - stepBob],
+        [54 + sleeveFlickX * 0.4, -118 - stepBob],
+        [wrX, wrY],
+      ],
+      LOAD(16, 0.78, [1, 0.4], { dry: 0.45, prof: 'robe', color: inkColor, seed: seed + 49 })
+    );
+
+    // 5. Rear Bamboo Hat & trailing silk ribbon (`斗笠背影与缦胡缨`)
+    const hatY = -168 - stepBob;
+    drawInkMass(
+      ctx,
+      [
+        [0, hatY - 26],
+        [-58, hatY + 8],
+        [0, hatY + 14],
+        [58, hatY + 8],
+      ],
+      { tone: 0.76, color: inkColor, jitter: 1.8, seed: seed + 50 }
+    );
+    stroke(ctx, [[-58, hatY + 8], [0, hatY - 26], [58, hatY + 8]], {
+      w: 4.0,
+      tone: TONE.jiao,
+      dry: 0.45,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 51,
+    });
+    // Trailing crimson/ink hat ribbons in mountain wind
+    stroke(
+      ctx,
+      [
+        [0, hatY + 8],
+        [-22 - breeze * 0.9, hatY + 34],
+        [-44 - breeze * 1.7, hatY + 64],
+      ],
+      { w: 3.0, tone: 0.92, dry: 0.35, prof: 'tip', color: tasselColor, seed: seed + 52 }
+    );
+  } else {
+    // Default `loneWalk` / `strollDrink`: Act 1 「赵客缦胡缨，吴钩霜雪明」
+    const dir = facing >= 0 ? 1 : -1;
+    const step = Math.sin(stridePhase * Math.PI * 2);
+    const bob = Math.abs(step) * 4.0;
+    bboxLocal = [-85, -205, 85, 6];
+
+    ctx.save();
+    ctx.scale(dir, 1);
+
+    // 1. Striding boots & split legs (`跨步双足，打破等腰梯形`)
+    const footFX = 22 + step * 18;
+    const footBX = -24 - step * 18;
+    stroke(ctx, [[footBX, -28], [footBX, -2], [footBX + 12, 0]], {
+      w: 6.2,
+      tone: TONE.jiao,
+      dry: 0.28,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 61,
+    });
+    stroke(ctx, [[footFX, -28], [footFX, -2], [footFX + 14, 0]], {
+      w: 6.5,
+      tone: TONE.jiao,
+      dry: 0.25,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 62,
+    });
+
+    // 2. Wind-swept split martial robe & trailing cloak (`没骨侧锋潇洒侠客袍`)
+    const hemBackX = -52 - breeze * 1.1 - step * 10;
+    const hemFrontX = 36 + step * 12;
+    drawInkMass(
+      ctx,
+      [
+        [-14, -152 - bob],
+        [18, -150 - bob],
+        [24, -88 - bob],
+        [hemFrontX, -8],
+        [4, -24],
+        [hemBackX, -8],
+        [-28, -84 - bob],
+      ],
+      { tone: 0.36, color: inkColor, jitter: 2.4, seed: seed + 63 }
+    );
+    stroke(
+      ctx,
+      [
+        [-14, -150 - bob],
+        [-28, -86 - bob],
+        [hemBackX, -8],
+      ],
+      LOAD(18, cloakTone, [-1, 0], { dry: 0.44, prof: 'robe', color: inkColor, seed: seed + 64 })
+    );
+    stroke(
+      ctx,
+      [
+        [16, -148 - bob],
+        [22, -86 - bob],
+        [hemFrontX, -8],
+      ],
+      LOAD(14, 0.65, [1, 0], { dry: 0.48, prof: 'robe', color: inkColor, seed: seed + 65 })
+    );
+
+    // 3. Curved Wu-Hook Sabre (`吴钩霜雪明` — 175px curved sabre at waist with gleaming frost edge)
+    const hiltX = 32;
+    const hiltY = -98 - bob;
+    const tipX = -98 - breeze * 0.6;
+    const tipY = -36 - bob;
+    // Curved scabbard & frost-white gleaming upper edge (`吴钩霜雪寒芒`)
+    stroke(
+      ctx,
+      [
+        [hiltX, hiltY],
+        [-26, -74 - bob],
+        [tipX, tipY],
+      ],
+      { w: 7.2, tone: TONE.jiao, dry: 0.25, prof: 'cone', color: inkColor, seed: seed + 66 }
+    );
+    stroke(
+      ctx,
+      [
+        [hiltX + 18, hiltY - 8],
+        [-18, -76 - bob],
+        [tipX + 12, tipY - 4],
+      ],
+      { w: 3.2, tone: 0.95, dry: 0.12, prof: 'tip', color: bladeColor, seed: seed + 67 }
+    );
+    //Vermilion tassel (`朱砂刀穗`) streaming from Wu-hook hilt
+    stroke(
+      ctx,
+      [
+        [hiltX + 20, hiltY - 10],
+        [hiltX + 6 - breeze * 1.2, hiltY + 18],
+        [hiltX - 14 - breeze * 2.1, hiltY + 42],
+      ],
+      { w: 3.4, tone: 0.94, dry: 0.3, prof: 'brush', color: tasselColor, seed: seed + 68 }
+    );
+
+    // 4. Foreground wide sleeve & arm (holding wine gourd/cup if `withWine`, or resting on Wu-hook hilt)
+    const handX = withWine ? 38 : hiltX + 8;
+    const handY = withWine ? -136 - bob : hiltY - 4;
+    stroke(
+      ctx,
+      [
+        [8, -142 - bob],
+        [24, -116 - bob],
+        [handX, handY],
+      ],
+      LOAD(15, 0.72, [0, 1], { dry: 0.45, prof: 'robe', color: inkColor, seed: seed + 69 })
+    );
+    if (withWine) {
+      drawInkBlot(ctx, handX + 10, handY - 6, 8.5, 0.92, -0.3, 0.72, seed + 70, tasselColor);
+    }
+
+    // 5. Head, Conical Bamboo Hat & Trailing Tassel (`赵客缦胡缨`)
+    const hatY = -172 - bob;
+    drawInkMass(
+      ctx,
+      [
+        [2, hatY - 24],
+        [-48, hatY + 6],
+        [4, hatY + 12],
+        [52, hatY + 6],
+      ],
+      { tone: 0.72, color: inkColor, jitter: 1.6, seed: seed + 71 }
+    );
+    stroke(ctx, [[-48, hatY + 6], [2, hatY - 24], [52, hatY + 6]], {
+      w: 3.8,
+      tone: TONE.jiao,
+      dry: 0.45,
+      prof: 'nail',
+      color: inkColor,
+      seed: seed + 72,
+    });
+    // `缦胡缨` (long wind-swept martial hat tassel)
+    stroke(
+      ctx,
+      [
+        [-12, hatY + 4],
+        [-54 - breeze * 1.2, hatY + 14],
+        [-96 - breeze * 2.2, hatY + 26],
+      ],
+      { w: 3.2, tone: 0.92, dry: 0.32, prof: 'tip', color: tasselColor, seed: seed + 73 }
+    );
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Register hero element into 2D Spatial Audit SceneGraph (`tools/audit.mjs`)
+  const worldBbox = [
+    x + bboxLocal[0] * scale,
+    y + bboxLocal[1] * scale,
+    x + bboxLocal[2] * scale,
+    y + bboxLocal[3] * scale,
+  ];
+  recordSceneElement2D(ctx, {
+    id,
+    role: 'hero',
+    isHero: true,
+    kind: `wuxiaHero:${pose}`,
+    bbox: worldBbox,
+    footY: y,
+    groundY: groundY ?? y,
+  });
+
+  return {
+    x,
+    y,
+    scale,
+    bbox: worldBbox,
+  };
+}
 
 // ============================================================================
 // TIER 4B · MULTI-PLANE 2D/2.5D STAGE & SHOT-LIST DIRECTOR (`createInkScrollStage`)

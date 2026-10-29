@@ -43,11 +43,17 @@ function layout2DBeats(rawList, sceneDur) {
 }
 
 /**
- * Evaluates a single-direction, full-frame 2D scroll camera state for an entire scene.
+ * Evaluates a single-direction or dramatic variable-speed 2D scroll camera state for an entire scene.
  *
- * @param {object} sceneMoveSpec - Primary camera move spec for the scene (`move`, `amount`, `rollDeg`)
+ * Supports both:
+ *   1. Gentle contemplative micro-moves (`push`, `pull`, `pan`, `rise`, `drop`, `drift` at ~3.2% dolly).
+ *   2. High-tension dramatic camera choreography (`zoomFrom` / `zoomTo` up to `2.5x <-> 1.0x`,
+ *      `panFrom` / `panTo`, and 3-phase intra-scene rhythm curves: `holdStart` anticipation stillness,
+ *      `burstWindow` rapid push/pull reveal, and `settleWindow` aftermath hold).
+ *
+ * @param {object} sceneMoveSpec - Primary camera move spec for the scene
  * @param {number} u - Normalized scene progress `0..1` (`localT / scene.dur`)
- * @param {object} dims - `{ width, height, designWidth, designHeight }`
+ * @param {object} dims - `{ width, height, designWidth, designHeight, sceneDur }`
  */
 export function evalSceneCamera2D(sceneMoveSpec = {}, u = 0, dims = {}) {
   const {
@@ -55,18 +61,72 @@ export function evalSceneCamera2D(sceneMoveSpec = {}, u = 0, dims = {}) {
     height = 1080,
     designWidth = 1920,
     designHeight = 1080,
+    sceneDur = sceneMoveSpec.sceneDur || sceneMoveSpec.dur || 4.0,
   } = dims;
 
   const cx0 = designWidth * 0.5;
   const cy0 = designHeight * 0.5;
   const vpScale = Math.min(width / designWidth, height / designHeight);
-  const k = flowStep(0, 1, clamp(u, 0, 1), sceneMoveSpec.ease ?? 0.22);
+  const uNorm = clamp(u, 0, 1);
+  const durSec = Math.max(0.1, Number(sceneDur) || 4.0);
+
+  // Resolve optional 3-phase dramatic timing curve:
+  //   holdStart (anticipation freeze) -> burstWindow (rapid/smooth move) -> settleWindow (aftermath hold)
+  const hasDramaticTiming =
+    sceneMoveSpec.holdStart != null ||
+    sceneMoveSpec.burstWindow != null ||
+    sceneMoveSpec.settleWindow != null;
+
+  let k = 0;
+  let phase = 'flow';
+  if (hasDramaticTiming) {
+    const rawHold = Number(sceneMoveSpec.holdStart ?? 0);
+    const rawSettle = Number(sceneMoveSpec.settleWindow ?? 0);
+    const bw = sceneMoveSpec.burstWindow;
+    const isSecUnit =
+      sceneMoveSpec.unit === 'sec' ||
+      (Array.isArray(bw) && Number(bw[1]) > 1.0) ||
+      rawHold + (typeof bw === 'number' ? bw : 0) + rawSettle > 1.02;
+
+    const toNorm = (v) => clamp(isSecUnit ? v / durSec : v, 0, 1);
+
+    let b0 = toNorm(rawHold);
+    let b1 = 1.0 - toNorm(rawSettle);
+    if (Array.isArray(bw) && bw.length >= 2) {
+      b0 = toNorm(Number(bw[0]) || 0);
+      b1 = toNorm(Number(bw[1]) || 1);
+    } else if (typeof bw === 'number' && bw > 0) {
+      b1 = clamp(b0 + toNorm(bw), b0 + 0.02, 1.0);
+    }
+    if (b1 <= b0 + 0.01) {
+      b1 = clamp(b0 + 0.15, 0.02, 1.0);
+    }
+
+    if (uNorm <= b0) {
+      k = 0;
+      phase = 'holdStart';
+    } else if (uNorm >= b1) {
+      k = 1;
+      phase = 'settle';
+    } else {
+      phase = 'burst';
+      const segU = clamp((uNorm - b0) / Math.max(1e-5, b1 - b0), 0, 1);
+      if (sceneMoveSpec.burstCurve === 'fast-out' || sceneMoveSpec.burstEase === 'out') {
+        const fastOut = 1 - Math.pow(1 - segU, 3);
+        k = lerp(smootherstep(0, 1, segU), fastOut, 0.65);
+      } else {
+        k = smootherstep(0, 1, segU);
+      }
+    }
+  } else {
+    k = flowStep(0, 1, uNorm, sceneMoveSpec.ease ?? 0.22);
+  }
 
   const moves = String(sceneMoveSpec.move || 'static')
     .split('+')
     .map((s) => s.trim())
     .filter(Boolean);
-  const amount = clamp(sceneMoveSpec.amount ?? 1.0, 0.2, 1.0);
+  const amount = clamp(sceneMoveSpec.amount ?? 1.0, 0.2, 1.5);
 
   const isDepth =
     sceneMoveSpec.mode === 'depth' ||
@@ -79,38 +139,76 @@ export function evalSceneCamera2D(sceneMoveSpec = {}, u = 0, dims = {}) {
   const vanishX = vanish[0];
   const vanishY = vanish[1];
 
+  const hasCustomZoom = sceneMoveSpec.zoomFrom != null || sceneMoveSpec.zoomTo != null;
+  const hasCustomPan = sceneMoveSpec.panFrom != null || sceneMoveSpec.panTo != null;
+
   let dolly = 1.0;
   let panX = 0;
   let panY = 0;
   let angleShift = 0;
 
+  if (hasCustomZoom) {
+    const zFrom = clamp(Number(sceneMoveSpec.zoomFrom ?? 1.0), 0.4, 3.5);
+    const zTo = clamp(Number(sceneMoveSpec.zoomTo ?? 1.0), 0.4, 3.5);
+    dolly = lerp(zFrom, zTo, k);
+  }
+
+  if (hasCustomPan) {
+    const pFrom = Array.isArray(sceneMoveSpec.panFrom) ? sceneMoveSpec.panFrom : [0, 0];
+    const pTo = Array.isArray(sceneMoveSpec.panTo) ? sceneMoveSpec.panTo : [0, 0];
+    panX += lerp(Number(pFrom[0]) || 0, Number(pTo[0]) || 0, k);
+    panY += lerp(Number(pFrom[1]) || 0, Number(pTo[1]) || 0, k);
+  }
+
   for (const m of moves) {
-    if (m === 'push') {
-      dolly *= lerp(1.0, 1.0 + 0.032 * amount, k);
-    } else if (m === 'pull') {
-      dolly *= lerp(1.0 + 0.032 * amount, 1.0, k);
+    if (m === 'push' || m === 'dramatic-push' || m === 'burst-push') {
+      if (!hasCustomZoom) {
+        const span = m === 'push' ? 0.032 * amount : 0.45 * amount;
+        dolly *= lerp(1.0, 1.0 + span, k);
+      }
+    } else if (m === 'pull' || m === 'dramatic-pull' || m === 'reveal-pull') {
+      if (!hasCustomZoom) {
+        const span = m === 'pull' ? 0.032 * amount : 1.2 * amount;
+        dolly *= lerp(1.0 + span, 1.0, k);
+      }
     } else if (m === 'depth-push') {
-      // Stronger 2.5D dolly into vanishing point, scaled by parallax per layer
-      dolly *= lerp(1.0, 1.0 + 0.12 * amount, k);
+      if (!hasCustomZoom) {
+        // Stronger 2.5D dolly into vanishing point, scaled by parallax per layer
+        dolly *= lerp(1.0, 1.0 + 0.12 * amount, k);
+      }
     } else if (m === 'depth-pull') {
-      dolly *= lerp(1.0 + 0.12 * amount, 1.0, k);
+      if (!hasCustomZoom) {
+        dolly *= lerp(1.0 + 0.12 * amount, 1.0, k);
+      }
     } else if (m === 'depth-crane') {
-      // Camera rises/drops over foreground promontory to reveal distant central goal
-      panY += lerp(28, -28, k) * amount;
+      if (!hasCustomPan) {
+        // Camera rises/drops over foreground promontory to reveal distant central goal
+        panY += lerp(28, -28, k) * amount;
+      }
     } else if (m === 'depth-pan') {
-      // Lateral parallax sweep across planes
-      panX += lerp(-48, 48, k) * amount;
+      if (!hasCustomPan) {
+        // Lateral parallax sweep across planes
+        panX += lerp(-48, 48, k) * amount;
+      }
     } else if (m === 'pan' || m === 'track' || m === 'truck') {
-      panX += lerp(-20, 20, k) * amount;
+      if (!hasCustomPan) {
+        panX += lerp(-20, 20, k) * amount;
+      }
     } else if (m === 'orbit') {
       angleShift += lerp(-16, 16, k) * amount;
     } else if (m === 'rise' || m === 'crane') {
-      panY += lerp(14, -14, k) * amount;
+      if (!hasCustomPan) {
+        panY += lerp(14, -14, k) * amount;
+      }
     } else if (m === 'drop') {
-      panY += lerp(-14, 14, k) * amount;
+      if (!hasCustomPan) {
+        panY += lerp(-14, 14, k) * amount;
+      }
     } else if (m === 'drift') {
-      panX += lerp(-14, 14, k) * amount;
-      panY += lerp(9, -9, k) * amount;
+      if (!hasCustomPan) {
+        panX += lerp(-14, 14, k) * amount;
+        panY += lerp(9, -9, k) * amount;
+      }
     }
   }
 
@@ -128,6 +226,9 @@ export function evalSceneCamera2D(sceneMoveSpec = {}, u = 0, dims = {}) {
     angleShift,
     dolly,
     zoom,
+    progress: k,
+    u: uNorm,
+    phase,
     roll: ((sceneMoveSpec.rollDeg ?? 0) * Math.PI) / 180,
     isDepth: Boolean(isDepth),
     mode: isDepth ? 'depth' : 'flat',
@@ -199,9 +300,26 @@ export function createStudio2D({
         [{ size: 'full', move: 'static', subject: Object.keys(subjects)[0] || 'stage' }];
 
       const beatList = layout2DBeats(rawList, sc.dur);
-      // Select one unified camera move for the entire scene (preferring the first non-static move, or the first beat)
-      const primaryMoveShot =
-        beatList.find((b) => b.move && b.move !== 'static') || beatList[0] || { move: 'static' };
+      // Select one unified camera move for the entire scene (preferring beats with explicit dramatic parameters or non-static move)
+      const dramaticBeat = beatList.find(
+        (b) =>
+          b.zoomFrom != null ||
+          b.zoomTo != null ||
+          b.panFrom != null ||
+          b.panTo != null ||
+          b.holdStart != null ||
+          b.burstWindow != null ||
+          b.settleWindow != null
+      );
+      const basePrimary =
+        dramaticBeat ||
+        beatList.find((b) => b.move && b.move !== 'static') ||
+        beatList[0] ||
+        { move: 'static' };
+      const primaryMoveShot = {
+        ...basePrimary,
+        sceneDur: sc.dur,
+      };
 
       return {
         scene: sc,
@@ -228,6 +346,7 @@ export function createStudio2D({
         height,
         designWidth,
         designHeight,
+        sceneDur,
       });
       ctx.__inkCam = activeCam;
       return activeCam;
@@ -237,7 +356,10 @@ export function createStudio2D({
       const out = [];
       for (const entry of table) {
         for (const [bIdx, beat] of entry.beats.entries()) {
-          const sampleLocalT = +(beat.start + beat.dur * 0.78).toFixed(2);
+          const sampleLocalT =
+            beat.sampleAt != null
+              ? +clamp(beat.sampleAt, 0, entry.scene.dur).toFixed(2)
+              : +(beat.start + beat.dur * 0.78).toFixed(2);
           const midT = +(entry.scene.start + sampleLocalT).toFixed(2);
           if (typeof prepare === 'function') {
             prepare({
@@ -292,10 +414,10 @@ export function createStudio2D({
     const vx = opts.vanish ? opts.vanish[0] : (activeCam.vanishX ?? cx0);
     const vy = opts.vanish ? opts.vanish[1] : (activeCam.vanishY ?? cy0);
 
-    const baseZoom = activeCam.zoom / Math.max(0.5, activeCam.dolly ?? 1.0);
+    const baseZoom = vpScale;
     // When dolly changes, plane p scales according to its parallax
-    // e.g. p = 0.15 -> 1 + (dolly-1)*0.15 (~1.02x), p = 0.5 -> ~1.06x, p = 1.0 -> 1.12x, p = 1.25 -> 1.15x
-    const effZoom = baseZoom * (1.0 + ((activeCam.dolly ?? 1.0) - 1.0) * p);
+    // e.g. p = 0.15 -> 1 + (dolly-1)*0.15 (~1.02x), p = 0.5 -> ~1.06x, p = 1.0 -> dolly, p = 1.25 -> 1 + (dolly-1)*1.25
+    const effZoom = Math.max(0.15 * vpScale, baseZoom * (1.0 + ((activeCam.dolly ?? 1.0) - 1.0) * p));
 
     const screenVx = (vx - cx0) * vpScale + width * 0.5;
     const screenVy = (vy - cy0) * vpScale + height * 0.5;

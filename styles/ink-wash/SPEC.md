@@ -148,11 +148,33 @@ Unlike 3D styles (`engine/studio3d.js` + `engine/director.js`) which build a per
        'act1-peaks':  { size: 'wide',   move: 'static', subject: 'mountainValley' },
        'act2-cliff':  { size: 'medium', move: 'pan',    amount: 0.45, subject: 'cliffPath' },
        'act3-skiff':  { size: 'close',  move: 'push',   amount: 0.40, subject: 'anglerSkiff' },
-       'act4-finale': { size: 'wide',   move: 'pull',   amount: 0.40, subject: 'snowRiver' },
+       'act4-finale': { size: 'wide',   move: 'pull',   amount: 0.40, subject: 'snowRiver', zoomFrom: 2.4, zoomTo: 1.0, holdStart: 1.15 },
      },
    });
    ```
-   Supported single-direction `move` values: `'static'` (locked frame), `'push'` (`1.00 -> 1.03` gentle push), `'pull'` (`1.03 -> 1.00` gentle pull), `'pan'` / `'track'` (horizontal handscroll glide), `'rise'` / `'drop'` (vertical hanging-scroll glide), `'drift'`.
+   - **Daily micro-moves**: `'static'` (locked frame), `'push'` (`1.00 -> 1.03` gentle push), `'pull'` (`1.03 -> 1.00` gentle pull), `'pan'` / `'track'` (horizontal handscroll glide), `'rise'` / `'drop'` (vertical hanging-scroll glide), `'drift'`.
+   - **Dramatic Variable-Speed Camera & Freeze-Frame Windows (`engine/studio2d.js`)**:
+     - `zoomFrom` / `zoomTo`: Supports dramatic wide-range zoom transitions (`2.5x <-> 1.0x`) within a single scene (e.g., `2.4x` close-up back view sheathing a blade → smooth pull-back to `1.0x` vast mountain-and-cloud void).
+     - `panFrom` / `panTo`: Custom `[x, y]` start/end camera offsets synchronized with the dramatic curve.
+     - Intra-scene 3-phase timing envelope: `holdStart` (anticipation freeze window in seconds or `0..1` fraction), `burstWindow` (rapid push/pull window, e.g., `[0.45, 0.92]`), and `settleWindow` (aftermath freeze window).
+
+5. **Cross-Style Director Iron Law: Single Protagonist · Strong Causality · Three-Beat Action Grammar (`单主角 · 强因果 · 三拍子导演铁律`)**:
+   - **Single Protagonist Focus (`单主角聚焦`)**: Every scene centers on a single clear protagonist trajectory without cluttering the frame with unrelated side props.
+   - **Strong Inter-Scene Causality (`强因果递进`)**: Non-uniform scene durations driven by narrative tension (e.g., `3.8s` serene arrival → `3.2s` breathless suspension → `3.6s` lethal burst → `4.8s` vast aftermath pull-back).
+   - **Three-Beat Intra-Scene Action Grammar (`三拍子：0.4s 蓄力 Anticipation → 爆发 Burst → 反应/余韵 Aftermath`)**:
+     - **Beat 1 — Anticipation Hold (`0.4s–0.6s 蓄力凝滞`)**: Before any high-impact strike or reveal, lock or slow the camera (`holdStart: 0.45`), suspend ambient wind/leaves, and drop the score into an absolute **silence hold** (`0.4s–0.6s`) punctuated only by a micro-foley trigger (`blade_clique`).
+     - **Beat 2 — Burst (`瞬间爆发`)**: Execute a rapid camera push (`burstWindow`), a decisive Po-Mo stroke (`drawBladeArcSlash`), high-contrast focal impact (`drawBloodInkBurst`), and simultaneous acoustic climax (`taiko_impact` + `blade_cleave` + `calligraphy_slam`).
+     - **Beat 3 — Aftermath (`反应与余韵定格`)**: Show the physical consequence (`drawStruckEnemySilhouette` collapsing, ink mist dispersing, or slow-motion `blade_sheathe` followed by a `2.4x -> 1.0x` scale reveal into vast unpainted Xuan paper).
+
+6. **In-Painting Calligraphic Performance & Wuxia Action Primitives (`styles/ink-wash/kernel.js`)**:
+   - **`drawCalligraphicVerse(ctx, x, y, text, opts)`** (and upgraded `drawVerticalColophon`):
+     - `mode: 'xingcao'` (Running-Cursive): Warm, fluid vertical brush rhythm with subtle lateral sway, wet ink-wash halo, and delicate hair-thin filament links (`游丝连绵`) for serene/aftermath verses.
+     - `mode: 'kuangcao'` (Wild-Cursive Slam): Heavy charcoal-ink characters slamming onto the canvas with high-velocity scale-in impact, dry-brush flying-white fissures (`飞白裂痕`), dark ink blots, and cinnabar splatters (`朱砂飞溅`) for lethal climax verses.
+   - **Wuxia Dramatic Keyframes**:
+     - `drawWuxiaHeroPose(ctx, x, y, scale, opts)`: High-tension anatomical/perspective poses breaking free of upright trapezoid templates — `'loneWalk'` (wind-swept cloak & gourd), `'thumbHilt'` (low-angle stop, thumb pushing bronze sword guard open an inch of cold steel), `'crouchBlade'` (frontal low-camera deep crouch, bamboo hat pressed low over glowing eyes, horizontal blade coiled across knees), and `'sheatheBack'` (expressive back view slowly sliding blade into scabbard with wind-swept cloak).
+     - `drawBladeArcSlash(ctx, x, y, r, opts)`: Crescent white-core blade wave with charcoal-ink flying-white outer tear.
+     - `drawBloodInkBurst(ctx, x, y, r, opts)`: Explosive charcoal ink + piercing cinnabar crimson splatter particles & directional streaks.
+     - `drawStruckEnemySilhouette(ctx, x, y, scale, opts)`: Recoiling/collapsing enemy ink silhouette cleaved by the strike.
 
 ### Camera Vocabulary (A Menu, Not a Fixed Route)
 
@@ -166,8 +188,8 @@ Unlike 3D styles (`engine/studio3d.js` + `engine/director.js`) which build a per
 | **Low angle, dark mass towering** | Weight, threat, awe | A towering wave (`drawGesturalWave`); an overhanging cliff (`drawCliffFace`) |
 | **Over-the-shoulder (`view: 'back'`)** | Putting the hero, their gesture, and the obstacle on one axis | Facing a giant wave, writing a character in the air, gazing at a chasm |
 | **Hard cut to extreme close-up** | A sudden break in the flow (stillness before action) | Brim of a bamboo hat; fingers tightening on a hilt or teacup |
-| **Push into an ink bloom** | Passing between states | Memory; dream; season turning (`drawInkBloom`) |
-| **Pull back until the mark joins the whole** | The part was inside something larger | Closing scale reveal; final vermilion seal (`drawCinnabarSeal`) |
+| **Anticipation Hold → Rapid Burst Push (`holdStart` + `burstWindow`)** | Coiled stillness exploding into lethal action | Frontal crouch (`crouchBlade`) holding 0.45s → rapid push into `drawBladeArcSlash` + `drawBloodInkBurst` |
+| **Close-Up Action → Wide Scale Pull-Back (`zoomFrom: 2.4 -> zoomTo: 1.0`)** | Intimate gesture dissolving into cosmic vastness | Back-view slow `blade_sheathe` at `2.4x` → smooth pull back to `1.0x` vast mountain & cloud void |
 
 ### Native Moves (Spend At Least One at the Emotional Peak)
 1. **One stroke is everything (`一笔万象`)**: A single live brushstroke (`stroke(..., reveal)`) crosses blank paper and becomes a horizon, a bridge, a sword cut, or a branch.
@@ -175,13 +197,13 @@ Unlike 3D styles (`engine/studio3d.js` + `engine/director.js`) which build a per
 3. **Brush = gesture = action (`笔势即动势`)**: The hero's sword slash, sleeve sweep, or dance phrase literally leaves a flying-white calligraphic stroke in the air.
 4. **Flying white (`飞白破寂`)**: After a moment of stillness, one fast dry-brush stroke (`dry: 0.72`) tears across the frame.
 5. **Ink bloom transition (`墨晕化境`)**: A wet drop of ink (`drawInkBloom`) spreads across the paper to usher in the next scene.
-6. **Splitting a mass (`破墨分形`)**: A decisive stroke cleaves a dark ink wave or cloud mass apart, scattering wet ink blots (`drawInkBlot`).
+6. **Splitting a mass (`破墨分形`)**: A decisive stroke cleaves a dark ink wave or cloud mass apart, scattering wet ink blots (`drawInkBlot`) and cinnabar splatters (`drawBloodInkBurst`).
 
 ---
 
 ## 7. Output Directory & Verification Checklist
 - [ ] Write `<work-dir>/<style-id>/<product-slug>-v<N>/TREATMENT.md` **before** coding `<work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-world.js` (3 candidate structures → chosen structure, native move, shot list, and 6-dimension diff check against demo).
-- [ ] All topic files live in `<work-dir>/<style-id>/<product-slug>-v<N>/` (`TREATMENT.md`, `<product-slug>-world.js`, `<product-slug>-scenes.html`, `<product-slug>_storyboard.jpg`, `<product-slug>.mp4`).
+- [ ] All topic files live in `<work-dir>/<style-id>/<product-slug>-v<N>/` (`TREATMENT.md`, `<product-slug>-world.js`, `<product-slug>-scenes.html`, `<product-slug>_storyboard.jpg`, `<product-slug>_sheet.jpg`, `<product-slug>.mp4`).
 - [ ] `node tools/audit.mjs --style ink-wash --world <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-world.js --content <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-scenes.html --all-sizes` passes with **0 issues**.
 - [ ] `node tools/render.mjs --style ink-wash --world <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-world.js --content <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-scenes.html --storyboard <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>_storyboard.jpg` prints **0 warnings** and shows distinct compositions across scenes (no copy-pasted sticker layout).
-- [ ] `python3 tools/lookcheck.py --style ink-wash --world <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-world.js --content <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-scenes.html` passes all `READABILITY` floors (`L in [35, 92]`, `p95 >= 55`, `contrast >= 7`, `range >= 18`).
+- [ ] `python3 tools/lookcheck.py --style ink-wash --world <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-world.js --content <work-dir>/<style-id>/<product-slug>-v<N>/<product-slug>-scenes.html` passes all `ink-wash` readability & composition floors (`L in [18, 92]`, `p95 >= 55`, `contrast >= 7`, `range >= 18`, `com_y in [0.24, 0.78]`, `half_void <= 0.88`).
