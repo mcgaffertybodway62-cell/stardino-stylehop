@@ -1,0 +1,67 @@
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #100708;
+      color: #F9F3E8;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+    .serif-title { font-family: 'Noto Serif SC', Georgia, serif; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(26, 11, 14, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(235, 185, 96, 0.45); border-radius: 9999px; }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 244, 224, 0.18);
+      border: 1px solid rgba(246, 198, 108, 0.28);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #F9D47E;
+      border: 2px solid #FFFDF9;
+      box-shadow: 0 0 10px rgba(249, 212, 126, 0.85);
+      margin-top: -6px;
+      transition: transform 0.15s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); }
+
+    .glass-panel {
+      background: rgba(20, 8, 14, 0.76);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(247, 207, 134, 0.22);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+    }
+    .gold-badge {
+      background: linear-gradient(135deg, rgba(249, 208, 118, 0.22), rgba(214, 116, 73, 0.18));
+      border: 1px solid rgba(249, 208, 118, 0.45);
+    }
+    .active-tab {
+      background: linear-gradient(135deg, #E8B154, #C86D44);
+      color: #1A080C;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(232, 177, 84, 0.35);
+    }
+    .chapter-pill-active {
+      background: rgba(249, 212, 126, 0.28) !important;
+      border-color: #F9D47E !important;
+      color: #FFFDF7 !important;
+      font-weight: 600;
+    }
+    .asset-card-active {
+      border-color: #F7C86A !important;
+      background: rgba(247, 200, 106, 0.16) !important;
+    }

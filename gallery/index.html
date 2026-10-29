@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StyleHop Studio Workbench</title>
+<style>
+  :root {
+    --bg: #0d0e11; --panel: #15171c; --panel-2: #1c1f26; --line: #262a33;
+    --ink: #e7e9ee; --muted: #8a909c; --accent: #7aa2ff; --accent-2: #f687b3;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13.5px/1.5 "Inter", "Noto Sans CJK SC", system-ui, sans-serif; }
+  .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+  aside { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 16px 16px 28px; }
+  h1 { font-size: 16.5px; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: #1f2942; color: var(--accent); font-weight: 600; }
+  .sub { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+  h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 18px 0 7px; font-weight: 600; }
+  .list { display: grid; gap: 4px; }
+  .list button, .seg button {
+    all: unset; cursor: pointer; padding: 6.5px 10px; border-radius: 7px; border: 1px solid transparent;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px;
+  }
+  .list button:hover, .seg button:hover { background: var(--panel-2); }
+  .list button[aria-pressed="true"], .seg button[aria-pressed="true"] { border-color: var(--accent); background: #1a2135; }
+  .list button small { color: var(--muted); font-family: monospace; font-size: 11.5px; }
+  .seg { display: flex; gap: 4px; }
+  .seg button { flex: 1; justify-content: center; font-size: 12.5px; }
+  label.toggle { display: flex; align-items: center; gap: 8px; padding: 4.5px 2px; cursor: pointer; font-size: 13px; }
+  .param { display: grid; grid-template-columns: 86px 1fr 48px; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0; }
+  .param span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-family: monospace; }
+  .param input { width: 100%; accent-color: var(--accent); }
+  .pass-name { font-size: 12px; color: var(--accent); margin: 10px 0 3px; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 11.5px; margin: 6px 0 0; line-height: 1.45; }
+  main { display: grid; grid-template-rows: 1fr auto auto; min-width: 0; min-height: 0; }
+  .viewer { position: relative; min-height: 0; background: #07080a; }
+  iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+
+  /* Timeline Scrubber Bar */
+  .timeline {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+    padding: 9px 16px; border-top: 1px solid var(--line); background: var(--panel);
+  }
+  .transport { display: flex; gap: 6px; align-items: center; }
+  .transport button, .bar button {
+    all: unset; cursor: pointer; color: var(--ink); border: 1px solid var(--line);
+    background: var(--panel-2); padding: 4px 9px; border-radius: 6px; font-size: 12px;
+  }
+  .transport button:hover, .bar button:hover { border-color: var(--accent); }
+  .scrubber-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .scrubber-wrap input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .cue-track {
+    position: relative; height: 10px; background: #101217; border-radius: 4px;
+    border: 1px solid var(--line); overflow: hidden;
+  }
+  .cue-dot {
+    position: absolute; top: 1px; bottom: 1px; width: 2px; border-radius: 1px;
+  }
+  .cue-dot.scene_cut { width: 3px; background: #f687b3; z-index: 2; }
+  .cue-dot.layer_float { background: #fbbf24; }
+  .cue-dot.card_enter { background: #38bdf8; }
+  .cue-dot.stroke_draw { background: #34d399; }
+  .cue-dot.count_tick { background: #8a909c; top: 3px; bottom: 3px; }
+  .time-readout { font-family: monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .bar {
+    display: flex; gap: 10px; align-items: center; padding: 8px 16px;
+    border-top: 1px solid var(--line); background: #111318; font-size: 12px; color: var(--muted); flex-wrap: wrap;
+  }
+  .bar code {
+    color: var(--ink); background: var(--panel-2); padding: 3px 7px; border-radius: 4px;
+    font-size: 11.5px; word-break: break-all;
+  }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 60vh; height: auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>StyleHop Studio <span class="badge">v2.1</span></h1>
+    <p class="sub">多场景视觉风格工作台 · HTML-in-Canvas × WebGL2</p>
+
+    <h2>Style · 风格选择</h2>
+    <div class="list" id="styles"></div>
+
+    <h2>Scenes · 场景编排</h2>
+    <div class="list" id="scenes"></div>
+
+    <h2>Frame · 画幅比例</h2>
+    <div class="seg" id="sizes"></div>
+
+    <h2>Inspector · 实时检视与体检</h2>
+    <label class="toggle"><input type="checkbox" id="bypass"> 关闭着色器（看原始 DOM）</label>
+    <label class="toggle"><input type="checkbox" id="edit"> 直接编辑文字（Live Contenteditable）</label>
+    <label class="toggle"><input type="checkbox" id="audit"> 版面体检框（DOM Audit Overlay）</label>
+    <p class="hint">体检框颜色：青色 <code>[data-focus]</code> 焦点 · 琥珀色 <code>[data-layer]</code> 3D 浮层 · 红色 越界/截断告警。</p>
+
+    <h2>Shader Passes · 光学参数</h2>
+    <div id="params"><p class="hint">加载中…</p></div>
+  </aside>
+
+  <main>
+    <div class="viewer">
+      <iframe id="player" title="StyleHop stage player"></iframe>
+    </div>
+
+    <div class="timeline">
+      <div class="transport">
+        <button id="play-toggle" title="播放 / 暂停">⏸</button>
+        <button id="step-prev" title="后退 1 帧 (-1/30s)">-1F</button>
+        <button id="step-next" title="前进 1 帧 (+1/30s)">+1F</button>
+        <button id="replay" title="从头重播">↺ 重播</button>
+      </div>
+      <div class="scrubber-wrap">
+        <input type="range" id="scrubber" min="0" max="14" step="0.01" value="0">
+        <div class="cue-track" id="cue-track" title="音画同步事件轨：粉=场景切换 · 黄=3D浮层 · 蓝=卡片入场 · 绿=SVG描线"></div>
+      </div>
+      <div class="time-readout" id="time-readout">0.00s / 14.00s</div>
+    </div>
+
+    <div class="bar">
+      <span>CLI 体检：</span><code id="cmd-audit"></code>
+      <button id="copy-audit">复制</button>
+      <span>CLI 导出：</span><code id="cmd-render"></code>
+      <button id="copy-render">复制</button>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+import { STYLES, SIZES } from './catalog.js';
+
+const q = new URLSearchParams(location.search);
+const state = {
+  style: q.get('style') || STYLES[0].id,
+  scene: q.get('scene') || 'all',
+  size: q.get('size') || SIZES[0].id,
+};
+
+const player = document.getElementById('player');
+const scrubber = document.getElementById('scrubber');
+const timeReadout = document.getElementById('time-readout');
+const playToggle = document.getElementById('play-toggle');
+const cueTrack = document.getElementById('cue-track');
+const post = (msg) => player.contentWindow?.postMessage(msg, '*');
+
+let isPlaying = true;
+let isDraggingScrubber = false;
+let sceneList = [];
+
+function renderButtons(host, items, activeId, onClick, labelFn) {
+  host.innerHTML = '';
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.innerHTML = labelFn(it);
+    b.setAttribute('aria-pressed', String(String(activeId) === String(it.id)));
+    b.onclick = () => onClick(it);
+    host.append(b);
+  }
+}
+
+function updateCliCommands() {
+  const sceneArg = state.scene !== 'all' ? ` --scene ${state.scene}` : '';
+  document.getElementById('cmd-audit').textContent =
+    `node tools/audit.mjs --style ${state.style} --size ${state.size}`;
+  document.getElementById('cmd-render').textContent =
+    `node tools/render.mjs --style ${state.style}${sceneArg} --size ${state.size} --video <work-dir>/${state.style}.mp4`;
+}
+
+function renderScenePicker() {
+  const items = [
+    { id: 'all', title: '全部场景连播 (All Scenes)', sub: `${scrubber.max}s` },
+    ...sceneList.map((s) => ({
+      id: s.id,
+      title: s.title,
+      sub: `${s.start.toFixed(1)}–${s.end.toFixed(1)}s`,
+    })),
+  ];
+  renderButtons(
+    document.getElementById('scenes'),
+    items,
+    state.scene,
+    (it) => {
+      state.scene = it.id;
+      renderScenePicker();
+      updateCliCommands();
+      history.replaceState(null, '', `?${new URLSearchParams(state)}`);
+      post({ type: 'scene', value: state.scene });
+    },
+    (it) => `<span>${it.title}</span><small>${it.sub}</small>`
+  );
+}
+
+function renderCueTrack(cuesObj) {
+  cueTrack.innerHTML = '';
+  if (!cuesObj || !cuesObj.dur) return;
+  const dur = cuesObj.dur;
+  for (const c of cuesObj.cues || []) {
+    const dot = document.createElement('div');
+    dot.className = `cue-dot ${c.kind}`;
+    dot.style.left = `${Math.min(99.5, Math.max(0, (c.t / dur) * 100)).toFixed(2)}%`;
+    dot.title = `[${c.t.toFixed(2)}s] ${c.kind} (${c.scene}: ${c.label})`;
+    cueTrack.append(dot);
+  }
+}
+
+function load() {
+  renderButtons(
+    document.getElementById('styles'),
+    STYLES,
+    state.style,
+    (it) => {
+      state.style = it.id;
+      state.scene = 'all';
+      load();
+    },
+    (s) => `<span>${s.name}</span><small>${s.zh}</small>`
+  );
+  renderButtons(
+    document.getElementById('sizes'),
+    SIZES,
+    state.size,
+    (it) => {
+      state.size = it.id;
+      load();
+    },
+    (s) => s.name
+  );
+
+  const p = new URLSearchParams({ ...state, mode: 'live' });
+  if (document.getElementById('edit').checked) p.set('edit', '1');
+  player.src = `player.html?${p}`;
+  history.replaceState(null, '', `?${new URLSearchParams(state)}`);
+  updateCliCommands();
+  document.getElementById('params').innerHTML = '<p class="hint">加载中…</p>';
+}
+
+addEventListener('message', (e) => {
+  const m = e.data;
+  if (!m || m.source !== 'stylehop-player') return;
+
+  if (m.type === 'timeupdate') {
+    isPlaying = m.playing;
+    playToggle.textContent = isPlaying ? '⏸' : '▶';
+    if (!isDraggingScrubber) {
+      scrubber.value = m.t;
+    }
+    const scLabel = m.sceneTitle ? ` · ${m.sceneTitle}` : '';
+    timeReadout.textContent = `${m.t.toFixed(2)}s / ${m.dur.toFixed(2)}s${scLabel}`;
+    return;
+  }
+
+  if (m.type === 'ready') {
+    scrubber.max = m.dur || 14;
+    sceneList = m.cues?.scenes || [];
+    renderScenePicker();
+    renderCueTrack(m.cues);
+
+    const host = document.getElementById('params');
+    host.innerHTML = '';
+    if (!m.supported) {
+      host.innerHTML = '<p class="hint">此浏览器不支持 HTML-in-Canvas。请用 Chrome 151+ 并加启动参数 <code>--enable-blink-features=CanvasDrawElement</code>。</p>';
+      return;
+    }
+    document.getElementById('bypass').checked = false;
+    document.getElementById('audit').checked = false;
+
+    m.passes.forEach((pass, i) => {
+      const title = document.createElement('div');
+      title.className = 'pass-name';
+      title.textContent = pass.label;
+      host.append(title);
+      for (const [name, range] of Object.entries(pass.ui)) {
+        const v = pass.values[name];
+        if (typeof v !== 'number') continue;
+        const row = document.createElement('label');
+        row.className = 'param';
+        const out = document.createElement('span');
+        out.textContent = +v.toFixed(4);
+        const input = Object.assign(document.createElement('input'), {
+          type: 'range',
+          min: range[0],
+          max: range[1],
+          step: (range[1] - range[0]) / 200,
+          value: v,
+        });
+        input.oninput = () => {
+          out.textContent = +(+input.value).toFixed(4);
+          post({ type: 'param', pass: i, name, value: +input.value });
+        };
+        const n = document.createElement('span');
+        n.textContent = name;
+        row.append(n, input, out);
+        host.append(row);
+      }
+    });
+  }
+});
+
+document.getElementById('bypass').onchange = (e) => post({ type: 'bypass', value: e.target.checked });
+document.getElementById('edit').onchange = (e) => post({ type: 'edit', value: e.target.checked });
+document.getElementById('audit').onchange = (e) => post({ type: 'audit', value: e.target.checked });
+
+playToggle.onclick = () => {
+  isPlaying = !isPlaying;
+  playToggle.textContent = isPlaying ? '⏸' : '▶';
+  post({ type: 'play', value: isPlaying });
+};
+
+document.getElementById('step-prev').onclick = () => post({ type: 'step', delta: -1 / 30 });
+document.getElementById('step-next').onclick = () => post({ type: 'step', delta: 1 / 30 });
+
+scrubber.addEventListener('pointerdown', () => {
+  isDraggingScrubber = true;
+  post({ type: 'play', value: false });
+});
+scrubber.addEventListener('input', () => {
+  post({ type: 'seek', value: +scrubber.value });
+});
+addEventListener('pointerup', () => {
+  if (isDraggingScrubber) isDraggingScrubber = false;
+});
+
+document.getElementById('replay').onclick = () => {
+  document.getElementById('edit').checked = false;
+  post({ type: 'replay' });
+};
+
+document.getElementById('copy-audit').onclick = () => {
+  navigator.clipboard?.writeText(document.getElementById('cmd-audit').textContent);
+};
+document.getElementById('copy-render').onclick = () => {
+  navigator.clipboard?.writeText(document.getElementById('cmd-render').textContent);
+};
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+/*
+ * Clay Macaron · 3D 马卡龙定格软陶 (`styles/clay-macaron/theme.css`).
+ *
+ * Reusable "Pinched Polymer Clay Plaque & Stop-Motion Craft Tag" visual system.
+ * Pairs with `world.js` (Three.js 3D backdrop) and `engine/passes/clay.js` (thumbprint relief + tilt-shift).
+ * No CSS transitions or @keyframes — all motion is deterministically evaluated from timestamp `t`.
+ */
+#stage[data-style="clay-macaron"] {
+  --bg: #f3e4d4;
+  --surface: rgba(255, 250, 242, 0.90);
+  --surface-2: #f2dfc9;
+  --ink: #3d2722;
+  --muted: #7c5c52;
+  --accent: #d95b72;
+  --accent-2: #2e8b6e;
+  --on-accent: #fffdf9;
+  --line: rgba(110, 71, 48, 0.18);
+
+  /* Standard Macaron & Craft Desk Palette Tokens */
+  --mac-mint: #9edbc0;
+  --mac-rose: #f5a3b8;
+  --mac-lemon: #fadc8c;
+  --mac-taro: #c8a8e9;
+  --terracotta: #e67f62;
+  --caramel: #c7753d;
+  --brass: #c7995c;
+
+  --radius: calc(var(--u) * 2.2);
+  --border-w: 2px;
+  --card-shadow:
+    inset 0 calc(var(--u) * 0.25) 0 rgba(255, 255, 255, 0.92),
+    inset 0 calc(var(--u) * -0.3) 0 rgba(212, 170, 140, 0.45),
+    0 calc(var(--u) * 0.9) calc(var(--u) * 2.2) rgba(78, 44, 28, 0.16);
+  --pad: calc(var(--u) * 3.6);
+  --gap: calc(var(--u) * 1.8);
+  --title-weight: 900;
+  --title-tracking: -0.02em;
+}
+
+/* Hand-embossed clay headline treatment */
+#stage[data-style="clay-macaron"] .title {
+  color: var(--ink);
+  font-size: calc(var(--u) * 4.4);
+  line-height: 1.08;
+  text-shadow:
+    0 calc(var(--u) * 0.15) 0 rgba(255, 255, 255, 0.85),
+    0 calc(var(--u) * 0.32) calc(var(--u) * 0.6) rgba(92, 52, 36, 0.14);
+}
+
+#stage[data-style="clay-macaron"] .subtitle {
+  font-size: calc(var(--u) * 2.3);
+  color: var(--ink);
+}
+
+#stage[data-style="clay-macaron"] .lead {
+  font-size: calc(var(--u) * 1.75);
+  line-height: 1.42;
+  color: var(--muted);
+}
+
+/* Thick hand-pinched polymer clay slab cards */
+#stage[data-style="clay-macaron"] .card {
+  background: linear-gradient(175deg, rgba(255, 252, 246, 0.92) 0%, rgba(249, 236, 220, 0.89) 100%);
+  border: 2px solid rgba(138, 90, 64, 0.22);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: calc(var(--u) * 2.0) calc(var(--u) * 2.2);
+}
+
+#stage[data-style="clay-macaron"] .tag {
+  background: rgba(245, 163, 184, 0.26);
+  border: 1.5px solid rgba(217, 91, 114, 0.48);
+  color: #a6344b;
+  font-weight: 700;
+  font-size: calc(var(--u) * 1.25);
+  padding: 0.28em 0.85em;
+}
+
+#stage[data-style="clay-macaron"] .stamp {
+  background: linear-gradient(180deg, #e05d72, #b83b50);
+  color: #fffaf2;
+  border-radius: calc(var(--u) * 0.8);
+  box-shadow:
+    inset 0 calc(var(--u) * 0.15) 0 rgba(255, 255, 255, 0.45),
+    0 calc(var(--u) * 0.4) calc(var(--u) * 1.0) rgba(120, 38, 52, 0.28);
+  padding: calc(var(--u) * 0.7) calc(var(--u) * 0.55);
+  font-size: calc(var(--u) * 1.55);
+}
+
+#stage[data-style="clay-macaron"] .bar-track {
+  height: calc(var(--u) * 1.05);
+  background: #ead5be;
+  border: 1px solid rgba(110, 71, 48, 0.16);
+  box-shadow: inset 0 1px 3px rgba(78, 44, 28, 0.18);
+}
+
+#stage[data-style="clay-macaron"] .bar {
+  background: linear-gradient(90deg, #e86b84, #f5a3b8);
+}

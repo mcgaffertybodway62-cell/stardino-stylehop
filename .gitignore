@@ -1,0 +1,80 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# Node / Browser
+node_modules/
+
+# Secrets & local overrides (defence in depth — never commit these)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*.json
+secrets/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Backstop only — nothing may ever be written inside the repo:
+# outputs live in the sibling dirs ../out and ../test (see GEMINI.md rule 0).
+/out
+/test
+
+# Intermediate Render & Debug Directories
+_doc_check/
+_segments/
+chk/
+spike/
+backup_original_audio/
+# Images: only style-level review contact sheets & baselines are tracked; every other picture is a build artifact.
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.tif
+*.tiff
+!styles/**/contact_sheet_*.png
+!styles/**/contact_sheet_*.jpg
+!styles/**/contact_sheet.png
+!styles/**/contact_sheet.jpg
+!styles/**/look_baseline.jpg
+!showcase/**/contact_sheet*.png
+!showcase/**/contact_sheet*.jpg
+!assets/textures/*.png
+*.log
+
+# Large Rendered Media (Distribute via GitHub Releases or LFS if needed)
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.tar
+*.tar.gz
+*.tar.zst
+*.zip
+
+# Bundled Fonts / External Weights
+*.ttf
+*.otf
+*.woff
+*.woff2
+*.onnx
+*.bin
+*.hdr

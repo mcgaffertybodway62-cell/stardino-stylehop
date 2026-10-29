@@ -1,0 +1,61 @@
+<!--
+  Multi-Scene Starter Skeleton (`styles/_template/scenes.html`).
+  - Each <section class="frame scene" data-scene="..." data-dur="..."> defines a timeline segment.
+  - When paired with `world: './world.js'` (Three.js / 2D Canvas backdrop), `.frame` automatically
+    becomes transparent so 3D/Canvas animation fills the stage and DOM elements act as diegetic overlays.
+  - The tag / title / lead / card blocks below only demonstrate the markup contract; they are
+    not a layout to keep. Compose each scene from the motif lexicon in SPEC.md §2. A scene may
+    have no text at all when world.js carries the story.
+-->
+<style>
+  .tpl-stage {
+    display: grid;
+    height: 100%;
+    gap: var(--gap);
+    align-content: space-between;
+  }
+  .tpl-float {
+    --x: 68%;
+    --y: 10%;
+    --rotate: -3;
+    width: calc(var(--u) * 22);
+  }
+</style>
+
+<!-- Scene 01 -->
+<section class="frame scene" data-scene="scene-01" data-title="01 · Scene One" data-dur="3.5">
+  <div class="tpl-stage">
+    <div data-enter="fade" data-focus>
+      <span class="tag">SCENE 01</span>
+      <h1 class="title" style="margin-top: calc(var(--u) * 1.2)">Scene 01 Title</h1>
+      <p class="lead">用 SPEC.md §2 母题词表中的物件替换本占位块。</p>
+    </div>
+  </div>
+</section>
+
+<aside class="card tpl-float" data-layer data-scene="scene-01" data-delay="0.8">
+  <div class="label">Layer</div>
+  <div class="subtitle">3D Floating Element</div>
+</aside>
+
+<!-- Scene 02 -->
+<section class="frame scene" data-scene="scene-02" data-title="02 · Scene Two" data-dur="3.5">
+  <div class="tpl-stage">
+    <div data-enter="fade" data-focus>
+      <span class="tag">SCENE 02</span>
+      <h1 class="title" style="margin-top: calc(var(--u) * 1.2)">Scene 02 Title</h1>
+      <p class="lead">用 SPEC.md §2 母题词表中的物件替换本占位块。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Scene 03 -->
+<section class="frame scene" data-scene="scene-03" data-title="03 · Scene Three" data-dur="3.5">
+  <div class="tpl-stage">
+    <div data-enter="fade" data-focus>
+      <span class="tag">SCENE 03</span>
+      <h1 class="title" style="margin-top: calc(var(--u) * 1.2)">Scene 03 Title</h1>
+      <p class="lead">用 SPEC.md §2 母题词表中的物件替换本占位块。</p>
+    </div>
+  </div>
+</section>

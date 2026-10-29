@@ -1,0 +1,18 @@
+{
+  "name": "stardino-stylehop",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTML-in-Canvas × WebGL2 × Three.js multi-scene style studio and deterministic renderer.",
+  "scripts": {
+    "serve": "node engine/serve.mjs",
+    "audit": "node tools/audit.mjs",
+    "render": "node tools/render.mjs",
+    "textures": "python3 tools/textures.py",
+    "sound": "python3 tools/sound.py"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  },
+  "license": "MIT"
+}

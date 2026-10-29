@@ -1,0 +1,176 @@
+/*
+ * Content contract.
+ * Content files use ONLY these classes + their own layout (grid/flex positions).
+ * Styles (styles/<id>/theme.css) restyle them by overriding the variables below and,
+ * when needed, the classes themselves. Sizes use --u = 1% of the canvas's short side,
+ * set by the player, so the same content reflows at 16:9, 9:16 and 1:1.
+ * These classes are layout tools, not content. Opt-in components (formula,
+ * data table) live in engine/components/ and are imported by a style's
+ * theme.css only when its own medium calls for them.
+ */
+#stage {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #eeece6;
+  --ink: #1b1d22;
+  --muted: #6b6f78;
+  --accent: #3366ff;
+  --accent-2: #ff6b4a;
+  --line: rgba(0, 0, 0, 0.14);
+  --on-accent: #ffffff;
+  --radius: calc(var(--u) * 1.4);
+  --border-w: 1px;
+  --card-shadow: 0 calc(var(--u) * 0.6) calc(var(--u) * 2) rgba(0, 0, 0, 0.08);
+  --pad: calc(var(--u) * 5);
+  --gap: calc(var(--u) * 2.2);
+  --font-body: "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", "Liberation Sans", sans-serif;
+  --font-display: var(--font-body);
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", "Menlo", monospace;
+  --font-cjk-serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", "Noto Sans CJK SC", serif;
+  --title-weight: 800;
+  --title-tracking: -0.02em;
+  --title-transform: none;
+  --kicker-transform: uppercase;
+
+  display: block;
+  position: relative;
+  font-family: var(--font-body);
+  color: var(--ink);
+}
+
+#stage * { box-sizing: border-box; }
+
+/* Base layer: fills the canvas */
+.frame {
+  width: var(--w);
+  height: var(--h);
+  padding: var(--pad);
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+  font-size: calc(var(--u) * 1.9);
+  line-height: 1.45;
+}
+
+/* Transparent overlay frame for 3D / Canvas world-driven animation styles (`style.world`) */
+.frame.stage-overlay,
+#stage[data-world="true"] .frame {
+  background: transparent;
+}
+
+/* Floating layer: a direct child of the canvas -> its own texture, animated on the GPU.
+   Place it with --x / --y (% of canvas or px) and tilt it with --rotate (deg). */
+[data-layer] {
+  --x: 50%;
+  --y: 50%;
+  --rotate: 0;
+  font-size: calc(var(--u) * 1.9);
+  color: var(--ink);
+}
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: calc(var(--u) * 1.35);
+  letter-spacing: 0.14em;
+  text-transform: var(--kicker-transform);
+  color: var(--accent);
+}
+.title {
+  font-family: var(--font-display);
+  font-weight: var(--title-weight);
+  letter-spacing: var(--title-tracking);
+  text-transform: var(--title-transform);
+  font-size: calc(var(--u) * 6.4);
+  line-height: 1.05;
+  margin: 0;
+}
+.subtitle {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: calc(var(--u) * 3);
+  line-height: 1.15;
+  margin: 0;
+}
+.lead { font-size: calc(var(--u) * 2.3); color: var(--muted); margin: 0; }
+.label {
+  font-family: var(--font-mono);
+  font-size: calc(var(--u) * 1.25);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.card {
+  background: var(--surface);
+  border: var(--border-w) solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: calc(var(--u) * 2.4);
+  min-width: 0;
+  min-height: 0;
+}
+.metric {
+  font-family: var(--font-display);
+  font-weight: var(--title-weight);
+  font-size: calc(var(--u) * 5.2);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.unit { font-size: 0.42em; font-weight: 600; color: var(--muted); margin-left: 0.15em; }
+.up { color: var(--accent); }
+.down { color: var(--accent-2); }
+.note { font-size: calc(var(--u) * 1.55); color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--muted); }
+.accent { color: var(--accent); }
+.accent-2 { color: var(--accent-2); }
+.rule { border: 0; border-top: var(--border-w) solid var(--line); margin: calc(var(--u) * 1.2) 0; }
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: calc(var(--u) * 1.2);
+  letter-spacing: 0.08em;
+  padding: 0.35em 0.8em;
+  border-radius: 999px;
+  border: var(--border-w) solid var(--accent);
+  color: var(--accent);
+}
+.vertical {
+  writing-mode: vertical-rl;
+  font-family: var(--font-cjk-serif);
+  letter-spacing: 0.2em;
+  line-height: 1.9;
+}
+.stamp {
+  display: inline-grid;
+  place-items: center;
+  writing-mode: vertical-rl;
+  font-family: var(--font-cjk-serif);
+  font-weight: 900;
+  color: var(--on-accent);
+  background: var(--accent-2);
+  border-radius: calc(var(--u) * 0.4);
+  padding: 0.25em;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+.bar-track { height: calc(var(--u) * 0.9); background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.bar { height: 100%; background: var(--accent); border-radius: inherit; }
+
+/* SVG paint helpers: figures never hard-code colours */
+.figure { width: 100%; height: 100%; display: block; overflow: visible; }
+.figure text { font-family: var(--font-mono); fill: var(--muted); }
+.s-ink, .s-accent, .s-accent-2, .s-muted, .s-line { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.s-ink { stroke: var(--ink); }
+.s-accent { stroke: var(--accent); }
+.s-accent-2 { stroke: var(--accent-2); }
+.s-muted { stroke: var(--muted); }
+.s-line { stroke: var(--line); }
+.f-ink { fill: var(--ink); }
+.f-accent { fill: var(--accent); }
+.f-accent-2 { fill: var(--accent-2); }
+.f-surface { fill: var(--surface); }
+.f-soft { fill: var(--accent); fill-opacity: 0.14; }
+
+/* Edit mode (gallery "edit text" toggle) */
+#stage[data-edit] [contenteditable]:focus { outline: 2px dashed var(--accent); outline-offset: 4px; }

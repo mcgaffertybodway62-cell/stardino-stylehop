@@ -1,0 +1,21 @@
+/*
+ * Starter theme template (`styles/_template/theme.css`).
+ * Replace `_template` with your style's ID in `#stage[data-style="<style-id>"]`.
+ * All sizing must use `calc(var(--u) * N)` so 16:9, 9:16, and 1:1 reflow cleanly.
+ */
+#stage[data-style="_template"] {
+  --bg: #f4f2ec;
+  --surface: #ffffff;
+  --surface-2: #e6e3da;
+  --ink: #181a1f;
+  --muted: #656a75;
+  --accent: #2b59ff;
+  --accent-2: #ef5b3f;
+  --on-accent: #ffffff;
+  --line: rgba(24, 26, 31, 0.14);
+  --radius: calc(var(--u) * 1.6);
+  --border-w: 1px;
+  --card-shadow: 0 calc(var(--u) * 0.8) calc(var(--u) * 2.4) rgba(0, 0, 0, 0.08);
+  --pad: calc(var(--u) * 4.8);
+  --gap: calc(var(--u) * 2.0);
+}

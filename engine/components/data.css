@@ -1,0 +1,27 @@
+/*
+ * Opt-in data components (`engine/components/data.css`). Not loaded by default.
+ * Import it from a style's theme.css only when formulas or data tables belong to
+ * that style's own medium (e.g. an analytical manuscript or an info dashboard):
+ *   @import url("../../engine/components/data.css");
+ */
+#stage {
+  --font-math: "STIX Two Math", "Cambria Math", "DejaVu Math TeX Gyre", math;
+}
+
+.formula { font-family: var(--font-math); font-size: calc(var(--u) * 2.8); }
+.formula math { font-family: var(--font-math); }
+
+table.data { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.data th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: calc(var(--u) * 1.2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.5em 0.6em;
+  border-bottom: var(--border-w) solid var(--line);
+}
+table.data td { padding: 0.55em 0.6em; border-bottom: var(--border-w) solid var(--line); }
+table.data td.num { text-align: right; font-family: var(--font-mono); }

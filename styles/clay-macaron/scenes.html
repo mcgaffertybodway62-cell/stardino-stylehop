@@ -1,0 +1,57 @@
+<!--
+  Clay Macaron · Pure 3D Stop-Motion Timeline (`styles/clay-macaron/scenes.html`).
+
+  AI Authoring Contract:
+  1. Pure 3D Visual Stage by Default:
+     In `clay-macaron`, the 3D stop-motion animation (`world.js`) IS the video.
+     Keep `<section class="frame scene">` containers free of developer inspection plaques,
+     parameter cards, or floating UI badges unless the user explicitly asks for subtitles/titles.
+  2. Frame-Accurate Sound Foley (`data-cues`):
+     Each `<section>` declares `data-cues="offsetSec:kind:label:intensity, ..."` synced to the
+     3D physical impacts, pours, springs, and hops in `world.js` so `tools/sound.py` synthesizes
+     a matched 48kHz `clay` soundtrack.
+  3. Timing & light belong to the story, not to a template:
+     `data-dur` differs per scene (a beat can be 2s or 6s); there can be 2 scenes or 7.
+     `data-look="golden|dusk|night|indoor|day"` (+ optional `data-look-blend="sec"`,
+     `data-look-at="sec"`) changes the light per scene through `engine/look.js`.
+     Cuts inside a scene are a shot list in world.js (`studio.director`).
+-->
+
+<!-- Scene 01 · Morning Piping, Rolling Dough & Earl Grey Tea Pour (0.0s – 4.2s) · 3 shots: close → medium → wide -->
+<section
+  class="frame scene"
+  data-scene="patisserie-pour"
+  data-title="01 · Morning Patisserie &amp; Tea Pour"
+  data-dur="4.2"
+  data-cues="0.18:card_enter:shell-drop:0.85, 0.48:stroke_draw:tea-pour:0.72, 0.72:card_enter:shell-snap:0.92, 1.15:layer_float:piping-lift:0.80, 1.65:count_tick:roll-1:0.55, 2.25:count_tick:roll-2:0.50, 2.85:stroke_draw:steam-wisp:0.62"
+></section>
+
+<!-- Scene 02 · Brass Kitchen Scale & 9-Grid Ribbon Gift Box Unboxing (4.2s – 7.6s) · short, punchy -->
+<section
+  class="frame scene"
+  data-scene="giftbox-unbox"
+  data-title="02 · Brass Scale &amp; 9-Grid Unboxing"
+  data-dur="3.4"
+  data-cues="0.16:card_enter:box-squash:0.82, 0.34:stroke_draw:bow-untie:0.70, 0.52:layer_float:lid-hinge:0.94, 0.74:card_enter:grid-pop-1:0.88, 0.96:count_tick:grid-pop-2:0.65, 1.18:count_tick:grid-pop-3:0.58, 1.45:layer_float:balloon-rise:0.86, 2.15:count_tick:scale-needle:0.52"
+></section>
+
+<!-- Scene 03 · Patisserie Streetfront, Wind-Up Delivery Cart & Cloud Balloon (7.6s – 12.0s) · golden hour -->
+<section
+  class="frame scene"
+  data-scene="street-boutique"
+  data-title="03 · Patisserie Boutique &amp; Cloud Delivery"
+  data-dur="4.4"
+  data-look="golden"
+  data-cues="0.18:card_enter:awning-snap:0.88, 0.45:count_tick:cart-roll-1:0.58, 0.85:layer_float:balloon-liftoff:0.86, 1.35:count_tick:cart-roll-2:0.54, 1.85:stroke_draw:vitrine-spin:0.64, 2.40:count_tick:cart-roll-3:0.50, 2.95:card_enter:cart-arrive:0.74"
+></section>
+
+<!-- Scene 04 · Brass Wind-Up Music Box, Domino Wave & Hopping Pearl Finale (12.0s – 16.0s) · dusk falls over 2s -->
+<section
+  class="frame scene"
+  data-scene="kinetic-carousel"
+  data-title="04 · Clockwork Music Box Finale"
+  data-dur="4.0"
+  data-look="dusk"
+  data-look-blend="2.0"
+  data-cues="0.20:card_enter:pearl-hop-1:0.86, 0.48:count_tick:domino-wave-1:0.58, 0.70:card_enter:pearl-hop-2:0.84, 1.20:card_enter:pearl-hop-3:0.84, 1.55:layer_float:chime-orbit:0.82, 1.70:card_enter:pearl-hop-4:0.84, 2.20:card_enter:pearl-hop-5:0.84, 2.70:card_enter:pearl-hop-6:0.88, 3.15:stroke_draw:mandala-shine:0.72"
+></section>

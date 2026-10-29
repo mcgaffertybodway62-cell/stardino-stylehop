@@ -1,0 +1,26 @@
+/* Twilight Bioluminescent Fable · Dreamy Bokeh & Rim-Lit Picture-Book Tokens (`styles/twilight-fable/theme.css`) */
+#stage[data-style="twilight-fable"] {
+  --bg: #2a3166;
+  --surface: rgba(45, 54, 108, 0.85);
+  --surface-2: rgba(34, 41, 86, 0.90);
+  --ink: #fef9c3;
+  --muted: #c4b5fd;
+  --accent: #fde047;
+  --accent-2: #67e8f9;
+  --line: rgba(196, 181, 253, 0.22);
+
+  --font-display: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-body: "Noto Sans CJK SC", "PingFang SC", system-ui, sans-serif;
+  --font-cjk-serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  background: radial-gradient(circle at 50% 45%, #465299 0%, #2c356e 68%, #1d234d 100%);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* Pure visual canvas stage: scenes.html holds timeline & audio cues only */
+#stage[data-style="twilight-fable"] .frame.scene {
+  background: transparent;
+  pointer-events: none;
+}

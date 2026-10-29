@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StyleHop Stage Player</title>
+<link rel="stylesheet" href="../engine/base.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0e11; overflow: hidden; }
+  body.offline { background: #000; }
+  #wrap { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #audit-overlay {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5; display: none;
+  }
+  #audit-overlay.active { display: block; }
+  .audit-box {
+    position: absolute; border: 2px solid; border-radius: 4px; font: 600 12px/1.2 monospace;
+    padding: 2px 5px; white-space: nowrap; pointer-events: none;
+  }
+  .audit-focus { border-color: #38bdf8; background: rgba(56, 189, 248, 0.08); color: #38bdf8; }
+  .audit-layer { border-color: #f59e0b; background: rgba(245, 158, 11, 0.10); color: #fbbf24; }
+  .audit-error { border-color: #ef4444; background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
+  #fallback-note {
+    position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 10;
+    font: 13px/1.5 system-ui, sans-serif; color: #fff; background: rgba(180, 60, 40, 0.92);
+    padding: 10px 14px; border-radius: 8px;
+  }
+  #fallback { position: relative; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="stage" layoutsubtree></canvas>
+  <div id="audit-overlay"></div>
+</div>
+<script type="module">
+/**
+ * StyleHop Multi-Scene Stage Player (`gallery/player.html`).
+ *
+ * Query: ?style=<id>&scene=all|0|1...&size=1920x1080&dur=14&mode=live|offline&edit=1&look={json}
+ * Offline (`tools/render.mjs`, `tools/audit.mjs`): `window.render(t)` steps deterministically;
+ * exposes `window.READY`, `window.DUR`, `window.CUES`, `window.SOUND_PRESET`.
+ * Live (`gallery/index.html`): interactive timeline scrubber, scene lock, live contenteditable,
+ * DOM audit overlay, and shader parameter tuning.
+ */
+import { createStage } from '../engine/stage.js';
+import { resolvePasses } from '../engine/passes/index.js';
+import { resolveLook } from '../engine/look.js';
+import { prepareScenes, applyScene, extractCues, lerp, clamp } from '../engine/motion.js';
+
+const q = new URLSearchParams(location.search);
+const styleId = q.get('style') || 'clay-macaron';
+const contentOverride = q.get('content') || null;
+const worldOverride = q.get('world') || null;
+const initialScene = q.get('scene') || 'all';
+const [W, H] = (q.get('size') || '1920x1080').split('x').map(Number);
+const mode = q.get('mode') || 'live';
+const canvas = document.getElementById('stage');
+const wrap = document.getElementById('wrap');
+const auditOverlay = document.getElementById('audit-overlay');
+
+canvas.width = W;
+canvas.height = H;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+canvas.style.setProperty('--w', W + 'px');
+canvas.style.setProperty('--h', H + 'px');
+canvas.style.setProperty('--u', Math.min(W, H) / 100 + 'px');
+canvas.dataset.orient = W > H * 1.15 ? 'landscape' : H > W * 1.15 ? 'portrait' : 'square';
+canvas.dataset.style = styleId;
+document.body.classList.toggle('offline', mode === 'offline');
+
+function loadCss(href) {
+  return new Promise((resolve, reject) => {
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = href;
+    l.onload = resolve;
+    l.onerror = () => reject(new Error('CSS not found: ' + href));
+    document.head.append(l);
+  });
+}
+
+async function loadScenesHtml(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Scenes HTML not found: ${url}`);
+  const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+  for (const s of doc.querySelectorAll('style')) document.head.append(s);
+  const frames = [...doc.body.querySelectorAll(':scope > .frame')];
+  if (frames.length) {
+    for (const f of frames) canvas.append(f);
+  } else {
+    const frame = document.createElement('section');
+    frame.className = 'frame scene';
+    for (const n of [...doc.body.childNodes]) if (!(n.dataset && 'layer' in n.dataset)) frame.append(n);
+    canvas.append(frame);
+  }
+  for (const layer of doc.body.querySelectorAll(':scope > [data-layer]')) canvas.append(layer);
+}
+
+const style = (await import(`../styles/${styleId}/style.js`)).default;
+// `?look={json}` deep-merges over `style.look` for A/B look checks (`tools/lookcheck.py --look`).
+if (q.get('look')) style.look = resolveLook(style.look, JSON.parse(q.get('look')));
+const scenesUrl = contentOverride
+  ? new URL(contentOverride.endsWith('.html') ? contentOverride : `../styles/${styleId}/${contentOverride}.html`, location.href)
+  : new URL(`../styles/${styleId}/${style.scenes || 'scenes.html'}`, location.href);
+
+await Promise.all([
+  loadCss(`../styles/${styleId}/${style.theme || 'theme.css'}`),
+  loadScenesHtml(scenesUrl),
+]);
+await document.fonts.ready;
+
+const seq = prepareScenes(canvas);
+window.CUES = extractCues(canvas);
+window.SOUND_PRESET = style.soundPreset || 'glass';
+window.DUR = parseFloat(q.get('dur')) || style.duration || seq.totalDur;
+
+function fit() {
+  if (mode === 'offline') return;
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  wrap.style.transform = `translate(${(innerWidth - W * s) / 2}px, ${(innerHeight - H * s) / 2}px) scale(${s})`;
+}
+addEventListener('resize', fit);
+fit();
+
+let worldInstance = null;
+const worldSpec = worldOverride || style.world || null;
+const worldFactory =
+  !worldOverride && typeof style.createWorld === 'function'
+    ? style.createWorld
+    : typeof worldSpec === 'string'
+      ? (
+          await import(
+            new URL(
+              worldSpec.startsWith('/') || worldSpec.startsWith('http')
+                ? worldSpec
+                : `../styles/${styleId}/${worldSpec.replace(/^\.\//, '')}`,
+              location.href
+            )
+          )
+        ).default
+      : null;
+if (typeof worldFactory === 'function') {
+  worldInstance = await worldFactory({ canvas, width: W, height: H, scenes: seq.scenes, style });
+  if (worldInstance?.canvas) canvas.dataset.world = 'true';
+  // Shot list from the world's director (`render.mjs --storyboard`).
+  window.SHOTS = typeof worldInstance?.storyboard === 'function' ? worldInstance.storyboard() : null;
+}
+
+let stage = null;
+const rawPaper = style.paperTexture || style.paper || null;
+const resolvedPaper = rawPaper && rawPaper.startsWith('assets/') ? `../${rawPaper}` : rawPaper;
+try {
+  stage = createStage(canvas, {
+    passes: resolvePasses(style.passes),
+    layers: style.layers,
+    textures: { paper: resolvedPaper },
+    world: worldInstance,
+  });
+  await stage.ready;
+} catch (err) {
+  console.warn(err.message);
+  const fb = document.createElement('div');
+  fb.id = 'fallback';
+  fb.style.cssText = canvas.style.cssText;
+  for (const k of ['orient', 'style']) fb.dataset[k] = canvas.dataset[k];
+  if (worldInstance?.canvas) {
+    worldInstance.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;';
+    fb.append(worldInstance.canvas);
+  }
+  fb.append(...canvas.children);
+  canvas.replaceWith(fb);
+  fb.id = 'stage';
+  const note = document.createElement('div');
+  note.id = 'fallback-note';
+  note.textContent = '当前浏览器不支持 HTML-in-Canvas（需 Chrome 151+ 并以 --enable-blink-features=CanvasDrawElement 启动）。下面是同一份多场景 DOM 的主题化原样显示。';
+  document.body.append(note);
+}
+
+const root = document.getElementById('stage');
+const send = (msg) => parent !== window && parent.postMessage({ source: 'stylehop-player', ...msg }, '*');
+
+let lockScene = initialScene;
+let auditEnabled = false;
+let editing = false;
+
+function updateAuditOverlay() {
+  if (!auditEnabled) return;
+  auditOverlay.innerHTML = '';
+  const cr = root.getBoundingClientRect();
+  const scaleX = W / (cr.width || W);
+  const scaleY = H / (cr.height || H);
+  const frame =
+    root.querySelector(':scope > .frame[data-active="true"]') ||
+    [...root.querySelectorAll(':scope > .frame')].find((el) => el.style.display !== 'none');
+  if (!frame) return;
+
+  const addBox = (el, cls, tag) => {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0.5 || r.height <= 0.5) return;
+    const d = document.createElement('div');
+    d.className = `audit-box ${cls}`;
+    d.style.left = `${(r.left - cr.left) * scaleX}px`;
+    d.style.top = `${(r.top - cr.top) * scaleY}px`;
+    d.style.width = `${r.width * scaleX}px`;
+    d.style.height = `${r.height * scaleY}px`;
+    d.textContent = tag;
+    auditOverlay.append(d);
+  };
+
+  for (const [i, f] of [...frame.querySelectorAll('[data-focus]')].entries()) {
+    addBox(f, 'audit-focus', `focus #${i + 1}`);
+  }
+  for (const l of [...root.querySelectorAll(':scope > [data-layer]')].filter((el) => el.style.display !== 'none')) {
+    addBox(l, 'audit-layer', `3D layer (${l.dataset.scene || 'all'})`);
+  }
+  for (const el of frame.querySelectorAll('*')) {
+    if (el.closest('svg, math')) continue;
+    const hasText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim().length > 0);
+    if (!hasText) continue;
+    const r = el.getBoundingClientRect();
+    const left = (r.left - cr.left) * scaleX;
+    const top = (r.top - cr.top) * scaleY;
+    const right = (r.right - cr.left) * scaleX;
+    const bottom = (r.bottom - cr.top) * scaleY;
+    const cs = getComputedStyle(el);
+    const clip = (cs.overflowX === 'hidden' || cs.overflowX === 'clip') && el.scrollWidth > el.clientWidth + 2;
+    if (left < -2 || top < -2 || right > W + 2 || bottom > H + 2 || clip) {
+      addBox(el, 'audit-error', clip ? 'OVERFLOW' : 'OUT-OF-BOUNDS');
+    }
+  }
+}
+
+window.render = async (t, extra = {}) => {
+  let scState = { localT: t, sceneProgress: Math.min(1, t / window.DUR), sceneMix: 0, scene: null, index: 0 };
+  if (!editing) {
+    scState = applyScene(root, t, { lockScene });
+  }
+  if (auditEnabled) updateAuditOverlay();
+  if (stage) {
+    return stage.render({
+      t,
+      localT: scState.localT ?? t,
+      scene: scState.scene,
+      sceneIndex: scState.index ?? 0,
+      sceneId: scState.scene?.id || '',
+      progress: Math.min(1, t / window.DUR),
+      sceneProgress: scState.sceneProgress,
+      sceneMix: scState.sceneMix,
+      ...extra,
+    });
+  }
+  if (worldInstance && typeof worldInstance.render === 'function') {
+    await worldInstance.render({
+      t,
+      localT: scState.localT ?? t,
+      scene: scState.scene,
+      sceneIndex: scState.index ?? 0,
+      sceneId: scState.scene?.id || '',
+      progress: Math.min(1, t / window.DUR),
+      sceneProgress: scState.sceneProgress,
+      sceneMix: scState.sceneMix,
+      width: W,
+      height: H,
+      ...extra,
+    });
+  }
+};
+
+// ---------- live mode ----------
+let playing = true;
+let playhead = 0;
+let lastTick = performance.now();
+const pointer = { uv: null, at: -1e9, rect: null };
+let focus = null;
+let focusRect = null;
+
+function setEditing(on) {
+  editing = on;
+  root.toggleAttribute('data-edit', on);
+  if (on) {
+    const activeSc = seq.scenes.find((s) => s.el.dataset.active === 'true') || seq.scenes[0];
+    if (activeSc) applyScene(root, activeSc.settle, { lockScene });
+  }
+  for (const el of root.querySelectorAll('.frame *, [data-layer] *')) {
+    if (el.children.length === 0 && el.textContent.trim() && !el.closest('svg, math')) {
+      if (on) el.setAttribute('contenteditable', 'plaintext-only');
+      else el.removeAttribute('contenteditable');
+    }
+  }
+}
+
+root.addEventListener('pointermove', (e) => {
+  const r = root.getBoundingClientRect();
+  pointer.uv = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+  pointer.at = performance.now();
+  const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-focus]');
+  pointer.rect = hit && stage ? stage.uvRect(hit) : null;
+});
+root.addEventListener('pointerleave', () => (pointer.at = -1e9));
+
+addEventListener('message', (e) => {
+  const m = e.data || {};
+  if (m.type === 'param' && stage) stage.setParam(m.pass, m.name, m.value);
+  if (m.type === 'bypass' && stage) stage.bypass = m.value;
+  if (m.type === 'edit') setEditing(m.value);
+  if (m.type === 'audit') {
+    auditEnabled = Boolean(m.value);
+    auditOverlay.classList.toggle('active', auditEnabled);
+    updateAuditOverlay();
+  }
+  if (m.type === 'scene') {
+    lockScene = m.value;
+    if (lockScene !== 'all') {
+      const target = seq.scenes.find((s) => String(s.index) === String(lockScene) || s.id === String(lockScene));
+      if (target) playhead = target.start;
+    } else {
+      playhead = 0;
+    }
+    lastTick = performance.now();
+  }
+  if (m.type === 'play') {
+    playing = Boolean(m.value);
+    lastTick = performance.now();
+  }
+  if (m.type === 'seek') {
+    playhead = clamp(parseFloat(m.value) || 0, 0, window.DUR);
+    lastTick = performance.now();
+  }
+  if (m.type === 'step') {
+    playing = false;
+    playhead = clamp(playhead + (parseFloat(m.delta) || 0), 0, window.DUR);
+    lastTick = performance.now();
+  }
+  if (m.type === 'replay') {
+    setEditing(false);
+    playing = true;
+    if (lockScene !== 'all') {
+      const target = seq.scenes.find((s) => String(s.index) === String(lockScene) || s.id === String(lockScene));
+      playhead = target ? target.start : 0;
+    } else {
+      playhead = 0;
+    }
+    lastTick = performance.now();
+  }
+});
+
+async function loop() {
+  const now = performance.now();
+  const dt = Math.min(0.1, (now - lastTick) / 1000);
+  lastTick = now;
+
+  if (playing && !editing) {
+    playhead += dt;
+    if (lockScene !== 'all') {
+      const target = seq.scenes.find((s) => String(s.index) === String(lockScene) || s.id === String(lockScene));
+      if (target) {
+        if (playhead >= target.end || playhead < target.start) playhead = target.start;
+      }
+    } else if (playhead > window.DUR) {
+      playhead = 0;
+    }
+  }
+
+  const scState = editing ? null : applyScene(root, playhead, { lockScene });
+  const extra = { time: now / 1000 };
+  if (stage) {
+    const auto = stage.tour(scState ? scState.sceneProgress : (playhead / window.DUR) % 1);
+    const usePointer = now - pointer.at < 2500 && pointer.uv;
+    const goal = usePointer ? pointer.uv : auto.focus;
+    const goalRect = usePointer && pointer.rect ? pointer.rect : auto.rect;
+    focus = focus ? focus.map((v, i) => lerp(v, goal[i], 0.16)) : goal;
+    focusRect = focusRect ? focusRect.map((v, i) => lerp(v, goalRect[i], 0.16)) : goalRect;
+    extra.focus = focus;
+    extra.focusRect = goalRect;
+  }
+
+  await window.render(playhead, extra);
+
+  send({
+    type: 'timeupdate',
+    t: +playhead.toFixed(3),
+    dur: window.DUR,
+    playing,
+    sceneIndex: scState ? scState.index : 0,
+    sceneId: scState?.scene?.id || '',
+    sceneTitle: scState?.scene?.title || '',
+  });
+
+  requestAnimationFrame(loop);
+}
+
+if (mode === 'offline') {
+  await window.render(0);
+} else {
+  if (q.get('edit') === '1') setEditing(true);
+  requestAnimationFrame(loop);
+}
+
+send({
+  type: 'ready',
+  supported: !!stage,
+  style: { id: style.id, name: style.name, zh: style.zh, soundPreset: window.SOUND_PRESET },
+  dur: window.DUR,
+  cues: window.CUES,
+  passes: stage ? stage.chain.map((c) => ({ name: c.pass.name, label: c.pass.label, values: c.values, ui: c.pass.ui || {} })) : [],
+});
+window.READY = true;
+</script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>暖窗 · The Warm Window · Twilight Bioluminescent Fable</title>
+<style>
+  .frame.scene {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <!-- S1 (0.0s .. 3.2s, wide, push): fog wood — a small kitten, from behind, sees one warm speck on the ridge -->
+  <section
+    class="frame scene"
+    data-scene="fog-wood"
+    data-title="01 · 雾林 · Fog Wood"
+    data-dur="3.2"
+    data-look="fogwood"
+    data-cues="0.9:layer_float:far-window, 1.7:count_tick:ears-perk, 2.2:count_tick:paw, 2.7:count_tick:paw"
+  ></section>
+
+  <!-- S2 (3.2s .. 7.4s, full, pan): the burrow mound — hesitation, the round door swings open, the cub leans out -->
+  <section
+    class="frame scene"
+    data-scene="mound-door"
+    data-title="02 · 圆门 · The Round Door"
+    data-dur="4.2"
+    data-look="glade"
+    data-look-blend="0.8"
+    data-cues="0.4:count_tick:paw, 0.9:count_tick:paw, 1.4:count_tick:stop, 1.8:card_enter:door-creak, 2.6:layer_float:warm-spill, 3.3:count_tick:step-in"
+  ></section>
+
+  <!-- S3 (7.4s .. 11.0s, close, push): the hearth — the kitten's rim turns from window-cyan to lamp-honey, squint, yawn -->
+  <section
+    class="frame scene"
+    data-scene="hearth-warm"
+    data-title="03 · 炉光 · Hearth Warmth"
+    data-dur="3.6"
+    data-look="hearth"
+    data-look-blend="1.0"
+    data-cues="0.5:stroke_draw:lamp-rise, 1.6:layer_float:rim-handoff, 2.6:count_tick:yawn"
+  ></section>
+
+  <!-- S4 (11.0s .. 14.0s, medium, pull): mint dawn outside — both asleep in the window, the mist lifts -->
+  <section
+    class="frame scene"
+    data-scene="dawn-window"
+    data-title="04 · 晨窗 · Dawn Window"
+    data-dur="3.0"
+    data-look="mintmist"
+    data-look-blend="0.7"
+    data-cues="0.6:layer_float:mist-lift, 2.2:stroke_draw:sunrise"
+  ></section>
+</body>
+</html>

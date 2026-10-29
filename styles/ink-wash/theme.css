@@ -1,0 +1,26 @@
+/* Ink Wash Scroll · Song-Dynasty Xuan Paper & Mineral Pigment Tokens (`styles/ink-wash/theme.css`) */
+#stage[data-style="ink-wash"] {
+  --bg: #efe6d4;
+  --surface: rgba(246, 239, 224, 0.86);
+  --surface-2: rgba(232, 220, 198, 0.90);
+  --ink: #181b20;
+  --muted: #58606c;
+  --accent: #c93524;
+  --accent-2: #264f73;
+  --line: rgba(24, 27, 32, 0.18);
+
+  --font-display: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-cjk-serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  background: radial-gradient(circle at 50% 44%, #f4ecdc 0%, #e8dbc2 70%, #dccaa8 100%);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* Pure visual scroll stage: scenes.html holds timeline & audio cues only */
+#stage[data-style="ink-wash"] .frame.scene {
+  background: transparent;
+  pointer-events: none;
+}
