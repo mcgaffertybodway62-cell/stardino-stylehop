@@ -64,6 +64,8 @@ import {
   resolveCritterBuild,
   contourEarGeometry,
   traceContourEar,
+  CRITTER_EMOTIONS,
+  applyCritterEmotion,
   simulateCritterRig as _simulateCritterRig,
   traceSmoothSpineBodyPath,
   traceNeckBridgePath,
@@ -119,6 +121,8 @@ export {
   resolveCritterBuild,
   contourEarGeometry,
   traceContourEar,
+  CRITTER_EMOTIONS,
+  applyCritterEmotion,
   traceSmoothSpineBodyPath,
   traceNeckBridgePath,
   projectCritterView,
@@ -2082,26 +2086,40 @@ function drawEye(ctx, ex, ey, rx, ry, rot, tilt, look, build, R, eo = {}) {
   const darkSkin = hexToHsl(skin)[2] < 0.45;
   const lid = clamp(eo.lid ?? 0, 0, 1);
   const lower = clamp(eo.lower ?? 0, 0, 1);
+  const browTilt = clamp(eo.browTilt ?? 0, -1, 1);
+  const eyeSide = eo.side ?? -1;
+  const pupilK = clamp(eo.pupilScale ?? 1, 0.55, 1.45);
+  const sparkle = clamp(eo.sparkle ?? 0, 0, 1.2);
+  const t = eo.t ?? 0;
 
-  // lids: the eye only shows through the aperture between the upper lid (sags a little) and the lower lid (rises
-  // flat); the face itself stays visible above / below, so no lid colour has to match the shaded fur
-  const yU = -ry + lid * ry * 1.9;
-  const yL = ry - lower * ry * 0.75;
-  // upper lid edge: arches like the eye while barely lowered, flattens, then sags into a closed "‿" near a full blink
-  const arch = ry * (0.3 * (1 - lid) - 0.12 * lid);
+  // lids: the eye only shows through the aperture between the upper lid (sags or tilts with `browTilt`) and the lower
+  // lid (rises into a happy crescent with `lower`); the face itself stays visible above / below, so no lid colour has to
+  // match the shaded fur and no floating eyebrow line ever breaks the 3D plush head sphere.
+  const browDrop = Math.abs(browTilt) * 0.18;
+  const effLid = clamp(lid + browDrop, 0, 0.96);
+  const yU = -ry + effLid * ry * 1.9;
+  const yL = ry - lower * ry * 0.82;
+  // upper lid edge: arches like the eye while barely lowered, tilts with `browTilt` (outer corner drops for sad/pleading
+  // when browTilt < 0, inner corner drops for determined when browTilt > 0), and sags into a closed "‿" near a full blink
+  const arch = ry * (0.3 * (1 - effLid) - 0.12 * effLid);
+  const slantY = -eyeSide * browTilt * ry * 0.52 * (1 - lid * 0.7);
   const traceUpperLid = (c) => {
-    c.moveTo(-rx * 1.3, yU + arch);
-    c.quadraticCurveTo(0, yU - arch, rx * 1.3, yU + arch);
+    c.moveTo(-rx * 1.35, yU + arch - slantY);
+    c.quadraticCurveTo(0, yU - arch, rx * 1.35, yU + arch + slantY);
+  };
+  const traceLowerLidToLeft = (c) => {
+    const lArch = ry * (0.36 * lower - 0.08 * (1 - lower));
+    c.lineTo(rx * 1.35, yL + ry * 0.12);
+    c.quadraticCurveTo(0, yL - lArch, -rx * 1.35, yL + ry * 0.12);
   };
 
   ctx.save();
   ctx.translate(ex, ey);
   ctx.rotate(tilt + rot);
-  if (lid > 0.01 || lower > 0.01) {
+  if (effLid > 0.01 || lower > 0.01 || Math.abs(browTilt) > 0.02) {
     ctx.beginPath();
     traceUpperLid(ctx);
-    ctx.lineTo(rx * 1.3, yL + ry * 0.08);
-    ctx.quadraticCurveTo(0, yL - ry * 0.3 * lower, -rx * 1.3, yL + ry * 0.08);
+    traceLowerLidToLeft(ctx);
     ctx.closePath();
     ctx.clip();
   }
@@ -2131,8 +2149,8 @@ function drawEye(ctx, ex, ey, rx, ry, rot, tilt, look, build, R, eo = {}) {
 
   const pupX = localUx * rx * 0.24;
   const pupY = localUy * ry * 0.24;
-  const pupRx = rx * 0.64;
-  const pupRy = ry * 0.68;
+  const pupRx = clamp(rx * 0.64 * pupilK, rx * 0.34, rx * 0.88);
+  const pupRy = clamp(ry * 0.68 * pupilK, ry * 0.38, ry * 0.90);
   const pupGrad = ctx.createRadialGradient(pupX, pupY, pupRx * 0.1, pupX, pupY, pupRx);
   // an emissive body has no black hole in its face: the pupil is a deep tint of the iris
   const pupCore = mixHex('#070514', iris[0], emissive * 0.7);
@@ -2144,21 +2162,33 @@ function drawEye(ctx, ex, ey, rx, ry, rot, tilt, look, build, R, eo = {}) {
   ctx.ellipse(pupX, pupY, pupRx, pupRy, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = rgba(iris[3], 0.65);
+  ctx.strokeStyle = rgba(iris[3], 0.65 + 0.25 * sparkle);
   ctx.lineWidth = Math.max(1.5, R * 0.032);
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.arc(irisX, irisY, irisRx * 0.78, 0.25, Math.PI - 0.25);
   ctx.stroke();
 
+  // Primary catchlight + optional emotion sparkle / tear-glint micro-shimmer
+  const shimmer = sparkle > 0.02 ? 1 + Math.sin(t * 14 + eyeSide * 1.2) * 0.12 * sparkle : 1;
+  const hlScale = (1 + 0.22 * sparkle) * shimmer;
   ctx.fillStyle = '#FFFFFF';
   ctx.beginPath();
-  ctx.ellipse(-rx * 0.3, -ry * 0.32, rx * 0.24, ry * 0.2, -0.3, 0, Math.PI * 2);
+  ctx.ellipse(-rx * 0.3, -ry * 0.32, rx * 0.24 * hlScale, ry * 0.2 * hlScale, -0.3, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = rgba(iris[3], 0.95);
   ctx.beginPath();
-  ctx.arc(rx * 0.32, ry * 0.28, rx * 0.11, 0, Math.PI * 2);
+  ctx.arc(rx * 0.32, ry * 0.28, rx * (0.11 + 0.05 * sparkle) * shimmer, 0, Math.PI * 2);
   ctx.fill();
+  if (sparkle > 0.15) {
+    ctx.fillStyle = rgba('#FFFFFF', clamp(sparkle * 0.88, 0, 0.95));
+    ctx.beginPath();
+    ctx.arc(-rx * 0.08, ry * 0.36, rx * 0.09 * shimmer, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(rx * 0.38, -ry * 0.14, rx * 0.07 * shimmer, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.restore();
 
@@ -2171,19 +2201,34 @@ function drawEye(ctx, ex, ey, rx, ry, rot, tilt, look, build, R, eo = {}) {
   ctx.lineWidth = Math.max(1.6, R * 0.028);
   ctx.lineCap = 'round';
   ctx.beginPath();
-  if (lid < 0.04) ctx.ellipse(0, 0, rx * 1.0, ry * 1.0, 0, Math.PI * 1.08, Math.PI * 1.92);
-  else {
+  if (effLid < 0.04 && Math.abs(browTilt) < 0.04) {
+    ctx.ellipse(0, 0, rx * 1.0, ry * 1.0, 0, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.stroke();
+  } else {
     // the same edge that clips the eye, kept to the eye's width
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(0, 0, rx * 1.04, ry * 1.08, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, rx * 1.05, ry * 1.08, 0, 0, Math.PI * 2);
     ctx.clip();
     ctx.beginPath();
     traceUpperLid(ctx);
     ctx.stroke();
     ctx.restore();
   }
-  if (lid < 0.04) ctx.stroke();
+  if (lower > 0.35) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx * 1.04, ry * 1.06, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = darkSkin ? rgba(mixHex(skin, iris[3], 0.35), 0.55 * lower) : rgba(mixHex(skin, '#0B0720', 0.65), 0.65 * lower);
+    ctx.lineWidth = Math.max(1.3, R * 0.022);
+    ctx.beginPath();
+    const lArch = ry * (0.36 * lower - 0.08 * (1 - lower));
+    ctx.moveTo(-rx * 1.15, yL + ry * 0.10);
+    ctx.quadraticCurveTo(0, yL - lArch, rx * 1.15, yL + ry * 0.10);
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.restore();
 }
 
@@ -2217,8 +2262,22 @@ function drawCritterFace(ctx, head, R, simState, lights = [], t = 0, fo = {}) {
   const blinkWave = Math.sin(t * 1.65 + 0.9);
   const blink = blinkWave > 0.982 ? clamp((blinkWave - 0.982) / 0.018, 0, 0.92) : 0;
   const squint = clamp(simState.eyeSquint ?? 0, 0, 1);
-  // a squint is the cheek pushing the lower lid up (content / smiling); the upper lid barely drops (a heavy upper lid reads as bored)
-  const eo = { lid: Math.max(blink, squint * 0.18), lower: squint * 0.95, skin: fo.skin, emissive: fo.emissive };
+  const extraLid = clamp(simState.eyeLid ?? 0, 0, 1);
+  const browTilt = clamp(simState.browTilt ?? 0, -1, 1);
+  const pupilScale = clamp(simState.pupilScale ?? 1, 0.55, 1.45);
+  const sparkle = clamp(simState.eyeSparkle ?? 0, 0, 1.2);
+  const blushBoost = clamp(simState.blushBoost ?? 0, 0, 1);
+  // a squint is the cheek pushing the lower lid up (content / smiling); the upper lid barely drops unless `eyeLid` is set
+  const eo = {
+    lid: Math.max(blink, extraLid, squint * 0.16),
+    lower: squint * 0.95,
+    browTilt,
+    pupilScale,
+    sparkle,
+    t,
+    skin: fo.skin,
+    emissive: fo.emissive,
+  };
   const eyeK = build.eyeSize ?? 1;
   const look = simState.lookAt || [head.x + f * 200, head.y - 120];
   const pitchShiftY = pitch * 0.16;
@@ -2240,8 +2299,8 @@ function drawCritterFace(ctx, head, R, simState, lights = [], t = 0, fo = {}) {
     const [xL, kL] = at(-cx);
     const [xR, kR] = at(cx);
     eyes = [
-      { lx: xL, ly: 0.04 + pitchShiftY, rx: ex * R * kL, ry: ey * R, rot: -0.06 },
-      { lx: xR, ly: 0.04 + pitchShiftY, rx: ex * R * kR, ry: ey * R, rot: 0.06 },
+      { lx: xL, ly: 0.04 + pitchShiftY, rx: ex * R * kL, ry: ey * R, rot: -0.06, side: -1 },
+      { lx: xR, ly: 0.04 + pitchShiftY, rx: ex * R * kR, ry: ey * R, rot: 0.06, side: 1 },
     ];
     const [bL, bkL] = at(-0.58);
     const [bR, bkR] = at(0.58);
@@ -2252,22 +2311,24 @@ function drawCritterFace(ctx, head, R, simState, lights = [], t = 0, fo = {}) {
     nose = mz ? [mz.cx + (view !== 'front' ? f * mz.rx * (view === 'side' ? 0.86 : 0.45) : 0), mz.cy - mz.ry * 0.45] : [at(0)[0], 0.22 + pitchShiftY * 1.1];
   }
 
-  if (build.blush) {
+  const blushCol = build.blush || (blushBoost > 0.05 ? '#F472B6' : null);
+  if (blushCol) {
+    const blushAlpha = clamp((build.blush ? 0.42 : 0.12) + blushBoost * 0.36, 0, 0.72);
     for (const [bx, by, br] of blushes) {
       const [cx, cy] = pt(bx, by);
-      const g = ctx.createRadialGradient(cx, cy, br * 0.1, cx, cy, br);
-      g.addColorStop(0, rgba(build.blush, 0.42));
-      g.addColorStop(1, rgba(build.blush, 0));
+      const g = ctx.createRadialGradient(cx, cy, br * 0.1, cx, cy, br * (1 + blushBoost * 0.18));
+      g.addColorStop(0, rgba(blushCol, blushAlpha));
+      g.addColorStop(1, rgba(blushCol, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(cx, cy, br, 0, Math.PI * 2);
+      ctx.arc(cx, cy, br * (1 + blushBoost * 0.18), 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   for (const e of eyes) {
     const [ex, ey] = pt(e.lx, e.ly);
-    drawEye(ctx, ex, ey, e.rx, e.ry, e.rot, tilt, look, build, R, eo);
+    drawEye(ctx, ex, ey, e.rx, e.ry, e.rot, tilt, look, build, R, { ...eo, side: e.side });
   }
 
   const [nx, ny] = pt(nose[0], nose[1]);
@@ -4610,6 +4671,11 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
     const E = P.skullT.eye;
     const [ex, ey] = M(H.eye);
     const er = Math.max(1.8, P.headLen * size * E.r);
+    const wSquint = clamp(S.eyeSquint ?? 0, 0, 1);
+    const wLid = clamp(S.eyeLid ?? 0, 0, 1);
+    const wBrow = clamp(S.browTilt ?? 0, -1, 1);
+    const wPupil = clamp(S.pupilScale ?? 1, 0.6, 1.4);
+    const wSparkle = clamp(S.eyeSparkle ?? 0, 0, 1.2);
     ctx.save();
     ctx.translate(ex, ey);
     ctx.rotate(-f * ((S.headAngle ?? S.headAng ?? 0) + (E.tilt || 0)));
@@ -4618,6 +4684,18 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
     ctx.beginPath();
     ctx.ellipse(0, -er * 0.15, er * 1.7, er * 1.15, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (wLid > 0.02 || wSquint > 0.02 || Math.abs(wBrow) > 0.02) {
+      const yU = -er * 0.85 + wLid * er * 1.3;
+      const yL = er * 0.85 - wSquint * er * 0.7;
+      const slant = wBrow * er * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(-er * 1.5, yU - slant);
+      ctx.quadraticCurveTo(0, yU - er * 0.25 * (1 - wLid), er * 1.5, yU + slant);
+      ctx.lineTo(er * 1.5, yL + er * 0.2);
+      ctx.quadraticCurveTo(0, yL - er * 0.35 * wSquint, -er * 1.5, yL + er * 0.2);
+      ctx.closePath();
+      ctx.clip();
+    }
     const iris = col.eye || (emissive ? mixHex(dark, '#0F2942', 0.65) : (P.skull === 'canid' ? '#B9832E' : E.iris));
     ctx.fillStyle = iris || '#140D08';
     ctx.beginPath();
@@ -4626,12 +4704,12 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
     if (iris && !emissive) {
       ctx.fillStyle = '#120A06';
       ctx.beginPath();
-      ctx.ellipse(er * 0.1, 0, er * 0.42, er * 0.62, 0, 0, Math.PI * 2);
+      ctx.ellipse(er * 0.1, 0, er * 0.42 * wPupil, er * 0.62 * wPupil, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.fillStyle = rgba('#FFFFFF', 0.72);
+    ctx.fillStyle = rgba('#FFFFFF', 0.74 + 0.2 * wSparkle);
     ctx.beginPath();
-    ctx.arc(er * 0.4, -er * 0.28, er * 0.26, 0, Math.PI * 2);
+    ctx.arc(er * 0.4, -er * 0.28, er * (0.26 + 0.08 * wSparkle), 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }

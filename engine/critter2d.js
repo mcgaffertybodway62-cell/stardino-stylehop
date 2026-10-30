@@ -305,12 +305,177 @@ export function traceContourEar(ctx, pt, g, side = -1) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 3b. Expressive Emotion Vocabulary (`CRITTER_EMOTIONS`, `applyCritterEmotion`)
+// ---------------------------------------------------------------------------
+// Animals express emotion through aperture-clip lid angles (`browTilt`, `eyeLid`, `eyeSquint`),
+// pupil dilation (`pupilScale`), catchlight sparkle (`eyeSparkle`), and whole-body ear/head/tail
+// posture — never floating cartoon eyebrows or pasted-on mouths.
+
+export const CRITTER_EMOTIONS = {
+  neutral: {
+    browTilt: 0,
+    eyeLid: 0,
+    eyeSquint: 0,
+    pupilScale: 1.0,
+    eyeSparkle: 0,
+    blushBoost: 0,
+    earL: 0,
+    earR: 0,
+    headTilt: 0,
+    headPitch: 0,
+    chestY: 0,
+    tailAngle: 0,
+    tailWag: 0,
+    mouthOpen: 0,
+  },
+  happy: {
+    browTilt: -0.12,
+    eyeLid: 0.06,
+    eyeSquint: 0.82,
+    pupilScale: 1.12,
+    eyeSparkle: 0.45,
+    blushBoost: 0.48,
+    earL: -0.14,
+    earR: 0.14,
+    headTilt: 0.14,
+    headPitch: -0.06,
+    chestY: -4,
+    tailAngle: 0.25,
+    tailWag: 0.22,
+    mouthOpen: 0,
+  },
+  sad: {
+    browTilt: -0.76,
+    eyeLid: 0.30,
+    eyeSquint: 0.12,
+    pupilScale: 1.18,
+    eyeSparkle: 0.65,
+    blushBoost: 0,
+    earL: 0.78,
+    earR: 0.68,
+    headTilt: -0.12,
+    headPitch: 0.22,
+    chestY: 10,
+    tailAngle: -0.38,
+    tailWag: -0.06,
+    mouthOpen: 0,
+  },
+  curious: {
+    browTilt: -0.18,
+    eyeLid: 0,
+    eyeSquint: 0.06,
+    pupilScale: 1.24,
+    eyeSparkle: 0.55,
+    blushBoost: 0.15,
+    earL: -0.26,
+    earR: 0.42,
+    headTilt: 0.26,
+    headPitch: -0.08,
+    chestY: -3,
+    tailAngle: 0.18,
+    tailWag: 0.06,
+    mouthOpen: 0,
+  },
+  startled: {
+    browTilt: -0.28,
+    eyeLid: 0,
+    eyeSquint: 0,
+    pupilScale: 0.72,
+    eyeSparkle: 0.3,
+    blushBoost: 0,
+    earL: -0.28,
+    earR: -0.38,
+    headTilt: -0.06,
+    headPitch: -0.16,
+    chestY: -8,
+    tailAngle: 0.45,
+    tailWag: 0.12,
+    mouthOpen: 0.48,
+  },
+  awe: {
+    browTilt: -0.24,
+    eyeLid: 0,
+    eyeSquint: 0.18,
+    pupilScale: 1.34,
+    eyeSparkle: 1.0,
+    blushBoost: 0.52,
+    earL: -0.22,
+    earR: -0.22,
+    headTilt: 0.12,
+    headPitch: -0.16,
+    chestY: -5,
+    tailAngle: 0.20,
+    tailWag: 0.08,
+    mouthOpen: 0.32,
+  },
+  sleepy: {
+    browTilt: -0.24,
+    eyeLid: 0.68,
+    eyeSquint: 0.22,
+    pupilScale: 0.92,
+    eyeSparkle: 0,
+    blushBoost: 0.25,
+    earL: 0.52,
+    earR: 0.48,
+    headTilt: 0.15,
+    headPitch: 0.18,
+    chestY: 8,
+    tailAngle: -0.28,
+    tailWag: -0.05,
+    mouthOpen: 0,
+  },
+  determined: {
+    browTilt: 0.68,
+    eyeLid: 0.16,
+    eyeSquint: 0.12,
+    pupilScale: 0.88,
+    eyeSparkle: 0.2,
+    blushBoost: 0,
+    earL: 0.42,
+    earR: 0.36,
+    headTilt: 0,
+    headPitch: 0.12,
+    chestY: 6,
+    tailAngle: 0.15,
+    tailWag: 0.05,
+    mouthOpen: 0,
+  },
+};
+
+export function applyCritterEmotion(intent, emotionSpec, scale = 1.32) {
+  if (!emotionSpec || intent._emotionApplied) return intent;
+  const kind = typeof emotionSpec === 'string' ? emotionSpec : emotionSpec.kind || emotionSpec.emotion || 'neutral';
+  const weight = clamp(typeof emotionSpec === 'object' ? (emotionSpec.weight ?? emotionSpec.amount ?? 1) : 1, 0, 1.5);
+  const E = CRITTER_EMOTIONS[kind];
+  if (!E || weight <= 1e-4) return intent;
+  const f = intent.facing ?? -1;
+  intent._emotionApplied = true;
+  intent.browTilt = (intent.browTilt ?? 0) + E.browTilt * weight;
+  intent.eyeLid = clamp(Math.max(intent.eyeLid ?? 0, E.eyeLid * weight), 0, 1);
+  intent.eyeSquint = clamp(Math.max(intent.eyeSquint ?? 0, E.eyeSquint * weight), 0, 1);
+  intent.pupilScale = lerp(intent.pupilScale ?? 1.0, E.pupilScale, clamp(weight, 0, 1));
+  intent.eyeSparkle = clamp(Math.max(intent.eyeSparkle ?? 0, E.eyeSparkle * weight), 0, 1.2);
+  intent.blushBoost = clamp((intent.blushBoost ?? 0) + E.blushBoost * weight, 0, 1);
+  if (E.mouthOpen > 0) intent.mouthOpen = Math.max(intent.mouthOpen ?? 0, E.mouthOpen * weight);
+  // `_ears` convention: positive dL/dR sweeps ears backward along the body (`earAngle += -f * d`)
+  intent.earAngleL = (intent.earAngleL ?? -1.85) + -f * E.earL * weight;
+  intent.earAngleR = (intent.earAngleR ?? -1.22) + -f * E.earR * weight;
+  intent.headTilt = (intent.headTilt ?? 0) + -f * E.headTilt * weight;
+  intent.headPitch = (intent.headPitch ?? 0) + E.headPitch * weight;
+  if (Number.isFinite(intent.chestOffsetY)) intent.chestOffsetY += E.chestY * scale * weight;
+  if (Number.isFinite(intent.tailAngle)) intent.tailAngle += -f * E.tailAngle * weight;
+  intent.tailWagAmp = Math.max(0.01, (intent.tailWagAmp ?? 0.08) + E.tailWag * weight);
+  return intent;
+}
+
 // 4. 120Hz Continuous-Topology Spring Creature Rig Simulator
 // ---------------------------------------------------------------------------
 
 export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
   const dt = 1 / 120;
-  const initIntent = choreoFn(0);
+  const rawInit = choreoFn(0);
+  const initIntent = applyCritterEmotion({ ...rawInit, feet: { ...rawInit.feet } }, rawInit.emotion ?? opts.emotion, scale);
   const speciesKey = opts.species || initIntent.species || 'fennec';
   const table = opts.speciesTable || DEFAULT_PLUSH_SPECIES;
   const baseSpecies = opts.speciesCfg || table[speciesKey] || DEFAULT_PLUSH_SPECIES[speciesKey] || DEFAULT_PLUSH_SPECIES.fennec || {};
@@ -339,6 +504,12 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
   const headTilt = { x: initIntent.headTilt ?? 0, v: 0, a: 0 };
   const headPitch = { x: initIntent.headPitch ?? 0, v: 0, a: 0 };
 
+  const browTiltS = { x: initIntent.browTilt ?? 0, v: 0, a: 0 };
+  const eyeLidS = { x: initIntent.eyeLid ?? 0, v: 0, a: 0 };
+  const eyeSquintS = { x: initIntent.eyeSquint ?? 0, v: 0, a: 0 };
+  const pupilScaleS = { x: initIntent.pupilScale ?? 1, v: 0, a: 0 };
+  const eyeSparkleS = { x: initIntent.eyeSparkle ?? 0, v: 0, a: 0 };
+  const blushBoostS = { x: initIntent.blushBoost ?? 0, v: 0, a: 0 };
   const earCurlL = [-0.10, -0.12];
   const earCurlR = [0.10, 0.12];
   const ear0L = shapeEarAngle((initIntent.earAngleL ?? -1.9) + (initIntent.headTilt ?? 0) * 0.75, -1, splay);
@@ -372,7 +543,8 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
 
   for (let i = 1; i <= steps; i++) {
     const t = Math.min(targetT, i * dt);
-    curIntent = choreoFn(t);
+    const rawCur = choreoFn(t);
+    curIntent = applyCritterEmotion({ ...rawCur, feet: { ...rawCur.feet } }, rawCur.emotion ?? opts.emotion, scale);
     const facingNow = curIntent.facing ?? initFacing;
 
     // 1. Pelvis Spring
@@ -480,6 +652,12 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
     headTilt.x = clamp(headTilt.x, -0.32, 0.32);
     headPitch.x = clamp(headPitch.x, -0.32, 0.32);
 
+    stepSpring1D(browTiltS, curIntent.browTilt ?? 0, 24.0, 0.82, dt);
+    stepSpring1D(eyeLidS, curIntent.eyeLid ?? 0, 26.0, 0.85, dt);
+    stepSpring1D(eyeSquintS, curIntent.eyeSquint ?? 0, 26.0, 0.85, dt);
+    stepSpring1D(pupilScaleS, curIntent.pupilScale ?? 1, 22.0, 0.82, dt);
+    stepSpring1D(eyeSparkleS, curIntent.eyeSparkle ?? 0, 20.0, 0.85, dt);
+    stepSpring1D(blushBoostS, curIntent.blushBoost ?? 0, 18.0, 0.85, dt);
     // 5. Ear Pendulums
     const baseEarL = wrapAngleNear(shapeEarAngle((curIntent.earAngleL ?? -1.9) + headTilt.x * 0.75, -1, splay), earLAngles[0].x);
     const baseEarR = wrapAngleNear(shapeEarAngle((curIntent.earAngleR ?? -1.24) + headTilt.x * 0.75, 1, splay), earRAngles[0].x);
@@ -649,8 +827,14 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
     },
     spineStretch,
     lookAt: curIntent.lookAt || [head.x + facing * 200, head.y - 100],
-    eyeSquint: curIntent.eyeSquint ?? 0,
+    eyeSquint: clamp(eyeSquintS.x, 0, 1),
+    eyeLid: clamp(eyeLidS.x, 0, 1),
+    browTilt: clamp(browTiltS.x, -1, 1),
+    pupilScale: clamp(pupilScaleS.x, 0.55, 1.45),
+    eyeSparkle: clamp(eyeSparkleS.x, 0, 1.2),
+    blushBoost: clamp(blushBoostS.x, 0, 1),
     mouthOpen: curIntent.mouthOpen ?? 0,
+    emotion: curIntent.emotion ?? opts.emotion ?? null,
     groundY: curIntent.groundY,
   };
 }
@@ -1388,6 +1572,16 @@ export const HERO_MOVES = {
     it.headTilt += Math.sin((t - m.t0) * 30) * 0.12 * e;
     it.eyeSquint = Math.max(it.eyeSquint ?? 0, 0.5 * e);
   },
+
+  /** Semantic emotion envelope over `[t0, t1]` (`kind: 'happy' | 'sad' | 'curious' | 'startled' | 'awe' | 'sleepy' | 'determined'`). */
+  emote(it, t, m, k) {
+    const t0 = m.t0 ?? 0;
+    const t1 = m.t1 ?? 999;
+    const ramp = m.ramp ?? 0.28;
+    const a = smootherstep(t0 - 1e-6, t0 + ramp, t) * (m.hold ? 1 : 1 - smootherstep(t1 - ramp, t1 + 1e-6, t));
+    if (a <= 1e-4) return;
+    applyCritterEmotion(it, { kind: m.kind || m.emotion || 'happy', weight: (m.weight ?? 1) * a }, k.s);
+  },
 };
 
 export function heroBaseAt(t, x0, G0, moves) {
@@ -1448,6 +1642,12 @@ export function createPlushCritter(opts = {}, speciesTable = DEFAULT_PLUSH_SPECI
         tailAngle: facing < 0 ? -0.48 : -Math.PI + 0.48,
         tailWagAmp: 0.09,
         eyeSquint: opts.eyeSquint ?? 0,
+        eyeLid: opts.eyeLid ?? 0,
+        browTilt: opts.browTilt ?? 0,
+        pupilScale: opts.pupilScale ?? 1,
+        eyeSparkle: opts.eyeSparkle ?? 0,
+        blushBoost: opts.blushBoost ?? 0,
+        emotion: opts.emotion ?? null,
         feet: {
           hindL: [baseX - facing * 6 * scale * bl, groundY + 3 * scale],
           hindR: [baseX - facing * 18 * scale * bl, groundY - 2 * scale],
@@ -1885,13 +2085,18 @@ export function poseProfileQuadruped(speciesOrOpts, opts = {}) {
           ? 1.0
           : 0.0;
 
-  const graze = clamp(pose.graze ?? rawOpts.graze ?? 0, 0, 1);
-  const headLift = (pose.lift ?? rawOpts.headLift ?? rawOpts.lift ?? 0) - graze * 0.95;
-  const nod = pose.nod ?? rawOpts.nod ?? 0;
-  const breathe = pose.breathe ?? rawOpts.breathe ?? Math.sin(t * 2.2) * 0.012;
-  const alert = rawOpts.alert ?? pose.alert ?? 0;
-  const earTwitch = rawOpts.earTwitch ?? pose.earTwitch ?? [0, 0];
+  const emoSpec = rawOpts.emotion ?? pose.emotion ?? null;
+  const emoKind = typeof emoSpec === 'string' ? emoSpec : emoSpec?.kind || emoSpec?.emotion || null;
+  const emoW = emoKind ? clamp(typeof emoSpec === 'object' ? (emoSpec.weight ?? 1) : 1, 0, 1.5) : 0;
+  const emo = (emoKind && CRITTER_EMOTIONS[emoKind]) || CRITTER_EMOTIONS.neutral;
 
+  const graze = clamp(pose.graze ?? rawOpts.graze ?? 0, 0, 1);
+  const headLift = (pose.lift ?? rawOpts.headLift ?? rawOpts.lift ?? 0) - graze * 0.95 - emo.headPitch * emoW * 1.1;
+  const nod = (pose.nod ?? rawOpts.nod ?? 0) - emo.headPitch * emoW * 0.6;
+  const breathe = pose.breathe ?? rawOpts.breathe ?? Math.sin(t * 2.2) * 0.012;
+  const alert = (rawOpts.alert ?? pose.alert ?? 0) + (emo.earL + emo.earR) * 0.5 * emoW;
+  const baseTwitch = rawOpts.earTwitch ?? pose.earTwitch ?? [0, 0];
+  const earTwitch = [baseTwitch[0] - emo.earL * emoW * 0.45, baseTwitch[1] - emo.earR * emoW * 0.45];
   const D = P.D;
   const shoulderX = D * 0.5;
   const hipX = -D * 0.5;
@@ -2070,6 +2275,12 @@ export function poseProfileQuadruped(speciesOrOpts, opts = {}) {
     legs,
     earTwitch,
     alert,
+    emotion: emoKind,
+    eyeSquint: clamp((rawOpts.eyeSquint ?? pose.eyeSquint ?? 0) + emo.eyeSquint * emoW, 0, 1),
+    eyeLid: clamp((rawOpts.eyeLid ?? pose.eyeLid ?? 0) + emo.eyeLid * emoW, 0, 1),
+    browTilt: clamp((rawOpts.browTilt ?? pose.browTilt ?? 0) + emo.browTilt * emoW, -1, 1),
+    pupilScale: clamp(lerp(rawOpts.pupilScale ?? pose.pupilScale ?? 1, emo.pupilScale, clamp(emoW, 0, 1)), 0.55, 1.45),
+    eyeSparkle: clamp((rawOpts.eyeSparkle ?? pose.eyeSparkle ?? 0) + emo.eyeSparkle * emoW, 0, 1.2),
   };
 }
 
