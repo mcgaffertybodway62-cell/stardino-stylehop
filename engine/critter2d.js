@@ -352,8 +352,8 @@ export const CRITTER_EMOTIONS = {
     pupilScale: 1.18,
     eyeSparkle: 0.65,
     blushBoost: 0,
-    earL: 0.78,
-    earR: 0.68,
+    earL: 1.05,
+    earR: 1.0,
     headTilt: -0.12,
     headPitch: 0.22,
     chestY: 10,
@@ -368,8 +368,8 @@ export const CRITTER_EMOTIONS = {
     pupilScale: 1.24,
     eyeSparkle: 0.55,
     blushBoost: 0.15,
-    earL: -0.26,
-    earR: 0.42,
+    earL: -0.10,
+    earR: 0.55,
     headTilt: 0.26,
     headPitch: -0.08,
     chestY: -3,
@@ -384,8 +384,8 @@ export const CRITTER_EMOTIONS = {
     pupilScale: 0.72,
     eyeSparkle: 0.3,
     blushBoost: 0,
-    earL: -0.28,
-    earR: -0.38,
+    earL: -0.52,
+    earR: -0.52,
     headTilt: -0.06,
     headPitch: -0.16,
     chestY: -8,
@@ -416,8 +416,8 @@ export const CRITTER_EMOTIONS = {
     pupilScale: 0.92,
     eyeSparkle: 0,
     blushBoost: 0.25,
-    earL: 0.52,
-    earR: 0.48,
+    earL: 0.92,
+    earR: 0.86,
     headTilt: 0.15,
     headPitch: 0.18,
     chestY: 8,
@@ -432,8 +432,8 @@ export const CRITTER_EMOTIONS = {
     pupilScale: 0.88,
     eyeSparkle: 0.2,
     blushBoost: 0,
-    earL: 0.42,
-    earR: 0.36,
+    earL: 0.62,
+    earR: 0.58,
     headTilt: 0,
     headPitch: 0.12,
     chestY: 6,
@@ -458,9 +458,16 @@ export function applyCritterEmotion(intent, emotionSpec, scale = 1.32) {
   intent.eyeSparkle = clamp(Math.max(intent.eyeSparkle ?? 0, E.eyeSparkle * weight), 0, 1.2);
   intent.blushBoost = clamp((intent.blushBoost ?? 0) + E.blushBoost * weight, 0, 1);
   if (E.mouthOpen > 0) intent.mouthOpen = Math.max(intent.mouthOpen ?? 0, E.mouthOpen * weight);
-  // `_ears` convention: positive dL/dR sweeps ears backward along the body (`earAngle += -f * d`)
-  intent.earAngleL = (intent.earAngleL ?? -1.85) + -f * E.earL * weight;
-  intent.earAngleR = (intent.earAngleR ?? -1.22) + -f * E.earR * weight;
+  // `earL` / `earR` are folded into a common sweep about the pair's own rest plus an asymmetry, so a startle lifts
+  // *both* ears and only `curious` cocks one. Positive values sweep backward along the body (the `_ears` convention).
+  const eL = E.earL * weight;
+  const eR = E.earR * weight;
+  const sweep = -f * (eL + eR) * 0.5;
+  const asym = -f * (eL - eR) * 0.5;
+  intent.earAngleL = (intent.earAngleL ?? -1.85) + sweep + asym;
+  intent.earAngleR = (intent.earAngleR ?? -1.22) + sweep - asym;
+  // ear springs clamp travel to ±0.44 rad at the root; an emotion pose asks for a wider budget
+  intent.earExpress = clamp((intent.earExpress ?? 0) + (Math.abs(eL) + Math.abs(eR)) * 0.62, 0, 1);
   intent.headTilt = (intent.headTilt ?? 0) + -f * E.headTilt * weight;
   intent.headPitch = (intent.headPitch ?? 0) + E.headPitch * weight;
   if (Number.isFinite(intent.chestOffsetY)) intent.chestOffsetY += E.chestY * scale * weight;
@@ -675,7 +682,8 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
         const th = angles[k].x;
         const tau = Math.cos(th) * earFy - Math.sin(th) * earFx - headTilt.a * 0.06 - headYaw.v * 0.35;
         stepSpring1D(angles[k], rest, earOmegas[k], earZetas[k], dt, clamp(tau, -28, 28));
-        const maxDev = k === 0 ? 0.44 : 0.36;
+        // rest travel is ±0.44 / ±0.36 rad; an expressive pose (airplane ears, a startle perk) widens the budget
+        const maxDev = (k === 0 ? 0.44 : 0.36) * (1 + 1.15 * clamp(curIntent.earExpress ?? 0, 0, 1));
         if (Math.abs(angles[k].x - rest) > maxDev) {
           angles[k].x = clamp(angles[k].x, rest - maxDev, rest + maxDev);
           angles[k].v *= 0.45;

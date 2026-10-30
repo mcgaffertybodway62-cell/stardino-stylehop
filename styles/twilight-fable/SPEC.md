@@ -196,6 +196,7 @@ const sim = cat.simulate(localT, (time) => cat.perform(time, [
   ['leap',   { t0, t1, toX, toGroundY, height }],                  // chest leads, arch, mittens reach, tail streams
   ['land',   { t0, dur }],                                         // squash, head bob, impact blink
   ['earShake', { t0, dur }],
+  ['emote',  { t0, t1, kind: 'sad', weight, ramp, hold }],         // semantic emotion envelope (see Emotions below)
 ], { groundAt: (x) => groundY(x) }));                              // optional uneven ground (not across a leap)
 ```
 Rules the moves keep (values ported from the prototype bunny, `rig-test-world.js`): every move fades in / out (no pose
@@ -220,6 +221,7 @@ hornColor, cheekTufts, eyeSize, eyeGap, irisColors[4], blush, noseColor`.
   the contour while the pair keeps its spacing.
 - *Lids, never squash:* a blink is the upper lid closing to a "‿"; `eyeSquint` is the cheek pushing the lower lid up
   (content / smiling), with the upper lid barely lowered. The eye shows through the lid aperture; the face shows around it.
+  `browTilt` tilts that same aperture (outer corner down = sad, inner corner down = determined) — see Emotions below.
 - *Derived from the skin:* sclera, socket, lid line and mouth line come from the body colour — a dark body shows no
   white crescent, its lid line hugs the eye's edge (never an arc floating above it: that reads as a raised eyebrow)
   and its mouth is barely there; a pale body gets dark lines. An emissive (`spirit`) body has no black pupil.
@@ -233,6 +235,35 @@ hornColor, cheekTufts, eyeSize, eyeGap, irisColors[4], blush, noseColor`.
 **Plush anatomy & table-driven tail topology (`CRITTER_TAIL_TYPES`):**
 - *Round rump as thigh + vertical-strip lower legs:* Plush limbs stay clean vertical strips (`tracePlushLimbPath`), with hind paws resting directly beneath the rump (`pelvis.x - facing * 6..18 * s`) and front/hind stride separating forward/backward during `walk`/`trot`. The ventral pelvis contour tucks up to make room for the vertical-strip hind legs and shifts with the near hind foot (**haunch-to-leg linkage**), while the dorsal back stays full and convex across both horizontal gaits and upright sitting poses (`sitK > 0`).
 - *Table-driven tail (`CRITTER_TAIL_TYPES`):* Tail attachment and J/S-curve droop are 100% table-driven (`rootX`, `rootY: [ground, air]`, `dropAngle: [ground, air]`, `restCurl: [c0, c1, c2]`) without conditional branches. Thin feline tails (`thin`) emerge from the lower-back rump (`rootY: [10, 2]`), droop naturally (`dropAngle: [0.68, 0.22]`), and curl upward toward the tip (`restCurl: [-0.28, -0.42, -0.45]`); in `view: 'back'`, the tail root sits at the base of the rump along the ground (`nPelvis.y + 36 * s`).
+
+**Emotions (`CRITTER_EMOTIONS` / `applyCritterEmotion`) — posture and apertures, never drawn features:**
+Animals have no human brows to draw, so emotion rides the channels the rig already owns and every one of them is
+either an aperture clip inside the eyeball or a spring-driven posture value:
+- `browTilt` (-1 … +1): the *upper-lid aperture tilts*. `-1` drops the outer corner (pleading / sad puppy eyes),
+  `+1` drops the inner corner (pinned, determined). It rarely needs to exceed ±0.8; the lid line still hugs the eye
+  edge, so nothing floats above the head like a sticker.
+- `eyeLid` (0 … 1): how far the upper lid has closed (boredom, sleep). Distinct from `eyeSquint` (0 … 1), which is
+  the cheek pushing the lower lid *up* into the crescent "happy eye". Combine both for a sleepy half-lidded look.
+- `pupilScale` (0.72 startle … 1.34 awe): pupil dilation; animals signal fear and wonder with pupil size, not brows.
+- `eyeSparkle` (0 … 1.2): catchlight bloom + micro-shimmer — wonder, or tears being held back.
+- `blushBoost` (0 … 1): cheek warmth, blended into the same radial blush the face already draws.
+- Ear, head and tail posture carry the other 70 %: `earAngleL/R` (positive = swept back → "airplane ears" for
+  guilt, fear, sleep; negative = perked upright for attention), `headTilt` (the curious head cock),
+  `headPitch` (look down = dejected, look up = wonder), `chestOffsetY` (sink / lift) and `tailWagAmp`.
+  The ear springs clamp travel to ±0.44 rad; an emotion that needs more sets `earExpress` (0 … 1) to widen it.
+
+Presets: `neutral`, `happy`, `sad`, `curious`, `startled`, `awe`, `sleepy`, `determined`. Apply one of three ways:
+```js
+createTwilightCritter({ …, emotion: 'sad' });                       // whole performance
+createPlushCritter({ …, emotion: 'awe' }).simulate(t, choreo);      // rig intent (spring-smoothed, 120Hz)
+[…, ['emote', { t0, t1, kind: 'curious', weight: 0.8, ramp: 0.28, hold: false }]]  // timed envelope
+drawProfileQuadruped(ctx, { kind: 'fox', emotion: 'startled', … }, lights);          // world forms too
+```
+Emotions are *additive onto* whatever the choreography already asks for, applied once per intent
+(`_emotionApplied`), and everything lands through the same springs — so a `sad` bunny that trots still trots, it just
+runs with its ears back and its head down. Do not paint eyebrows or a mouth to fake this: a drawn brow on a turning
+3/4 head reads as a plastic sticker and kills the plush volume. If a beat still reads flat, raise the ear / tail /
+head posture before touching the eyes.
 
 **Species presets are starting points**, each with a distinct silhouette: `fennec` (long ears, plume tail),
 `moonBunny` (upright long ears, pom tail, compact), `mossDeer` (leaf ears, antlers, long legs, snout), `cubBear`

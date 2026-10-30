@@ -4360,6 +4360,7 @@ export const QUADRUPED_PROFILES = PROFILE_SPECIES;
  * (real-size shot: the species' `withersM` decides its size, so a fox stands knee-high to a deer).
  *   kind      keyof PROFILE_SPECIES ('deer' | 'horse' | 'fox' | 'wolf' | 'bear'); override axes / proportions with `profile`
  *   facing    ±1 · pose { gait, stride, graze, lift, nod, breathe }
+ *   emotion   CRITTER_EMOTIONS key or { kind, weight } → aperture lids, pupil dilation, catchlight, ear/neck posture
  *   materials { body, horn } → MATERIAL_ROLES (default body 'fur'; horn follows a `spirit` body, else 'hard')
  *   colors    { dark, mid, belly, far, horn, eye, markDark, markPale }  albedo inputs, governed by the material role
  *   bounceColor · alpha (fade for vanish / appear)
