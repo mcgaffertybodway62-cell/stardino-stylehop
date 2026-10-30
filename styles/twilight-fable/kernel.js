@@ -1807,7 +1807,7 @@ export function applyDirectionalRimLight(ctx, buildPathFn, shapeOpts = {}, light
  *               to its host, so a brown deer gets bone-brown antlers and a black one dark antlers, never white forks.
  */
 export const MATERIAL_ROLES = {
-  spirit: { emissive: 1, satCap: 0.5, light: [0.72, 0.96], rim: 1.15, bounce: 0.3, accentAlpha: 0.9, accentReach: 1, accentLight: 1 },
+  spirit: { emissive: 1, satCap: 0.58, light: [0.46, 0.96], rim: 1.2, bounce: 0.35, accentAlpha: 0.9, accentReach: 1, accentLight: 1 },
   fur: { emissive: 0, satCap: 0.68, light: [0.05, 0.82], rim: 1.0, bounce: 1.0, accentAlpha: 0.42, accentReach: 0.55, accentLight: 0.88 },
   hard: { emissive: 0, satCap: 0.22, light: [0.32, 0.82], rim: 0, bounce: 0, accentAlpha: 0, accentReach: 0, accentLight: 0.82, hostLift: 0.08 },
 };
@@ -1872,7 +1872,7 @@ export function tameGreenYellow(colors) {
 export function governMaterialColor(hex, role, { base = false, accent = false, host = null } = {}) {
   const R = typeof role === 'string' ? MATERIAL_ROLES[role] || MATERIAL_ROLES.fur : role;
   const [h, s, l] = hexToHsl(hex);
-  const cap = R.satCap * (1 - 0.7 * R.emissive);
+  const cap = R.satCap * (1 - 0.52 * R.emissive);
   let lo = R.light[0];
   let hi = R.light[1];
   if (host && R.hostLift != null) {
@@ -4344,21 +4344,28 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
   const hz = o.haze && o.haze.color ? clamp(o.haze.amount ?? 0, 0, 1) : 0;
   const air = (hex) => (hz > 0 ? mixHex(expose(hex), o.haze.color, hz) : expose(hex));
   const airRim = 1 - 0.6 * hz;
-  const dark = governMaterialColor(col.dark || '#5B4636', bodyM, { base: true });
-  const mid = governMaterialColor(col.mid || '#8A6A50', bodyM, { base: true });
-  const belly = governMaterialColor(col.belly || mixHex(col.mid || '#8A6A50', '#F5EBDD', 0.55), bodyM, { accent: true });
-  const far = governMaterialColor(col.far || mixHex(col.dark || '#5B4636', '#000000', 0.3), bodyM, { base: true });
-  const bounce = governMaterialColor(o.bounceColor || '#94A3B8', bodyM);
   const emissive = bodyM.emissive > 0.01;
-  const shade = air(emissive ? mixHex(dark, '#7FB8A8', 0.25) : mixHex(dark, '#000000', 0.45));
-  const light = air(mixHex(mid, '#FFFFFF', emissive ? 0.5 : 0.22));
+  const rawDark = col.dark || (emissive ? '#4A7C9B' : '#5B4636');
+  const rawMid = col.mid || (emissive ? '#BAE6FD' : '#8A6A50');
+  const rawFar = col.far || (emissive ? mixHex(rawDark, '#1E3A5F', 0.55) : mixHex(rawDark, '#000000', 0.35));
+  const dark = governMaterialColor(rawDark, bodyM, { base: true });
+  const mid = governMaterialColor(rawMid, bodyM, { base: true });
+  const belly = governMaterialColor(col.belly || mixHex(rawMid, '#F5EBDD', 0.55), bodyM, { accent: true });
+  const far = governMaterialColor(rawFar, bodyM, { base: true });
+  const bounce = governMaterialColor(o.bounceColor || (emissive ? '#7DD3FC' : '#94A3B8'), bodyM);
+  const shade = air(emissive ? mixHex(dark, '#1E3A5F', 0.42) : mixHex(dark, '#000000', 0.45));
+  const light = air(mixHex(mid, '#FFFFFF', emissive ? 0.55 : 0.24));
   const markTone = {
-    dark: air(governMaterialColor(col.markDark || mixHex(col.dark || '#5B4636', '#0B0806', 0.75), bodyM, { base: true })),
+    dark: air(governMaterialColor(col.markDark || mixHex(rawDark, '#0B0806', 0.75), bodyM, { base: true })),
     pale: air(governMaterialColor(col.markPale || '#EFE6D8', bodyM, { accent: true })),
   };
   const [bDark, bMid, bFar, bBelly, bBounce] = [dark, mid, far, belly, bounce].map(air);
-  // core shadow on the side away from the light; an emissive body lights itself and barely has one
-  const coreShade = { color: emissive ? mixHex(dark, '#5E8C84', 0.4) : mixHex(dark, '#000000', 0.5), alpha: (emissive ? 0.25 : 0.55) * (1 - 0.5 * hz), width: size * 0.045 };
+  // core shadow on the side away from the light; emissive spirits retain cool cyan-indigo core depth so limbs read in 3D
+  const coreShade = {
+    color: emissive ? mixHex(dark, '#1E3A5F', 0.48) : mixHex(dark, '#000000', 0.5),
+    alpha: (emissive ? 0.38 : 0.55) * (1 - 0.5 * hz),
+    width: size * 0.045,
+  };
   const planes = P.coatT.planes;
 
   const c0 = M([0, hy * 0.7]);
@@ -4383,54 +4390,76 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
 
   // Antlers / horns in their own material; the far one is drawn before the body and darkened like the far legs
   const drawAntler = (chains, isFar) => {
-    if (!chains.length) return;
+    if (!chains || !chains.length) return;
+    const antlerSpec = P.antlers || { len: 0.75, w: 0.02, taper: 0.7 };
+    const aLen = antlerSpec.len ?? 0.75;
     const fillAnt = (c) => {
       for (const ch of chains) {
-        traceSmoothChainRibbon(c, ch.pts.map(M), (u) => ch.w * size * 0.5 * (1 - ch.taper * u), 10);
+        const pts = Array.isArray(ch) ? ch : ch.pts;
+        if (!pts || pts.length < 2) continue;
+        const cw = (ch && ch.w) || antlerSpec.w || 0.02;
+        const ct = (ch && ch.taper) ?? antlerSpec.taper ?? 0.7;
+        traceSmoothChainRibbon(c, pts.map(M), (u) => cw * size * 0.5 * (1 - ct * u), 10);
         c.fill();
       }
     };
-    const at = M([H.antler[0], H.antler[1] + P.antlers.len * P.headLen * 0.5]);
-    const ar = P.antlers.len * P.headLen * size * 1.1;
+    const antRoot = H.antler || S.poll;
+    const at = M([antRoot[0], antRoot[1] + aLen * P.headLen * 0.5]);
+    const ar = Math.max(16, aLen * P.headLen * size * 1.1);
     const sink = (hex, k) => air(isFar ? mixHex(hex, far, k) : hex);
     if (hornM.emissive > 0.01 || hornM.rim > 0.01) {
       const hd = governMaterialColor(col.horn || mid, hornM, { base: true, host: mid });
       const hm = governMaterialColor(col.horn || light, hornM, { base: true, host: mid });
-      drawLitOrganicShape(ctx, fillAnt, { cx: at[0], cy: at[1], radius: ar, baseDark: sink(hd, isFar ? 0.45 : 0), baseMid: sink(hm, isFar ? 0.45 : 0), bounceAlpha: 0.2 * hornM.bounce, rimScale: size / 220, rimIntensity: (isFar ? 0.45 : 0.8) * hornM.rim * airRim }, lights);
+      drawLitOrganicShape(ctx, fillAnt, { cx: at[0], cy: at[1], radius: ar, baseDark: sink(hd, isFar ? 0.45 : 0), baseMid: sink(hm, isFar ? 0.45 : 0), bounceAlpha: 0.2 * hornM.bounce, rimScale: size / 220, rimIntensity: (isFar ? 0.45 : 0.85) * hornM.rim * airRim }, lights);
     } else {
       const hb = sink(governMaterialColor(col.horn || '#B8A68C', hornM, { base: true, host: mid }), isFar ? 0.5 : 0);
       drawHardMaterial(ctx, fillAnt, { cx: at[0], cy: at[1], radius: ar, base: mixHex(hb, isFar ? bFar : bDark, 0.45), tip: hb, highlight: mixHex(hb, '#FFFFFF', isFar ? 0.15 : 0.35), width: Math.max(1, size / 140) }, isFar ? [] : lights);
     }
   };
-  drawAntler(parts.antlers[1], true);
+  drawAntler(parts.antlers && parts.antlers[1], true);
 
-  // 1. Far legs + far ear: darker, receive only a little rim
+  // 1. Far legs + far ear: darker, recessed in value, receive softer rim
   drawLitOrganicShape(ctx, (c) => {
     for (const part of parts.far) path(c, part);
-  }, { cx: c0[0], cy: c0[1], radius, baseDark: bFar, baseMid: mixHex(bFar, bDark, 0.5), bounceColor: bBounce, bounceAlpha: 0.15 * bodyM.bounce, rimScale: clamp(size / 360, 0.45, 1), rimIntensity: 0.55 * bodyM.rim * airRim, coreShade: { ...coreShade, alpha: coreShade.alpha * 0.6 } }, lights);
+  }, {
+    cx: c0[0],
+    cy: c0[1],
+    radius,
+    baseDark: mixHex(bFar, '#060814', emissive ? 0.25 : 0.18),
+    baseMid: mixHex(bFar, bDark, 0.42),
+    bounceColor: bBounce,
+    bounceAlpha: 0.15 * bodyM.bounce,
+    rimScale: clamp(size / 360, 0.45, 1),
+    rimIntensity: 0.5 * bodyM.rim * airRim,
+    coreShade: { ...coreShade, alpha: coreShade.alpha * 0.7 },
+  }, lights);
 
-  // 2. Near silhouette (one outline) + tail + mane + near ear + coat tufts, with form planes and markings inside
-  // soft radial plane; `core` keeps the centre solid (markings) instead of fading from the middle (light planes)
+  // Soft radial plane helper; `core` keeps the centre solid (markings) instead of fading from the middle (light planes)
   const ell = (c, p, rx, ry, rot, color, a, core = 0) => {
+    if (!p) return;
     const [x, y] = M(p);
-    const g = c.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry) * size);
+    const maxR = Math.max(1e-3, Math.max(rx, ry) * size);
+    const g = c.createRadialGradient(x, y, 0, x, y, maxR);
     g.addColorStop(0, rgba(color, a));
     if (core > 0) g.addColorStop(core, rgba(color, a));
     g.addColorStop(1, rgba(color, 0));
     c.save();
     c.translate(x, y);
     c.rotate(-f * rot);
-    c.scale(1, ry / rx);
+    c.scale(1, ry / Math.max(1e-4, rx));
     c.translate(-x, -y);
     c.fillStyle = g;
     c.beginPath();
-    c.arc(x, y, rx * size, 0, Math.PI * 2);
+    c.arc(x, y, Math.max(1e-3, rx * size), 0, Math.PI * 2);
     c.fill();
     c.restore();
   };
   const along = (c, a, b, ratio, color, alpha) => {
+    if (!a || !b) return;
     const d = v2.sub(b, a);
-    ell(c, v2.lerp(a, b, 0.5), v2.len(d) * 0.5, v2.len(d) * 0.5 * ratio, Math.atan2(d[1], d[0]), color, alpha);
+    const len = v2.len(d);
+    if (len < 1e-4) return;
+    ell(c, v2.lerp(a, b, 0.5), len * 0.5, len * 0.5 * ratio, Math.atan2(d[1], d[0]), color, alpha);
   };
   // horizontal light / shade band peaking at `yPeak`, fading to zero at y0 and y1 (no hard edges)
   const band = (c, y0, yPeak, y1, color, a) => {
@@ -4446,12 +4475,17 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
   };
   const drawMarking = (c, m) => {
     const color = markTone[m.tone] || markTone.dark;
-    const a = m.alpha * (emissive ? 0.3 : 1);
-    for (const p of m.prims) {
-      if (p.kind === 'ell') ell(c, p.c, p.rx, p.ry, p.rot, color, a, 0.55);
+    const a = m.alpha * (emissive ? 0.38 : 1);
+    for (const p of m.prims || []) {
+      if (p.kind === 'ell') ell(c, p.c, p.rx, p.ry, p.rot || 0, color, a, 0.55);
       else if (p.kind === 'part') {
         c.fillStyle = rgba(color, a);
         path(c, p.part);
+      } else if (p.kind === 'outline') {
+        c.fillStyle = rgba(color, a);
+        path(c, p);
+      } else if (p.kind === 'disc') {
+        ell(c, [p.cx, p.cy], p.r * 1.2, p.r, 0, color, a, 0.6);
       } else if (p.kind === 'band') {
         const [, s0] = M([0, p.y0]);
         const [, s1] = M([0, p.y1]);
@@ -4461,7 +4495,7 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
         g.addColorStop(clamp((s1 - s0) / (sg - s0 || 1), 0.01, 0.99), rgba(color, a));
         g.addColorStop(1, rgba(color, a));
         c.fillStyle = g;
-        c.fillRect(ox - size * 3, s0, size * 6, sg - s0);
+        c.fillRect(ox - size * 3, Math.min(s0, sg), size * 6, Math.abs(sg - s0));
       }
     }
   };
@@ -4470,66 +4504,121 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
     rimScale: clamp(size / 320, 0.5, 1.1), rimIntensity: 1.05 * bodyM.rim * airRim, coreShade,
   };
   const isTailMark = (m) => m.zone === 'tailTip';
+  const isEarMark = (m) => m.zone === 'earBacks';
+
+  // 2. Near body + integrated near limbs + mane + coat tufts, with anatomical muscle planes,
+  // soft limb-separation creases, and species markings inside the unified mask
+  const bodyGroup = parts.body || parts.near;
   drawLitOrganicShape(ctx, (c) => {
-    for (const part of parts.near) path(c, part);
+    for (const part of bodyGroup) path(c, part);
   }, {
     ...nearOpts,
     drawInnerDetailsFn: (c) => {
       const fl = legs.frontNear;
       const hl = legs.hindNear;
-      // pale belly / inner thigh (most ungulates and canids), then the underside falls into shadow over it
-      ell(c, [0.1, bot + 0.07], 0.34, 0.07, 0, bBelly, 0.35);
-      band(c, bot + 0.18, bot + 0.01, bot - 0.14, shade, 0.4);
-      // muscle planes; a long coat hides them (`coat.planes`)
-      along(c, T.withers, fl.sj, 0.5, light, 0.3 * planes);
-      along(c, v2.add(T.withers, [-0.12, -0.06]), v2.add(fl.el, [-0.05, 0.04]), 0.25, shade, 0.16 * planes);
-      ell(c, [0.12, hy + 0.0], 0.28, 0.15, 0, light, 0.14 * planes);
-      ell(c, [-0.44, hy + 0.02], 0.2, 0.17, 0.2, light, 0.3 * planes);
-      along(c, hl.st, hl.hk, 0.35, shade, 0.2 * planes);
-      // neck: lit crest, shaded throat
-      along(c, H.poll, T.withers, 0.32, light, 0.2);
-      along(c, v2.lerp(H.latch, T.pointShoulder, 0.15), v2.lerp(H.latch, T.pointShoulder, 0.85), 0.35, shade, 0.14);
-      // head: cheek plane and a darker muzzle / nose
-      ell(c, H.jaw, 0.07, 0.05, 0, light, 0.2);
-      if (!emissive) ell(c, H.nostril, 0.05, 0.035, 0, shade, 0.55);
-      // lower legs go darker toward the feet, joints catch a little light
-      band(c, Math.min(fl.kn[1], hl.hk[1]) + 0.06, 0.02, -0.04, shade, emissive ? 0.18 : 0.42);
-      for (const p of [fl.kn, hl.hk]) ell(c, p, 0.035, 0.03, 0, light, 0.2 * planes);
-      // species markings (stockings, bib …) sit on top of the form shading
-      for (const m of parts.markings) if (!isTailMark(m)) drawMarking(c, m);
+      // Pale belly / inner thigh countershading, then ventral core shadow over it
+      ell(c, [0.06, bot + 0.06], 0.34, 0.08, 0, bBelly, 0.42);
+      band(c, bot + 0.18, bot + 0.01, bot - 0.14, shade, 0.42);
+      // Anatomical muscle planes (`coat.planes` scales visibility for sleek vs shaggy coats)
+      along(c, T.withers, fl.sj, 0.48, light, 0.32 * planes);
+      along(c, v2.add(T.withers, [-0.10, -0.06]), v2.add(fl.el, [-0.04, 0.03]), 0.26, shade, 0.24 * planes);
+      ell(c, [0.08, hy - 0.02], 0.28, 0.15, 0, light, 0.16 * planes);
+      ell(c, [hl.root[0] - 0.02, hy - 0.02], 0.20, 0.17, 0.22, light, 0.32 * planes);
+      along(c, hl.st, hl.hk, 0.34, shade, 0.24 * planes);
+      // Soft anatomical occlusion creases where the haunch meets the flank and the shoulder/forearm meets the chest
+      c.save();
+      c.lineCap = 'round';
+      const creaseCol = emissive ? mixHex(dark, '#1E3A5F', 0.55) : mixHex(dark, '#060514', 0.65);
+      c.strokeStyle = rgba(creaseCol, (emissive ? 0.32 : 0.44) * (0.4 + 0.6 * planes));
+      c.lineWidth = Math.max(1.5, size * 0.014);
+      const [hs0, hs1, hs2] = [
+        [hl.st[0] + 0.02, hl.st[1] + 0.02],
+        [hl.root[0] + 0.10, lerp(hl.st[1], hl.root[1], 0.52)],
+        [hl.root[0] + 0.04, hl.root[1] - 0.06],
+      ].map(M);
+      c.beginPath();
+      c.moveTo(hs0[0], hs0[1]);
+      c.quadraticCurveTo(hs1[0], hs1[1], hs2[0], hs2[1]);
+      const [fs0, fs1, fs2] = [
+        [fl.el[0] - 0.02, fl.el[1] + 0.01],
+        [fl.sj[0] - 0.05, lerp(fl.el[1], T.withers[1], 0.45)],
+        [T.withers[0] - 0.05, T.withers[1] - 0.14],
+      ].map(M);
+      c.moveTo(fs0[0], fs0[1]);
+      c.quadraticCurveTo(fs1[0], fs1[1], fs2[0], fs2[1]);
+      c.stroke();
+      c.restore();
+      // Neck: lit dorsal crest, shaded jugular groove
+      along(c, H.poll, T.withers, 0.32, light, 0.24);
+      along(c, v2.lerp(H.latch || S.throat, T.pointShoulder, 0.15), v2.lerp(H.latch || S.throat, T.pointShoulder, 0.85), 0.35, shade, 0.20);
+      // Head: cheek plane and darker muzzle / nostril
+      ell(c, H.jaw, 0.075, 0.055, S.headAngle, light, 0.24);
+      if (!emissive) ell(c, H.nostril, 0.05, 0.035, S.headAngle, shade, 0.55);
+      // Lower legs darken toward the feet; carpus & hock joints catch subtle light
+      band(c, Math.min(fl.kn[1], hl.hk[1]) + 0.06, 0.02, -0.04, shade, emissive ? 0.22 : 0.42);
+      for (const p of [fl.kn, hl.hk]) ell(c, p, 0.036, 0.03, 0, light, 0.24 * planes);
+      // Species markings (stockings, socks, bib, chin, blaze, saddle, rump, nose)
+      for (const m of parts.markings) {
+        if (!isTailMark(m) && !isEarMark(m)) drawMarking(c, m);
+      }
     },
   }, lights);
 
-  // 2b. Tail: its own lit layer over the haunch, so its rim separates it from the hind leg
+  // 2d. Tail: its own lit layer over the haunch, so its rim separates it from the hind leg
   if (parts.tail.length) {
-    const tc = M(sampleProfileChain(parts.tailChain, 0.5).p);
+    const tc = parts.tailChain && parts.tailChain.length >= 2
+      ? M(sampleProfileChain(parts.tailChain, 0.5).p)
+      : M(T.croup);
+    const tailLen = (P.tailSpec && P.tailSpec.len) || (P.tailT && P.tailT.len) || 0.35;
     drawLitOrganicShape(ctx, (c) => {
       for (const part of parts.tail) path(c, part);
     }, {
-      ...nearOpts, cx: tc[0], cy: tc[1], radius: P.tailT.len * size * 0.8 + 20,
+      ...nearOpts,
+      cx: tc[0],
+      cy: tc[1],
+      radius: tailLen * size * 0.8 + 24,
+      rimIntensity: 1.15 * bodyM.rim * airRim,
       drawInnerDetailsFn: (c) => {
         for (const m of parts.markings) if (isTailMark(m)) drawMarking(c, m);
       },
     }, lights);
   }
 
-  // 3. Near antler over the head
-  drawAntler(parts.antlers[0], false);
+  // 2e. Near Ear: separate volume on top of poll with inner pinna shadow
+  if (parts.earNear && parts.earNear.length) {
+    const ec = M(H.ear || S.poll);
+    drawLitOrganicShape(ctx, (c) => {
+      for (const part of parts.earNear) path(c, part);
+    }, {
+      ...nearOpts,
+      cx: ec[0],
+      cy: ec[1],
+      radius: Math.max(18, P.earLen * size * 0.45),
+      rimIntensity: 1.15 * bodyM.rim * airRim,
+      drawInnerDetailsFn: (c) => {
+        for (const m of parts.markings) if (isEarMark(m)) drawMarking(c, m);
+        ell(c, H.ear || S.poll, P.earLen * 0.12, P.earLen * 0.06, S.headAngle + 0.9, shade, 0.35);
+      },
+    }, lights);
+  }
+
+  // 3. Near antler over the head & ear
+  drawAntler(parts.antlers && parts.antlers[0], false);
 
   // 4. Naturalistic eye: dark almond with a lid shadow and a tiny catchlight; predators get a visible iris
-  {
+  if (H.eye) {
     const E = P.skullT.eye;
     const [ex, ey] = M(H.eye);
-    const er = P.headLen * size * E.r;
+    const er = Math.max(1.8, P.headLen * size * E.r);
     ctx.save();
     ctx.translate(ex, ey);
-    ctx.rotate(-f * (S.headAng + E.tilt));
+    ctx.rotate(-f * ((S.headAngle ?? S.headAng ?? 0) + (E.tilt || 0)));
     ctx.scale(f, 1);
-    ctx.fillStyle = rgba(shade, 0.5);
+    ctx.fillStyle = rgba(shade, 0.55);
     ctx.beginPath();
     ctx.ellipse(0, -er * 0.15, er * 1.7, er * 1.15, 0, 0, Math.PI * 2);
     ctx.fill();
-    const iris = col.eye || (emissive ? mixHex(mid, '#164E46', 0.6) : (P.skull === 'canid' ? '#B9832E' : E.iris));
+    const iris = col.eye || (emissive ? mixHex(dark, '#0F2942', 0.65) : (P.skull === 'canid' ? '#B9832E' : E.iris));
     ctx.fillStyle = iris || '#140D08';
     ctx.beginPath();
     ctx.ellipse(0, 0, er * 1.25, er * 0.82, 0, 0, Math.PI * 2);
@@ -4540,9 +4629,9 @@ export function drawProfileQuadruped(ctx, o = {}, lights = []) {
       ctx.ellipse(er * 0.1, 0, er * 0.42, er * 0.62, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.fillStyle = rgba('#FFFFFF', 0.6);
+    ctx.fillStyle = rgba('#FFFFFF', 0.72);
     ctx.beginPath();
-    ctx.arc(er * 0.4, -er * 0.28, er * 0.24, 0, Math.PI * 2);
+    ctx.arc(er * 0.4, -er * 0.28, er * 0.26, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -4626,14 +4715,20 @@ export function drawProfileFish(ctx, o = {}, lights = []) {
     ctx.restore();
   }
 
-  // 2. Translucent dorsal fin (behind body)
+  // 2. Translucent dorsal + ventral fins (behind body)
   ctx.save();
   ctx.fillStyle = rgba(bFin, emissive ? 0.72 : 0.58);
   drawWorldPath(ctx, 'dorsal');
+  drawWorldPath(ctx, 'ventral');
   ctx.restore();
 
   // 3. Main fish body + forked tail silhouette shaded via `drawLitOrganicShape`
   const radius = Math.max(28, L * 0.95);
+  const coreShade = {
+    color: emissive ? mixHex(bDark, '#1E3A5F', 0.45) : mixHex(bDark, '#000000', 0.5),
+    alpha: (emissive ? 0.32 : 0.5) * (1 - 0.5 * hz),
+    width: Math.max(3, L * 0.08),
+  };
   drawLitOrganicShape(
     ctx,
     (c) => drawWorldPath(c, 'body'),
@@ -4644,16 +4739,21 @@ export function drawProfileFish(ctx, o = {}, lights = []) {
       baseDark: bDark,
       baseMid: bMid,
       bounceColor: bBounce,
-      bounceAlpha: 0.32 * bodyM.bounce,
+      bounceAlpha: 0.36 * bodyM.bounce,
       rimScale: clamp(L / 140, 0.45, 1.15),
-      rimIntensity: (emissive ? 0.65 : 1.05) * bodyM.rim * airRim,
+      rimIntensity: (emissive ? 0.85 : 1.08) * bodyM.rim * airRim,
+      coreShade,
       drawInnerDetailsFn: (c) => {
         c.save();
         applyFishTransform(c, F);
-        // Subtle lateral sheen along the spine
+        // Translucent caudal web veil
+        c.fillStyle = rgba(bFin, emissive ? 0.42 : 0.28);
+        traceFishPart(c, F, 'caudalWeb');
+        c.fill();
+        // Subtle lateral sheen along the spine + silver belly countershading
         const sheen = c.createLinearGradient(F.noseX, 0, F.tailTipTopX, 0);
-        sheen.addColorStop(0, rgba('#FFFFFF', emissive ? 0.55 : 0.18));
-        sheen.addColorStop(0.45, rgba(bFin, emissive ? 0.35 : 0.12));
+        sheen.addColorStop(0, rgba('#FFFFFF', emissive ? 0.55 : 0.22));
+        sheen.addColorStop(0.45, rgba(bFin, emissive ? 0.35 : 0.14));
         sheen.addColorStop(1, rgba(bDark, 0));
         c.fillStyle = sheen;
         c.fillRect(-L, -L * P.bodyDepth, L * 2.2, L * P.bodyDepth * 0.95);

@@ -1644,12 +1644,15 @@ export const PROFILE_SPECIES = {
     legW: [0.08, 0.042, 0.022, 0.024], thighW: [0.19, 0.1, 0.04],
     tailSpec: { len: 0.18, w: [0.03, 0.05, 0.01], angle: 0.4, curl: 0.05 },
     antlers: {
+      len: 1.05,
+      w: 0.032,
+      taper: 0.65,
       beams: [
-        [[0.0, 0.0], [0.05, 0.22], [0.02, 0.45], [-0.08, 0.65], [-0.18, 0.78]],
-        [[0.05, 0.22], [0.14, 0.35], [0.22, 0.42]],
-        [[0.02, 0.45], [0.08, 0.58]],
+        [[0.0, 0.0], [-0.06, 0.28], [-0.04, 0.56], [-0.14, 0.82], [-0.02, 1.02]],
+        [[-0.05, 0.24], [0.16, 0.38], [0.26, 0.48]],
+        [[-0.04, 0.54], [0.14, 0.68], [0.22, 0.80]],
+        [[-0.12, 0.78], [-0.26, 0.94]],
       ],
-      w: 0.02,
     },
     markings: [
       { zone: 'rump', tone: 'pale', alpha: 0.85 }, { zone: 'bib', tone: 'pale', alpha: 0.65 },
@@ -1754,6 +1757,7 @@ export function traceOutline(ctx, pts) {
 }
 
 export function traceProfilePart(ctx, part, map) {
+  if (!part) return;
   if (part.kind === 'tuft') {
     const [b0, c0, tip, c1, b1] = [part.b0, part.c0, part.tip, part.c1, part.b1].map(map);
     ctx.moveTo(b0[0], b0[1]);
@@ -1762,7 +1766,18 @@ export function traceProfilePart(ctx, part, map) {
     ctx.closePath();
     return;
   }
-  traceOutline(ctx, part.pts.map((p) => [...map(p), p[2] ?? 1]));
+  if (part.kind === 'disc') {
+    const [cx, cy] = map([part.cx, part.cy]);
+    const [rxPt, ryPt] = map([part.cx + part.r, part.cy]);
+    const r = Math.max(1, Math.hypot(rxPt - cx, ryPt - cy));
+    ctx.moveTo(cx + r, cy);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    return;
+  }
+  const rawPts = part.pts || (Array.isArray(part) ? part : null);
+  if (!rawPts || !rawPts.length) return;
+  traceOutline(ctx, rawPts.map((p) => [...map(p), p[2] ?? 1]));
 }
 
 export function sampleChain(pts, u) {
@@ -1804,30 +1819,83 @@ function mixAngles(a, b, u) {
 // Kinematics & Posing (World Quadruped Form)
 // ---------------------------------------------------------------------------
 
-export function profileSizeForScale(species, scale = 1.0, pxPerM = 480) {
-  const S = typeof species === 'string' ? PROFILE_SPECIES[species] || PROFILE_SPECIES.deer : species;
-  return (S.withersM || 1.0) * pxPerM * (scale / 1.32);
+export function profileSizeForScale(species, scaleOrPxPerM = 1.0, pxPerMOrProfile = 480) {
+  const base =
+    typeof species === 'string'
+      ? PROFILE_SPECIES[species] || PROFILE_SPECIES.deer
+      : species && typeof species === 'object'
+        ? { ...(PROFILE_SPECIES[species.kind || species.species || 'deer'] || PROFILE_SPECIES.deer), ...species }
+        : PROFILE_SPECIES.deer;
+  const overrides =
+    pxPerMOrProfile && typeof pxPerMOrProfile === 'object' ? pxPerMOrProfile : null;
+  const S = overrides ? { ...base, ...overrides } : base;
+  // Support both `(kind, pxPerM, profileOverrides)` (used by kernel.js) and `(kind, scale, pxPerM)`:
+  if (overrides !== null || scaleOrPxPerM > 10) {
+    const ppm = Number.isFinite(scaleOrPxPerM) ? scaleOrPxPerM : 480;
+    return (S.withersM || 1.0) * ppm * (1.0 / 1.32);
+  }
+  const scale = Number.isFinite(scaleOrPxPerM) ? scaleOrPxPerM : 1.0;
+  const ppm = Number.isFinite(pxPerMOrProfile) ? pxPerMOrProfile : 480;
+  return (S.withersM || 1.0) * ppm * (scale / 1.32);
 }
 
-export function poseProfileQuadruped(species, opts = {}) {
-  const P = typeof species === 'string' ? { ...PROFILE_SPECIES[species], species } : { ...species };
+export function poseProfileQuadruped(speciesOrOpts, opts = {}) {
+  let kind = 'deer';
+  let rawOpts = opts || {};
+  let profileOverrides = {};
+
+  if (typeof speciesOrOpts === 'string') {
+    kind = speciesOrOpts;
+    if (rawOpts.profile && typeof rawOpts.profile === 'object') {
+      profileOverrides = rawOpts.profile;
+    }
+  } else if (speciesOrOpts && typeof speciesOrOpts === 'object') {
+    rawOpts = { ...speciesOrOpts, ...opts };
+    kind = rawOpts.kind || rawOpts.species || 'deer';
+    if (rawOpts.profile && typeof rawOpts.profile === 'object') {
+      profileOverrides = rawOpts.profile;
+    }
+    for (const k of Object.keys(PROFILE_SPECIES.deer)) {
+      if (rawOpts[k] !== undefined && profileOverrides[k] === undefined) {
+        profileOverrides[k] = rawOpts[k];
+      }
+    }
+  }
+
+  const baseSpec = PROFILE_SPECIES[kind] || PROFILE_SPECIES.deer;
+  const P = { ...baseSpec, ...profileOverrides, species: kind, kind };
   const stance = STANCES[P.stance] || STANCES.unguligrade;
   const skull = SKULLS[P.skull] || SKULLS.grazer;
   const trunk = TRUNKS[P.trunk] || TRUNKS.barrel;
   const coat = COATS[P.coat] || COATS.sleek;
   const tail = TAILS[P.tail] || TAILS.brush;
-  const gait = GAITS[P.gait] || GAITS.walk;
+  const gaitName = (rawOpts.pose && typeof rawOpts.pose.gait === 'string' ? rawOpts.pose.gait : null) || P.gait;
+  const gait = GAITS[gaitName] || GAITS.walk;
 
-  const t = opts.t ?? 0;
-  const speed = opts.speed ?? 1.0;
-  const cycle = (t * speed) % 1;
-  const headLift = opts.headLift ?? 0;
-  const alert = opts.alert ?? 0;
-  const earTwitch = opts.earTwitch ?? [0, 0];
+  const pose = rawOpts.pose || {};
+  const t = rawOpts.t ?? ( typeof pose.gait === 'number' ? pose.gait : pose.t ?? 0 );
+  const speed = rawOpts.speed ?? pose.speed ?? 1.0;
+  const cycle = (((t * speed) % 1) + 1) % 1;
+  const strideAmp =
+    pose.stride !== undefined
+      ? clamp(pose.stride / 0.25, 0, 2.2)
+      : rawOpts.stride !== undefined
+        ? clamp(rawOpts.stride / 0.25, 0, 2.2)
+        : rawOpts.speed !== undefined || rawOpts.t !== undefined || typeof pose.gait === 'number'
+          ? 1.0
+          : 0.0;
+
+  const graze = clamp(pose.graze ?? rawOpts.graze ?? 0, 0, 1);
+  const headLift = (pose.lift ?? rawOpts.headLift ?? rawOpts.lift ?? 0) - graze * 0.95;
+  const nod = pose.nod ?? rawOpts.nod ?? 0;
+  const breathe = pose.breathe ?? rawOpts.breathe ?? Math.sin(t * 2.2) * 0.012;
+  const alert = rawOpts.alert ?? pose.alert ?? 0;
+  const earTwitch = rawOpts.earTwitch ?? pose.earTwitch ?? [0, 0];
 
   const D = P.D;
   const shoulderX = D * 0.5;
   const hipX = -D * 0.5;
+  const hy = P.hy;
 
   const footXOffsets = [
     hipX - 0.05,
@@ -1851,72 +1919,154 @@ export function poseProfileQuadruped(species, opts = {}) {
     const isHind = legIsHind[i];
     const isNear = legIsNear[i];
     const phase = (cycle + gait.phase[i]) % 1;
-    const footX = footXOffsets[i] + (phase < 0.5 ? lerp(-0.08, 0.08, phase * 2) : lerp(0.08, -0.08, (phase - 0.5) * 2));
-    const inAir = phase >= 0.5;
+    const swing = phase < 0.5 ? lerp(-0.085, 0.085, phase * 2) : lerp(0.085, -0.085, (phase - 0.5) * 2);
+    const footX = footXOffsets[i] + swing * strideAmp;
+    const inAir = strideAmp > 0.02 && phase >= 0.5;
     const liftNorm = inAir ? Math.sin((phase - 0.5) * 2 * Math.PI) : 0;
-    const footY = liftNorm * gait.lift;
+    const footY = liftNorm * gait.lift * Math.min(1.4, strideAmp);
 
-    const root = isHind ? [hipX, P.hy] : [shoulderX, 1.0];
+    const root = isHind ? [hipX, hy * 0.92] : [shoulderX, 0.92];
     const lens = isHind ? legLengths.hind : legLengths.front;
-    const ik = solveTwoBone(root, [footX, footY + stance.footLen * 0.5], lens.l1, lens.l2, isHind ? -1 : 1);
 
-    legs[key] = {
-      root,
-      knee: ik.mid,
-      ankle: [ik.end[0], ik.end[1] + (isHind ? stance.hockH : stance.kneeH)],
-      foot: [footX, footY],
-      pastern: [footX + (isNear ? stance.metaTilt : -stance.metaTilt) * 0.02, footY + stance.fetH],
-      isNear,
-      isHind,
-      phase,
-    };
+    if (isHind) {
+      // Anatomical hind limb: hip(root) -> stifle(forward knee) -> hock(backward ankle) -> pastern -> foot
+      const hockTarget = [
+        footX - stance.hockBack - swing * strideAmp * 0.22,
+        footY + Math.max(0.16, stance.hockH * hy),
+      ];
+      const ik = solveTwoBone(root, hockTarget, lens.l1 * 0.66, lens.l2 * 0.68, 1);
+      const stifle = ik.mid;
+      const hock = ik.end;
+      const pastern = [
+        footX + (isNear ? stance.metaTilt : -stance.metaTilt) * 0.02 - 0.01,
+        footY + Math.max(0.05, stance.fetH * 0.65),
+      ];
+      legs[key] = {
+        root,
+        knee: stifle,
+        ankle: hock,
+        foot: [footX, footY],
+        pastern,
+        // Anatomical aliases for shader muscle/joint planes
+        hip: root,
+        st: stifle,
+        hk: hock,
+        fet: pastern,
+        sj: root,
+        el: stifle,
+        kn: hock,
+        isNear,
+        isHind,
+        phase,
+      };
+    } else {
+      // Anatomical forelimb: scapula top(root) -> point of shoulder -> elbow(back) -> carpus/knee(front) -> pastern -> foot
+      const elbowY = 0.64;
+      const elbowX = shoulderX - 0.045 + swing * strideAmp * 0.18;
+      const elbow = [elbowX, elbowY];
+      const carpusY = footY + Math.max(0.18, stance.kneeH);
+      const carpusX = lerp(elbowX, footX, 0.58) + 0.018 + (inAir ? 0.035 * liftNorm : 0);
+      const carpus = [carpusX, carpusY];
+      const pastern = [
+        footX + (isNear ? stance.metaTilt : -stance.metaTilt) * 0.02 + 0.008,
+        footY + Math.max(0.05, stance.fetH * 0.65),
+      ];
+      const sj = [shoulderX + 0.055, 0.78];
+      legs[key] = {
+        root,
+        knee: elbow,
+        ankle: carpus,
+        foot: [footX, footY],
+        pastern,
+        // Anatomical aliases for shader muscle/joint planes
+        sj,
+        el: elbow,
+        kn: carpus,
+        st: elbow,
+        hk: carpus,
+        fet: pastern,
+        isNear,
+        isHind,
+        phase,
+      };
+    }
   }
 
-  const spineBob = Math.sin(cycle * Math.PI * 4) * gait.spineBob;
-  const neckBob = Math.cos(cycle * Math.PI * 2) * gait.neckBob;
+  const spineBob = Math.sin(cycle * Math.PI * 4) * gait.spineBob * strideAmp;
+  const neckBob = Math.cos(cycle * Math.PI * 2) * gait.neckBob * strideAmp;
+
+  const top = 1.0 + P.withers + trunk.hump + spineBob;
+  const bot = (1.0 + hy) * 0.5 - 0.34 + trunk.tuck - breathe;
 
   const spine = {
-    withers: [shoulderX, 1.0 + P.withers + spineBob],
-    midBack: [0, (1.0 + P.hy) * 0.5 - P.backDip + spineBob * 0.5],
-    croup: [hipX, P.hy + spineBob * 0.8],
-    brisket: [shoulderX + 0.02, 1.0 - trunk.chest],
-    belly: [0, (1.0 + P.hy) * 0.5 - 0.32 + trunk.tuck],
-    flank: [hipX + 0.04, P.hy - 0.28],
+    withers: [shoulderX - 0.02, top],
+    midBack: [0, (1.0 + hy) * 0.5 - P.backDip + spineBob * 0.5],
+    croup: [hipX + 0.02, hy + spineBob * 0.8],
+    rumpTip: [hipX - 0.11, hy - 0.10 + spineBob * 0.7],
+    brisket: [shoulderX + 0.07, 0.66 - trunk.chest],
+    pointShoulder: [shoulderX + 0.09, 0.76 - trunk.chest * 0.5],
+    belly: [-0.02, bot],
+    flank: [hipX + 0.12, hy - 0.24 + trunk.tuck * 0.7],
   };
 
   const restingNeck = P.neckAngle;
-  const finalNeckAngle = restingNeck + headLift * 0.35 + alert * 0.2 + neckBob;
-  const neckBase = [shoulderX - 0.04, spine.withers[1] - 0.04];
+  const finalNeckAngle = restingNeck + headLift * 0.42 + alert * 0.2 + neckBob;
+  const neckBase = [shoulderX + 0.01, spine.withers[1] - 0.05];
   const poll = [
     neckBase[0] + Math.cos(finalNeckAngle) * P.neckLen,
     neckBase[1] + Math.sin(finalNeckAngle) * P.neckLen,
   ];
-  const throat = [
-    neckBase[0] + Math.cos(finalNeckAngle) * P.neckLen * 0.85 - P.neckW[1] * 0.5,
-    neckBase[1] + Math.sin(finalNeckAngle) * P.neckLen * 0.85 - P.neckW[1] * 0.5,
-  ];
 
-  const headAngle = mixAngles(skull.rest, 0.1, headLift) - alert * 0.1;
+  const headAngle = mixAngles(skull.rest, 0.08, clamp(0.5 + headLift * 0.5, 0, 1)) + nod * 0.25 - alert * 0.08;
   const headCos = Math.cos(headAngle);
   const headSin = Math.sin(headAngle);
-  const headMap = ([lx, ly]) => [
-    poll[0] + (lx * P.headLen * headCos - ly * P.headLen * P.headDepth * headSin),
-    poll[1] + (lx * P.headLen * headSin + ly * P.headLen * P.headDepth * headCos),
-  ];
+  // Skull table `ly` is defined with +Y down out of the jaw (`brow` = -0.34, `jaw` = +0.30).
+  // World quadruped space has +Y up (`withers` = 1.0, ground = 0). Negating `ly` (`upY = -ly`)
+  // keeps the brow/ears/antlers on top of the cranium and the jaw/chin underneath.
+  const muzzleScale = P.muzzle ?? 1.0;
+  const headMap = ([lx, ly]) => {
+    const adjX = lx > skull.muzzleFrom ? skull.muzzleFrom + (lx - skull.muzzleFrom) * muzzleScale : lx;
+    const dx = adjX * P.headLen;
+    const upY = -ly * P.headLen * P.headDepth;
+    return [
+      poll[0] + (dx * headCos - upY * headSin),
+      poll[1] + (dx * headSin + upY * headCos),
+    ];
+  };
 
   const headPts = {};
   for (const [k, p] of Object.entries(skull.pts)) {
     headPts[k] = headMap(p);
   }
+  if (!headPts.poll) headPts.poll = [...poll];
+  const throat = headPts.latch ? [...headPts.latch] : [poll[0] - 0.05, poll[1] - 0.12];
+
+  const tailSpec = P.tailSpec || { len: 0.4, w: [0.03, 0.08, 0.02], angle: 0.8, curl: 0.1 };
+  const tailFull = { ...tail, ...tailSpec, len: tailSpec.len ?? 0.4 };
 
   return {
-    P: { ...P, stanceT: stance, skullT: skull, trunkT: trunk, coatT: coat, tailT: tail, gaitT: gait },
+    P: {
+      ...P,
+      stanceT: stance,
+      skullT: skull,
+      trunkT: trunk,
+      coatT: coat,
+      tailT: tailFull,
+      tailSpec,
+      gaitT: gait,
+    },
+    hy,
+    top,
+    bot,
     spine,
+    trunk: spine,
     neckBase,
     poll,
     throat,
     headAngle,
+    headAng: headAngle,
     headPts,
+    head: headPts,
     legs,
     earTwitch,
     alert,
@@ -1928,26 +2078,75 @@ export function poseProfileQuadruped(species, opts = {}) {
 // ---------------------------------------------------------------------------
 
 function bodyOutlinePts(S) {
-  const { spine, throat, headPts, P } = S;
+  const { spine, headPts, legs, P } = S;
   const skull = P.skullT;
+  const stance = P.stanceT;
+  const fl = legs.frontNear;
+  const hl = legs.hindNear;
+  const [wShoulder, wKnee, pasternW, footW] = P.legW;
+  const [, wFlank, wHock] = P.thighW;
+
   const pts = [];
 
+  // 1. Dorsal skull: noseTip -> bridge -> (stop) -> brow -> poll
   for (const [name, k] of skull.top) {
     if (headPts[name]) pts.push([...headPts[name], k, 'skullTop']);
   }
 
-  pts.push([...S.poll, 0.8, 'poll']);
-  pts.push([spine.withers[0] + 0.02, spine.withers[1] + P.crestArch, 0.9, 'nape']);
+  // 2. Dorsal neck crest & back: headPts.poll -> nape -> withers -> midBack -> croup -> rumpTip
+  const topPoll = headPts.poll || S.poll;
+  const nape = [
+    lerp(topPoll[0], spine.withers[0], 0.52) - P.crestArch * 0.35,
+    lerp(topPoll[1], spine.withers[1], 0.52) + P.crestArch * 0.9,
+  ];
+  pts.push([nape[0], nape[1], 0.9, 'nape']);
   pts.push([...spine.withers, 1.0, 'withers']);
   pts.push([...spine.midBack, 1.0, 'back']);
-  pts.push([...spine.croup, 0.85, 'croup']);
+  pts.push([...spine.croup, 0.9, 'croup']);
+  pts.push([...spine.rumpTip, 0.85, 'rump']);
 
-  pts.push([spine.croup[0] - 0.08, spine.croup[1] - 0.08, 0.8, 'rump']);
-  pts.push([spine.flank[0] - 0.06, spine.flank[1] - 0.06, 0.9, 'thighBack']);
-  pts.push([...spine.flank, 1.0, 'flank']);
+  // 3. Posterior haunch & near hind leg: rumpTip -> thighBack -> hockBack -> pasternBack -> heel -> toe -> pasternFront -> hockFront -> stifleFront
+  const hock = hl.ankle;
+  const stifle = hl.knee;
+  pts.push([lerp(spine.rumpTip[0], hock[0], 0.52) - wFlank * 0.45, lerp(spine.rumpTip[1], hock[1], 0.52), 0.9, 'thighBack']);
+  pts.push([hock[0] - wHock * 0.72, hock[1] + 0.01, 0.55, 'hockBack']);
+  pts.push([hl.pastern[0] - pasternW * 0.68, hl.pastern[1] + 0.01, 0.75, 'pasternBack']);
+  pts.push([hl.foot[0] - footW * 0.75, hl.foot[1], 0.3, 'heel']);
+  pts.push([hl.foot[0] + stance.footLen * 0.65, hl.foot[1], 0.3, 'toe']);
+  pts.push([hl.pastern[0] + pasternW * 0.62, hl.pastern[1], 0.75, 'pasternFront']);
+  pts.push([hock[0] + wHock * 0.68, hock[1] + 0.02, 0.75, 'hockFront']);
+  pts.push([stifle[0] + wFlank * 0.28, Math.min(spine.flank[1] - 0.02, stifle[1]), 0.85, 'stifleFront']);
+
+  // 4. Ventral belly tuck & ribcage between hind leg and foreleg
+  pts.push([...spine.flank, 0.9, 'flank']);
   pts.push([...spine.belly, 1.0, 'belly']);
-  pts.push([...spine.brisket, 0.95, 'chest']);
-  pts.push([...throat, 0.8, 'throat']);
+
+  // 5. Near forelimb: down the back of the elbow/carpus to front foot, then monotonically up the front of forearm -> brisket -> pointShoulder
+  const elbow = fl.knee;
+  const carpus = fl.ankle;
+  pts.push([elbow[0] - wShoulder * 0.36, Math.min(spine.belly[1] + 0.01, elbow[1] - 0.02), 0.75, 'elbowBack']);
+  pts.push([carpus[0] - wKnee * 0.55, carpus[1] + 0.01, 0.8, 'kneeBack']);
+  pts.push([fl.pastern[0] - pasternW * 0.68, fl.pastern[1] + 0.01, 0.75, 'pasternBack']);
+  pts.push([fl.foot[0] - footW * 0.75, fl.foot[1], 0.3, 'heel']);
+  pts.push([fl.foot[0] + stance.footLen * 0.65, fl.foot[1], 0.3, 'toe']);
+  pts.push([fl.pastern[0] + pasternW * 0.62, fl.pastern[1], 0.75, 'pasternFront']);
+  pts.push([carpus[0] + wKnee * 0.58, carpus[1], 0.85, 'kneeFront']);
+  pts.push([
+    lerp(carpus[0], spine.brisket[0], 0.65) + wShoulder * 0.16,
+    lerp(carpus[1], spine.brisket[1], 0.62),
+    0.85,
+    'shoulderFront',
+  ]);
+
+  // 6. Brisket / chest -> pointShoulder -> ventral neck -> skull.bottom (latch -> jaw -> chin -> lip)
+  pts.push([...spine.brisket, 0.9, 'chest']);
+  pts.push([...spine.pointShoulder, 0.9, 'chest']);
+  const latchPt = headPts.latch || S.throat;
+  const ventralNeck = [
+    lerp(spine.pointShoulder[0], latchPt[0], 0.52) + P.neckW[0] * 0.08,
+    lerp(spine.pointShoulder[1], latchPt[1], 0.52) - P.neckW[1] * 0.06,
+  ];
+  pts.push([ventralNeck[0], ventralNeck[1], 0.9, 'throat']);
 
   for (const [name, k] of skull.bottom) {
     if (headPts[name]) pts.push([...headPts[name], k, 'jaw']);
@@ -1957,39 +2156,71 @@ function bodyOutlinePts(S) {
 }
 
 function limbOutlinePts(S, L) {
-  const { root, knee, ankle, pastern, foot, isHind, isNear } = L;
+  const { root, knee, ankle, pastern, foot, isHind } = L;
   const P = S.P;
-  const w = isHind ? P.thighW : P.legW;
-  const side = isNear ? 1 : -1;
-  const pts = [];
+  const stance = P.stanceT;
+  const footW = P.legW[3] || 0.03;
+  const pasternW = P.legW[2] || 0.024;
 
-  pts.push([root[0] - w[0] * 0.5, root[1], 0.7, 'shoulderTop']);
-  pts.push([knee[0] - w[1] * 0.4 * side, knee[1], 1.0, 'kneeFront']);
-  pts.push([pastern[0] - 0.02, pastern[1], 1.0, 'pasternFront']);
-  pts.push([foot[0] - 0.03, foot[1], 0.4, 'toe']);
-  pts.push([foot[0] + 0.03, foot[1], 0.4, 'heel']);
-  pts.push([pastern[0] + 0.02, pastern[1], 1.0, 'pasternBack']);
-  pts.push([ankle[0] + w[1] * 0.4 * side, ankle[1], 1.0, 'hockBack']);
-  pts.push([root[0] + w[0] * 0.5, root[1] - 0.05, 0.8, 'shoulderBack']);
+  if (isHind) {
+    const [wCroup, wFlank, wHock] = P.thighW;
+    const stifle = knee;
+    const hock = ankle;
+    return [
+      [root[0] + wCroup * 0.32, root[1], 0.85, 'haunchTop'],
+      [stifle[0] + wFlank * 0.32, stifle[1] - 0.02, 0.9, 'stifleFront'],
+      [hock[0] + wHock * 0.68, hock[1] + 0.02, 0.75, 'hockFront'],
+      [pastern[0] + pasternW * 0.62, pastern[1], 0.75, 'pasternFront'],
+      [foot[0] + stance.footLen * 0.65, foot[1], 0.3, 'toe'],
+      [foot[0] - footW * 0.75, foot[1], 0.3, 'heel'],
+      [pastern[0] - pasternW * 0.68, pastern[1] + 0.01, 0.75, 'pasternBack'],
+      [hock[0] - wHock * 0.72, hock[1], 0.6, 'hockBack'],
+      [lerp(hock[0], root[0], 0.52) - wFlank * 0.55, lerp(hock[1], root[1], 0.52), 0.9, 'thighBack'],
+      [root[0] - wCroup * 0.42, root[1] - 0.02, 0.85, 'rumpBack'],
+    ];
+  }
 
-  return pts;
+  const [wShoulder, wKnee] = P.legW;
+  const elbow = knee;
+  const carpus = ankle;
+  const sj = L.sj || [root[0] + 0.05, root[1] - 0.14];
+  return [
+    [root[0] - wShoulder * 0.28, root[1] - 0.04, 0.85, 'shoulderTop'],
+    [sj[0] + wShoulder * 0.32, sj[1] - 0.06, 0.9, 'shoulderFront'],
+    [carpus[0] + wKnee * 0.58, carpus[1], 0.85, 'kneeFront'],
+    [pastern[0] + pasternW * 0.62, pastern[1], 0.75, 'pasternFront'],
+    [foot[0] + stance.footLen * 0.65, foot[1], 0.3, 'toe'],
+    [foot[0] - footW * 0.75, foot[1], 0.3, 'heel'],
+    [pastern[0] - pasternW * 0.68, pastern[1] + 0.01, 0.75, 'pasternBack'],
+    [carpus[0] - wKnee * 0.55, carpus[1] + 0.01, 0.8, 'kneeBack'],
+    [elbow[0] - wShoulder * 0.42, elbow[1] - 0.02, 0.75, 'elbowBack'],
+    [root[0] - wShoulder * 0.50, root[1] - 0.08, 0.85, 'shoulderBack'],
+  ];
 }
 
 function earPts(S, sideIdx = 0) {
   const { headPts, headAngle, P, earTwitch, alert } = S;
-  const earRoot = headPts.ear || S.poll;
+  const baseRoot = headPts.ear || headPts.poll || S.poll;
+  const earRoot = sideIdx === 0 ? baseRoot : [baseRoot[0] + 0.03 * P.headLen, baseRoot[1] + 0.015 * P.headLen];
   const skull = P.skullT;
-  const earAngle = headAngle + skull.ear.angle * (sideIdx === 0 ? 1 : 0.85) + earTwitch[sideIdx] + alert * 0.15;
-  const len = P.earLen * 0.35;
-  const wid = P.earWidth * 0.16;
+  const shape = skull.ear ? skull.ear.shape : 'leaf';
+  // Ears angle upward and swept slightly back from poll (or forward when alert)
+  const baseAng = shape === 'triangle' ? 1.68 : shape === 'round' ? 1.75 : 2.02;
+  const earAngle = headAngle * 0.5 + baseAng * (sideIdx === 0 ? 1 : 0.88) + (earTwitch[sideIdx] || 0) - alert * 0.18;
+  const len = P.earLen * (shape === 'round' ? 0.28 : 0.38);
+  const wid = P.earWidth * (shape === 'round' ? 0.16 : 0.13);
 
   const tip = [earRoot[0] + Math.cos(earAngle) * len, earRoot[1] + Math.sin(earAngle) * len];
+  const mid = v2.lerp(earRoot, tip, shape === 'leaf' ? 0.58 : 0.46);
   const perp = [-Math.sin(earAngle) * wid, Math.cos(earAngle) * wid];
+  const tipSharpness = shape === 'round' ? 0.85 : shape === 'triangle' ? 0.25 : 0.38;
 
   return [
-    [earRoot[0] - perp[0] * 0.5, earRoot[1] - perp[1] * 0.5, 0.6, 'earRoot'],
-    [tip[0], tip[1], 0.4, 'earTip'],
-    [earRoot[0] + perp[0] * 0.5, earRoot[1] + perp[1] * 0.5, 0.6, 'earBack'],
+    [earRoot[0] - perp[0] * 0.32, earRoot[1] - perp[1] * 0.32, 0.5, 'earRoot'],
+    [mid[0] - perp[0] * 0.65, mid[1] - perp[1] * 0.65, 0.9, 'earFront'],
+    [tip[0], tip[1], tipSharpness, 'earTip'],
+    [mid[0] + perp[0] * 0.60, mid[1] + perp[1] * 0.60, 0.9, 'earBack'],
+    [earRoot[0] + perp[0] * 0.32, earRoot[1] + perp[1] * 0.32, 0.5, 'earRoot'],
   ];
 }
 
@@ -1998,35 +2229,46 @@ function tailShape(S) {
   const tail = P.tailT;
   if (!tail || tail.kind === 'stub') {
     const root = spine.croup;
-    const r = tail ? tail.r : 0.04;
+    const r = tail && tail.r ? tail.r : 0.045;
+    const chain = [
+      [root[0] - 0.02, root[1] - 0.02],
+      [root[0] - r * 1.1, root[1] - r * 0.5],
+      [root[0] - r * 1.8, root[1] - r * 0.9],
+    ];
     return {
       pts: [
-        [root[0] - r, root[1], 0.6, 'tail'],
-        [root[0] - r * 1.8, root[1] - r * 0.8, 0.4, 'tailTip'],
-        [root[0] - r * 0.5, root[1] - r * 1.5, 0.6, 'tail'],
+        [root[0] - r * 0.4, root[1] + r * 0.1, 0.7, 'tail'],
+        [root[0] - r * 1.9, root[1] - r * 0.6, 0.5, 'tailTip'],
+        [root[0] - r * 1.6, root[1] - r * 1.5, 0.7, 'tailTip'],
+        [root[0] - r * 0.3, root[1] - r * 1.2, 0.7, 'tail'],
       ],
-      chain: null,
+      chain,
     };
   }
 
   const spec = P.tailSpec || { len: 0.4, w: [0.03, 0.08, 0.02], angle: 0.8, curl: 0.1 };
   const chain = [];
-  const start = [spine.croup[0] - 0.02, spine.croup[1] - 0.02];
+  const start = [spine.croup[0] - 0.04, spine.croup[1] - 0.03];
   const angle = -spec.angle;
-  for (let i = 0; i <= tail.segs; i++) {
-    const u = i / tail.segs;
-    const a = angle + spec.curl * Math.sin(u * Math.PI);
+  const segs = Math.max(3, tail.segs || 4);
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const a = angle + spec.curl * Math.sin(u * Math.PI * 1.15);
     chain.push([start[0] - Math.cos(a) * u * spec.len, start[1] + Math.sin(a) * u * spec.len]);
   }
 
   const left = [];
   const right = [];
-  for (let i = 0; i <= tail.segs; i++) {
-    const u = i / tail.segs;
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
     const p = chain[i];
-    const w = lerp(spec.w[0], spec.w[1], Math.sin(u * Math.PI)) * (1 - u * 0.5);
-    left.push([p[0] - w * 0.5, p[1], 0.8, 'tail']);
-    right.push([p[0] + w * 0.5, p[1], 0.8, 'tail']);
+    const next = chain[Math.min(segs, i + 1)];
+    const prev = chain[Math.max(0, i - 1)];
+    const tan = v2.norm(v2.sub(next, prev));
+    const norm = [-tan[1], tan[0]];
+    const wProfile = u < 0.55 ? lerp(spec.w[0], spec.w[1], u / 0.55) : lerp(spec.w[1], spec.w[2] ?? 0.015, (u - 0.55) / 0.45);
+    left.push([p[0] + norm[0] * wProfile * 0.5, p[1] + norm[1] * wProfile * 0.5, 0.85, u > 0.65 ? 'tailTip' : 'tail']);
+    right.push([p[0] - norm[0] * wProfile * 0.5, p[1] - norm[1] * wProfile * 0.5, 0.85, u > 0.65 ? 'tailTip' : 'tail']);
   }
 
   return {
@@ -2037,17 +2279,25 @@ function tailShape(S) {
 
 function maneShape(S) {
   if (!S.P.mane) return null;
-  const { spine, poll } = S;
-  const m = S.P.mane;
-  const pts = [];
+  const { spine, headPts, P } = S;
+  const topPoll = headPts.poll || S.poll;
+  const m = P.mane;
+  const topPts = [];
+  const botPts = [];
   const steps = 6;
+  const crestVec = v2.sub(topPoll, spine.withers);
+  // Outward dorsal normal along neck crest (pointing up and slightly backward)
+  const outNorm = v2.norm([-crestVec[1], crestVec[0]]);
   for (let i = 0; i <= steps; i++) {
     const u = i / steps;
-    const base = v2.lerp(poll, spine.withers, u);
-    const arch = Math.sin(u * Math.PI) * m.arch;
-    pts.push([base[0] - arch * 0.5, base[1] + arch, 0.7, 'mane']);
+    const base = v2.lerp(topPoll, spine.withers, u);
+    const sag = Math.sin(u * Math.PI) * P.crestArch * 0.85;
+    const crestPt = [base[0] - sag * 0.3, base[1] + sag];
+    const arch = Math.sin(u * Math.PI) * m.arch + 0.025;
+    topPts.push([crestPt[0] + outNorm[0] * arch, crestPt[1] + outNorm[1] * arch, 0.8, 'mane']);
+    botPts.push([crestPt[0] - outNorm[0] * 0.02, crestPt[1] - outNorm[1] * 0.02, 0.7, 'mane']);
   }
-  return { pts };
+  return { pts: [...topPts, ...botPts.reverse()] };
 }
 
 function coatTufts(pts, zones, tuftLen, seed = 1) {
@@ -2080,33 +2330,69 @@ function coatTufts(pts, zones, tuftLen, seed = 1) {
 
 function antlerChains(S) {
   const spec = S.P.antlers;
-  if (!spec || !spec.beams) return [];
-  const headMap = (p) => {
-    const cos = Math.cos(S.headAngle);
-    const sin = Math.sin(S.headAngle);
-    const root = S.headPts.antler || S.poll;
-    return [root[0] + (p[0] * cos - p[1] * sin) * S.P.headLen, root[1] + (p[0] * sin + p[1] * cos) * S.P.headLen];
+  if (!spec || !spec.beams) return [[], []];
+  const buildSet = (offsetX, offsetY, scale = 1.0, rotOffset = 0) => {
+    // Antlers sweep upward and slightly back relative to world vertical, tilted gently by headAngle
+    const ang = S.headAngle * 0.35 + rotOffset;
+    const cos = Math.cos(ang);
+    const sin = Math.sin(ang);
+    const baseRoot = S.headPts.antler || S.poll;
+    const root = [baseRoot[0] + offsetX, baseRoot[1] + offsetY];
+    return spec.beams.map((b, idx) => ({
+      pts: b.map((p) => [
+        root[0] + (p[0] * cos - p[1] * sin) * S.P.headLen * scale,
+        root[1] + (p[0] * sin + p[1] * cos) * S.P.headLen * scale,
+      ]),
+      w: (spec.w || 0.03) * (idx === 0 ? 1.0 : 0.72),
+      taper: spec.taper ?? 0.65,
+    }));
   };
-  return spec.beams.map((b) => b.map(headMap));
+  // [nearAntlerChains, farAntlerChains]
+  return [
+    buildSet(0, 0, 1.0, 0),
+    buildSet(0.035 * S.P.headLen, 0.02 * S.P.headLen, 0.92, -0.12),
+  ];
 }
 
 function markingPrims(S, parts, zone) {
+  const { spine, headPts, throat } = S;
   switch (zone) {
     case 'bib':
-    case 'throat':
-      return parts.near.filter((p) => p.kind === 'outline');
+    case 'throat': {
+      const c = v2.lerp(throat, spine.brisket, 0.45);
+      return [{ kind: 'ell', c: [c[0] + 0.03, c[1]], rx: 0.13, ry: 0.21, rot: -0.35 }];
+    }
+    case 'chin': {
+      const chinPt = headPts.chin || headPts.jaw || S.poll;
+      return [{ kind: 'ell', c: [chinPt[0] - 0.02, chinPt[1] - 0.01], rx: 0.11, ry: 0.045, rot: S.headAngle }];
+    }
+    case 'muzzle':
+    case 'blaze': {
+      const bridgePt = headPts.bridge || headPts.noseTip || S.poll;
+      return [{ kind: 'ell', c: [bridgePt[0], bridgePt[1] + 0.01], rx: 0.12, ry: 0.04, rot: S.headAngle }];
+    }
     case 'socks':
+      return [{ kind: 'band', y0: 0.22, y1: 0.12 }];
     case 'stockings':
-      return parts.far.concat(parts.near).filter((p) => p.kind === 'outline');
+      return [{ kind: 'band', y0: 0.36, y1: 0.22 }];
     case 'saddle':
-      return [parts.near[0]];
+      return [{ kind: 'ell', c: [spine.midBack[0], spine.midBack[1] - 0.05], rx: 0.26, ry: 0.15, rot: 0 }];
     case 'rump':
-      return [parts.near[0]];
-    case 'tailTip':
-      return parts.tail;
+      return [{ kind: 'ell', c: [spine.rumpTip[0] - 0.01, spine.rumpTip[1] + 0.01], rx: 0.10, ry: 0.13, rot: 0.15 }];
+    case 'tailTip': {
+      if (!parts.tailChain || !parts.tailChain.length) return [];
+      const tip = parts.tailChain[parts.tailChain.length - 1];
+      const prev = parts.tailChain[Math.max(0, parts.tailChain.length - 2)];
+      const c = v2.lerp(prev, tip, 0.65);
+      return [{ kind: 'ell', c, rx: 0.13, ry: 0.085, rot: Math.atan2(tip[1] - prev[1], tip[0] - prev[0]) }];
+    }
+    case 'earBacks':
+      return parts.ears && parts.ears[0] ? [{ kind: 'part', part: { kind: 'outline', pts: parts.ears[0] } }] : [];
+    case 'mane':
+      return parts.mane ? [{ kind: 'part', part: parts.mane }] : [];
     case 'nose': {
-      const tip = S.headPts.noseTip;
-      return tip ? [{ kind: 'disc', cx: tip[0], cy: tip[1], r: 0.02 }] : [];
+      const tip = headPts.noseTip || headPts.nostril;
+      return tip ? [{ kind: 'ell', c: tip, rx: 0.032, ry: 0.026, rot: S.headAngle }] : [];
     }
     default:
       return [];
@@ -2115,10 +2401,16 @@ function markingPrims(S, parts, zone) {
 
 export function profileParts(S) {
   const { P } = S;
-  const body = { kind: 'outline', pts: bodyOutlinePts(S) };
+  const body = { kind: 'outline', pts: bodyOutlinePts(S), zone: 'body' };
+  const hindFar = { kind: 'outline', pts: limbOutlinePts(S, S.legs.hindFar), zone: 'hindFar' };
+  const frontFar = { kind: 'outline', pts: limbOutlinePts(S, S.legs.frontFar), zone: 'frontFar' };
+  const hindNear = { kind: 'outline', pts: limbOutlinePts(S, S.legs.hindNear), zone: 'hindNear' };
+  const frontNear = { kind: 'outline', pts: limbOutlinePts(S, S.legs.frontNear), zone: 'frontNear' };
   const tail = tailShape(S);
   const mane = maneShape(S);
   const ears = [earPts(S, 0), earPts(S, 1)];
+  const earNear = { kind: 'outline', pts: ears[0], zone: 'earNear' };
+  const earFar = { kind: 'outline', pts: ears[1], zone: 'earFar' };
   const coat = P.coatT;
   const seed = (P.withersM || 1) * 1000;
   const bodyTufts = [
@@ -2127,19 +2419,29 @@ export function profileParts(S) {
   ];
   const tailTufts = tail && P.tailT.tuft ? coatTufts(tail.pts, { tail: 1 }, P.tailT.tuft, seed + 1) : [];
   const parts = {
-    far: [
-      { kind: 'outline', pts: limbOutlinePts(S, S.legs.hindFar) },
-      { kind: 'outline', pts: limbOutlinePts(S, S.legs.frontFar) },
-      { kind: 'outline', pts: ears[1] },
+    far: [hindFar, frontFar, earFar],
+    body: [body, ...(mane ? [{ kind: 'outline', pts: mane.pts, zone: 'mane' }] : []), ...bodyTufts],
+    hindNear: [hindNear],
+    frontNear: [frontNear],
+    earNear: [earNear],
+    near: [
+      body,
+      ...(mane ? [{ kind: 'outline', pts: mane.pts, zone: 'mane' }] : []),
+      earNear,
+      ...bodyTufts,
     ],
-    near: [body, ...(mane ? [{ kind: 'outline', pts: mane.pts }] : []), { kind: 'outline', pts: ears[0] }, ...bodyTufts],
-    tail: tail ? [{ kind: 'outline', pts: tail.pts }, ...tailTufts] : [],
+    tail: tail ? [{ kind: 'outline', pts: tail.pts, zone: 'tail' }, ...tailTufts] : [],
     antlers: antlerChains(S),
     tailChain: tail ? tail.chain : null,
-    mane: mane ? { kind: 'outline', pts: mane.pts } : null,
-    ears: [ears[0]],
+    mane: mane ? { kind: 'outline', pts: mane.pts, zone: 'mane' } : null,
+    ears,
   };
-  parts.markings = (P.markings || []).map((m) => ({ tone: m.tone || 'dark', alpha: m.alpha ?? 0.8, zone: m.zone, prims: markingPrims(S, parts, m.zone) }));
+  parts.markings = (P.markings || []).map((m) => ({
+    tone: m.tone || 'dark',
+    alpha: m.alpha ?? 0.8,
+    zone: m.zone,
+    prims: markingPrims(S, parts, m.zone),
+  }));
   return parts;
 }
 
@@ -2244,9 +2546,13 @@ export function poseProfileFish(opts = {}) {
   const tailTipBotY = L * tSpread * 0.72 + tailSwing * 0.85;
 
   const dorsalStart = [-L * 0.20, midY - L * D * 0.78];
-  const dorsalCtrlTop = [dorsalStart[0] + L * P.dorsalLen * 0.52, midY - L * (D * 0.78 + P.dorsalHeight * 0.65)];
+  const dorsalCtrlTop = [dorsalStart[0] + L * P.dorsalLen * 0.52, midY - L * (D * 0.78 + P.dorsalHeight * 0.65) + finFlutter * L * 0.08];
   const dorsalEnd = [dorsalStart[0] + L * P.dorsalLen, peduncleY - L * D * 0.42];
   const dorsalCtrlBot = [dorsalStart[0] + L * P.dorsalLen * 0.52, midY - L * D * 0.56];
+
+  const ventralStart = [L * 0.06, midY + L * D * 0.68];
+  const ventralCtrlBot = [ventralStart[0] + L * P.dorsalLen * 0.34, peduncleY + L * (D * 0.58 + P.dorsalHeight * 0.45) - finFlutter * L * 0.06];
+  const ventralEnd = [peduncleX - L * 0.04, peduncleY + L * D * 0.28];
 
   const pecRoot = [-L * 0.22, noseY + L * D * 0.52];
   const gillArc = { cx: -L * 0.34, cy: noseY + L * 0.01, r: L * D * 0.48, a0: -0.60, a1: 0.80 };
@@ -2291,6 +2597,7 @@ export function poseProfileFish(opts = {}) {
     tailTipBotX,
     tailTipBotY,
     dorsal: { start: dorsalStart, ctrlTop: dorsalCtrlTop, end: dorsalEnd, ctrlBot: dorsalCtrlBot },
+    ventral: { start: ventralStart, ctrlBot: ventralCtrlBot, end: ventralEnd },
     pecRoot,
     gillArc,
     eye,
@@ -2364,6 +2671,40 @@ export function traceFishPart(ctx, F, part = 'body') {
     ctx.moveTo(start[0], start[1]);
     ctx.quadraticCurveTo(ctrlTop[0], ctrlTop[1], end[0], end[1]);
     ctx.quadraticCurveTo(ctrlBot[0], ctrlBot[1], start[0], start[1]);
+    ctx.closePath();
+    return;
+  }
+  if (part === 'ventral' && F.ventral) {
+    const { start, ctrlBot, end } = F.ventral;
+    ctx.beginPath();
+    ctx.moveTo(start[0], start[1]);
+    ctx.quadraticCurveTo(ctrlBot[0], ctrlBot[1], end[0], end[1]);
+    ctx.quadraticCurveTo((start[0] + end[0]) * 0.5, (start[1] + end[1]) * 0.5, start[0], start[1]);
+    ctx.closePath();
+    return;
+  }
+  if (part === 'caudalWeb') {
+    const { peduncleX, peduncleY, tailTipTopX, tailTipTopY, tailForkX, tailForkY, tailTipBotX, tailTipBotY } = F;
+    ctx.beginPath();
+    ctx.moveTo(peduncleX, peduncleY - L * 0.05);
+    ctx.bezierCurveTo(
+      peduncleX + (tailTipTopX - peduncleX) * 0.36,
+      peduncleY - L * 0.22,
+      tailTipTopX - L * 0.16,
+      tailTipTopY - L * 0.08,
+      tailTipTopX,
+      tailTipTopY
+    );
+    ctx.quadraticCurveTo(tailForkX + L * 0.08, tailForkY - L * 0.05, tailForkX, tailForkY);
+    ctx.quadraticCurveTo(tailTipBotX - L * 0.04, tailTipBotY - L * 0.05, tailTipBotX, tailTipBotY);
+    ctx.bezierCurveTo(
+      peduncleX + (tailTipBotX - peduncleX) * 0.48,
+      tailTipBotY + L * 0.04,
+      peduncleX + L * 0.12,
+      peduncleY + L * 0.12,
+      peduncleX,
+      peduncleY + L * 0.05
+    );
     ctx.closePath();
     return;
   }
