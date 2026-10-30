@@ -1914,7 +1914,7 @@ export const CRITTER_SPECIES = {
     earTipColor: '#FEF9C3',
     earTipGlow: '#F9A8D4',
     earInnerColor: '#F9A8D4',
-    build: { earType: 'lop', tailType: 'pom', bodyLen: 0.96, girth: 0.98, legLen: 0.98, headR: 1.04, muzzle: 0.08, earLen: 1.08 },
+    build: { earType: 'long', tailType: 'pom', bodyLen: 0.96, girth: 0.98, legLen: 0.98, headR: 1.04, muzzle: 0.08, earLen: 1.08 },
   },
   mossDeer: {
     species: 'mossDeer',

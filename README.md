@@ -15,9 +15,9 @@
 | 核心模块 | 工程能力说明 |
 | :-- | :-- |
 | **多场景时间轴与去固化内容架构 (`[data-scene]`)** | 每个风格（`styles/<id>/`）由 3–5 个分镜组成。框架只提供标准化时间轴与合成工具链，**不绑定任何固定内容模板**——动画类风格可全屏运行多机位 3D/2D 镜头演出，版式类风格可编排图文海报，手稿类风格可推演图解。 |
-| **Three.js 3D 世界与 HTML-in-Canvas 混合舞台 (`engine/stage.js` + `three_bridge.js`)** | 内置离线 `engine/vendor/three.min.js`，支持在 `styles/<id>/world.js` 中用参数化代码构建 3D 场景、软体/刚体物理与相机运镜，并与 `<canvas layoutsubtree>` 的透明 DOM 图层、独立 3D 浮层（`[data-layer]`）或 3D 表面活体贴图（`createDomTexture`）零延迟同台合成。 |
+| **Three.js 3D 世界与 HTML-in-Canvas 混合舞台 (`engine/stage.js` + `three_bridge.js`)** | 内置离线 `engine/vendor/three.min.js`，支持在 `styles/<id>/world.js` 中用参数化代码构建 3D 场景、软体/刚体物理与相机运镜，并与 `<canvas content="drawable" layoutsubtree>` 的透明 DOM 图层、独立 3D 浮层（`[data-layer] drawable`）或 3D 表面活体贴图（`createDomTexture`）零延迟同台合成。 |
 | **可组合 WebGL2 材质与光学 Pass 链 (`engine/passes/`)** | 内置 `lens`（斯涅尔色散透镜）、`clay`（软陶指纹浮雕与移轴景深）、`riso`（孔版双滚筒网点）、`spotlight`（双锥聚光灯）、`inkbleed`（宣纸毛细洇墨）、`crt`（阴极射线荧光）、`grain`（表面肌理与暗角）等可插拔着色器。 |
-| **DOM 原生自动化体检门禁 (`tools/audit.mjs`)** | 在无头 Chrome 151 中默认同时遍历 16:9 与 9:16 双画幅下的全部场景，自动拦截运行时报错、文字越界/裁切、过小字号（`<12px`）、文案停留时长不足与浮层恶意遮挡。 |
+| **DOM 原生自动化体检门禁 (`tools/audit.mjs`)** | 在无头 Chrome 157+ 中默认同时遍历 16:9 与 9:16 双画幅下的全部场景，自动拦截运行时报错、文字越界/裁切、过小字号（`<12px`）、文案停留时长不足与浮层恶意遮挡。 |
 | **交互式 Studio 调试工作台 (`gallery/`)** | 支持分镜单跳/循环锁定、逐帧时间轴 Scrubbing、声学事件轨预览、DOM 版面体检框实时叠加（Audit Overlay）、画布原位点击改字（`contenteditable`）与 Shader Uniform 滑杆调参。 |
 | **程序化物理贴图与画面驱动声学 (`tools/textures.py` + `tools/sound.py`)** | `textures.py` 生成宣纸纤维、软陶拇指指纹、半调网屏、拉丝金属、晒图折痕等 512×512 无缝贴图（`u_paper`）；`motion.js` 自动提取 `window.CUES` 时间码，驱动 `sound.py` 合成 48kHz 立体声拟音，由 `render.mjs` 归一至 `-15 LUFS` 母带。 |
 | **可选人声轨 (`tools/voice.py` + `tools/sound.py --voice`)** | 按成品 `voice.json` 的场景锚点生成 48kHz 人声、时间码与 SRT；edge-tts / Kokoro / 任意 `VOICE_CMD` 后端；`render.mjs --voice` 自动生成并混音，带 sidechain ducking 与 `--no-voice` 回退。TTS 是构建步骤，不进入逐帧渲染，默认关闭。 |
@@ -28,11 +28,11 @@
 
 ```bash
 npm install                      # 仅依赖 playwright-core
-# 需要 Chrome 151+；可通过 CHROME_BIN 或 PLAYWRIGHT_CHROME 指定可执行文件路径
+# 需要 Chrome 157+（Chrome 151–154 为 legacy 兼容路径）；可通过 CHROME_BIN 或 PLAYWRIGHT_CHROME 指定可执行文件路径
 
 # 1. 启动 StyleHop Studio 交互式调试工作台
 npm run serve                    # 打开 http://127.0.0.1:8080/gallery/
-                                 # 手动启动 Chrome 时请附带 --enable-blink-features=CanvasDrawElement
+                                 # Chrome 157+ 无需启动参数；151–154 请附带 --enable-blink-features=CanvasDrawElement
 
 # 2. 执行自动化体检门禁（默认同时检验 16:9 与 9:16 双画幅）
 node tools/audit.mjs --style <style-id>
@@ -51,7 +51,7 @@ python3 tools/textures.py
 python3 tools/sound.py --preset glass --out <work-dir>/demo.wav
 ```
 
-在不支持 `CanvasDrawElement` 的普通浏览器中，舞台会自动优雅降级为 DOM + 3D/Canvas 视图，页面不会白屏。
+在不支持 HTML-in-Canvas 的普通浏览器中，舞台会自动优雅降级为 DOM + 3D/Canvas 视图，页面不会白屏。
 
 ---
 
@@ -129,6 +129,7 @@ node tools/render.mjs --style <id> --video film.mp4 --voice voice.json \
 
 ```text
 engine/            核心引擎：
+                   - html_in_canvas.js（Chrome 157+ / 151–154 HTML-in-Canvas 兼容层：drawable、纹理上传、几何同步）
                    - stage.js（3D/Canvas 世界基底 + 多场景 [data-scene] + 浮层 [data-layer] + u_paper + Pass 链）
                    - motion.js（闭式弹簧动效 + 多分镜时间轴 + window.CUES 声学事件提取）
                    - three_bridge.js（Three.js 与 HTML-in-Canvas 活体 DOM 贴图桥接）

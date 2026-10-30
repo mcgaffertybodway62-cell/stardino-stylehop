@@ -17,7 +17,7 @@ stack:
 - **底层渲染引擎**：[`fusion/dom_shader.js`](../../fusion/dom_shader.js)（`corelib/html_canvas/render.mjs` 未随仓库分发）
 - **分镜预览图**：[`fusion/cyber-graffiti-cutin/contact_sheet.jpg`](../../fusion/cyber-graffiti-cutin/contact_sheet.jpg)
 - **关联九界画风与剧场 (`Series B`)**：[`world-03-cyber`](../world-03-cyber/SKILL.md) · [`styles/style_03_cyber.py`](../../styles/style_03_cyber.py) · [`worlds/world_03_cyber/`](../../worlds/world_03_cyber/)
-- **成片规格**：4.0s / 96f–120f（1920×1080）；Chrome 151 `<canvas layoutsubtree>` + WebGL2 赛博霓虹破框、RGB 故障色散与高对比速度线着色器。
+- **成片规格**：4.0s / 96f–120f（1920×1080）；Chrome 157+ `<canvas content="drawable">` + WebGL2 赛博霓虹破框、RGB 故障色散与高对比速度线着色器。
 
 ---
 
@@ -26,7 +26,7 @@ stack:
 - **定位**：源自九界第 03 界 **「赛博霓虹疾驰列车」** 的潮流涂鸦破框与漫画斜切分镜旗舰风格，采用**去固有化主体原则（Content-Agnostic）**，专注于「2D 涂鸦画框内扁平赛璐璐 ↔ 冲破画框右下角 3D 硬切面实体 + 斜切漫画 Cut-In 分镜」的高燃视觉语言。
 - **为什么用 `HTML-in-Canvas`**：
   - **DOM 层负责「潮流漫画斜切分镜、竖排霓虹灯箱与全息遥测 HUD」**：利用 CSS `transform: skewX(-14deg)` 斜切分镜面板 (`#blade-cutin-panel`)、原生 `writing-mode: vertical-rl` 竖排电光青霓虹灯箱（`下一站·未来`）、右下角磁浮马赫数遥测卡片 (`#cyber-telemetry`) 以及带粗黑街头描边的破框磁浮列车与飞溅几何锐片 SVG，全部由浏览器原生排版引擎精确对齐。
-  - **WebGL2 层负责「破框冲击波 RGB 色散、Unreal 级霓虹辉光与放射速度线」**：片元着色器通过 `gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domScene)` 实时采样 DOM 纹理，以画框破裂点 `(u_impactPos)` 为中心激发径向冲击波 RGB 色差分离（Chromatic Aberration Shockwave）、高饱和荧光黄/电光青 9-tap 霓虹辉光，以及右上角斜切分镜专属的高频 CRT 扫描线与水平故障错位。
+  - **WebGL2 层负责「破框冲击波 RGB 色散、Unreal 级霓虹辉光与放射速度线」**：片元着色器通过 `gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, domScene)` 实时采样 DOM 纹理，以画框破裂点 `(u_impactPos)` 为中心激发径向冲击波 RGB 色差分离（Chromatic Aberration Shockwave）、高饱和荧光黄/电光青 9-tap 霓虹辉光，以及右上角斜切分镜专属的高频 CRT 扫描线与水平故障错位。
 
 ---
 

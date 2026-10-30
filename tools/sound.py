@@ -1423,21 +1423,58 @@ def mix_voice_into(
     release: float = 0.25,
     ceiling_db: float = -1.2,
 ) -> np.ndarray:
-    """Duck the mastered music under the voice, add the voice centred, and true-peak limit the sum."""
-    voice = _load_voice(voice_path, stereo.shape[0])
+    """
+    Carve a Mid-channel spectral vocal pocket (220 Hz - 3800 Hz) under the voice with 18 ms lookahead,
+    preserving <220 Hz bass fundamentals and stereo Side ambience, then blend the voice with a subtle
+    decorrelated early-reflection halo and soft-knee true-peak limiting.
+    """
+    n = stereo.shape[0]
+    voice = _load_voice(voice_path, n)
     if not np.any(voice):
         return stereo
     duck_db = min(0.0, float(duck_db))
+    bg = np.asarray(stereo, dtype=np.float64)
+    v = np.asarray(voice, dtype=np.float64)
+
     if duck_db < 0.0:
-        env = voice_envelope(voice, attack=attack, release=release)
-        floor = 10.0 ** (duck_db / 20.0)
-        stereo = stereo * (1.0 - (1.0 - floor) * env)[:, None]
-    stereo = stereo + voice[:, None] * (10.0 ** (float(voice_gain_db) / 20.0))
+        lookahead = int(0.018 * SR)
+        v_det = np.pad(v[lookahead:], (0, min(lookahead, v.size))) if lookahead < v.size else v
+        env = voice_envelope(v_det.astype(np.float32), attack=attack, release=max(release, 0.28)).astype(np.float64)
+
+        mid = 0.5 * (bg[:, 0] + bg[:, 1])
+        side = 0.5 * (bg[:, 0] - bg[:, 1])
+        sos_formant = signal.butter(2, [220.0 / (0.5 * SR), 3800.0 / (0.5 * SR)], btype="band", output="sos")
+        mid_formant = signal.sosfilt(sos_formant, mid)
+        mid_outer = mid - mid_formant
+
+        floor_mid = 10.0 ** (duck_db / 20.0)
+        floor_outer = 10.0 ** ((duck_db * 0.35) / 20.0)
+        floor_side = 10.0 ** ((duck_db * 0.22) / 20.0)
+
+        mid_ducked = mid_formant * (1.0 - (1.0 - floor_mid) * env) + mid_outer * (1.0 - (1.0 - floor_outer) * env)
+        side_ducked = side * (1.0 - (1.0 - floor_side) * env)
+        bg = np.column_stack((mid_ducked + side_ducked, mid_ducked - side_ducked))
+
+    v_scaled = v * (10.0 ** (float(voice_gain_db) / 20.0))
+    sos_halo = signal.butter(2, [200.0 / (0.5 * SR), 2800.0 / (0.5 * SR)], btype="band", output="sos")
+    v_halo = signal.sosfilt(sos_halo, v_scaled) * 0.18
+    d_l, d_r = int(0.013 * SR), int(0.021 * SR)
+    halo_l = np.pad(v_halo[:-d_l], (d_l, 0)) if d_l < n else np.zeros_like(v_scaled)
+    halo_r = -np.pad(v_halo[:-d_r], (d_r, 0)) if d_r < n else np.zeros_like(v_scaled)
+
+    out = np.column_stack((bg[:, 0] + v_scaled + halo_l, bg[:, 1] + v_scaled + halo_r))
     ceiling = 10.0 ** (float(ceiling_db) / 20.0)
-    peak = float(np.max(np.abs(stereo)))
+    knee = ceiling * 0.78
+    mag = np.abs(out)
+    over = mag > knee
+    if np.any(over):
+        sign = np.sign(out[over])
+        excess = (mag[over] - knee) / max(ceiling - knee, 1e-6)
+        out[over] = sign * (knee + (ceiling - knee) * np.tanh(excess))
+    peak = float(np.max(np.abs(out)))
     if peak > ceiling:
-        stereo = stereo * (ceiling / peak)
-    return stereo.astype(np.float32)
+        out = out * (ceiling / peak)
+    return out.astype(np.float32)
 
 
 def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) -> np.ndarray:

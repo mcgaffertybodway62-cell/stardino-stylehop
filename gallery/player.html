@@ -30,7 +30,7 @@
 </head>
 <body>
 <div id="wrap">
-  <canvas id="stage" layoutsubtree></canvas>
+  <canvas id="stage" content="drawable" layoutsubtree></canvas>
   <div id="audit-overlay"></div>
 </div>
 <script type="module">
@@ -96,6 +96,10 @@ async function loadScenesHtml(url) {
     canvas.append(frame);
   }
   for (const layer of doc.body.querySelectorAll(':scope > [data-layer]')) canvas.append(layer);
+  // Chrome 155+ needs an explicit paint root on every element captured as a texture.
+  for (const el of canvas.querySelectorAll(':scope > .frame, :scope > [data-layer]')) {
+    el.setAttribute('drawable', '');
+  }
 }
 
 const style = (await import(`../styles/${styleId}/style.js`)).default;
@@ -174,7 +178,7 @@ try {
   fb.id = 'stage';
   const note = document.createElement('div');
   note.id = 'fallback-note';
-  note.textContent = '当前浏览器不支持 HTML-in-Canvas（需 Chrome 151+ 并以 --enable-blink-features=CanvasDrawElement 启动）。下面是同一份多场景 DOM 的主题化原样显示。';
+  note.textContent = '当前浏览器不支持 HTML-in-Canvas（需 Chrome 157+；Chrome 151–154 请以 --enable-blink-features=CanvasDrawElement 启动）。下面是同一份多场景 DOM 的主题化原样显示。';
   document.body.append(note);
 }
 

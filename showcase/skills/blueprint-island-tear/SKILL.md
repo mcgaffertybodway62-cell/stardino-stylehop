@@ -17,7 +17,7 @@ stack:
 - **底层渲染引擎**：[`fusion/dom_shader.js`](../../fusion/dom_shader.js)（`corelib/html_canvas/render.mjs` 未随仓库分发）
 - **分镜预览图**：[`fusion/blueprint-island-tear/contact_sheet.jpg`](../../fusion/blueprint-island-tear/contact_sheet.jpg)
 - **关联九界画风与剧场 (`Series B`)**：[`world-09-blueprint`](../world-09-blueprint/SKILL.md) · [`styles/style_09_blueprint.py`](../../styles/style_09_blueprint.py) · [`worlds/world_09_blueprint/`](../../worlds/world_09_blueprint/)
-- **成片规格**：4.0s / 96f–120f（1920×1080）；Chrome 151 `<canvas layoutsubtree>` + WebGL2 蓝图正弦撕裂与 3D 马卡龙浮岛升维着色器。
+- **成片规格**：4.0s / 96f–120f（1920×1080）；Chrome 157+ `<canvas content="drawable">` + WebGL2 蓝图正弦撕裂与 3D 马卡龙浮岛升维着色器。
 
 ---
 
@@ -26,7 +26,7 @@ stack:
 - **定位**：源自九界第 09 界 **「工程蓝图 ↔ 3D 浮岛」** 的黄金左右分屏旗舰融合风格，采用**去固有化主体原则（Content-Agnostic）**，将「2D 普鲁士蓝 CAD 工程图纸 ↔ 3D 低多边形实体浮岛」凝练为通用视觉配方。
 - **为什么用 `HTML-in-Canvas`**：
   - **DOM 层负责「毫米级精度的 CAD 工程制图图框与参数表格」**：国标工程图框（`1..8` / `A..D` 分区标尺）、`SECTION A-A 浮空岛正交剖面 1:50`（`Ø 3600`、`2050` 引出标注）、`ELEVATION E-1` 建筑立面、极坐标罗盘测绘站（`120° / 150° / 60° / 30° / R 120`）以及右下角多栏工程标题块与 `[ BUILT ✓ ]` 印章，全部由浏览器 CSS Grid / Table / SVG 原生排版，零重叠、零错位。
-  - **WebGL2 层负责「正弦撕纸波前与 3D 空间材质升维」**：片元着色器通过 `gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domScene)` 零拷贝捕获整张 DOM 画布纹理 `u_dom`，沿动态推进的正弦撕裂曲线 `tearX(y, t)` 将画面一分为二：左侧叠加氰版晒图纸纤维斑驳感与扫描波前辉光；撕裂边缘渲染真实的白色毛边纸带、卷曲高光与投射暗影；右侧展现薰衣草粉紫渐变天空、薄荷绿切面 3D 马卡龙浮岛群、水晶锥底座与通天白金星光柱。
+  - **WebGL2 层负责「正弦撕纸波前与 3D 空间材质升维」**：片元着色器通过 `gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, domScene)` 零拷贝捕获整张 DOM 画布纹理 `u_dom`，沿动态推进的正弦撕裂曲线 `tearX(y, t)` 将画面一分为二：左侧叠加氰版晒图纸纤维斑驳感与扫描波前辉光；撕裂边缘渲染真实的白色毛边纸带、卷曲高光与投射暗影；右侧展现薰衣草粉紫渐变天空、薄荷绿切面 3D 马卡龙浮岛群、水晶锥底座与通天白金星光柱。
 
 ---
 

@@ -1,15 +1,24 @@
 /**
- * HTML-in-Canvas × WebGL2 Zero-Copy Shader Bridge (Chrome 151+)
+ * HTML-in-Canvas × WebGL2 Zero-Copy Shader Bridge
  *
  * Contract:
- * 1. <canvas id="stage" width="1920" height="1080" layoutsubtree>
- *      <div id="dom-scene">...live HTML/CSS/SVG/Math layout...</div>
+ * 1. <canvas id="stage" width="1920" height="1080" content="drawable" layoutsubtree>
+ *      <div id="dom-scene" drawable>...live HTML/CSS/SVG/Math layout...</div>
  *    </canvas>
  * 2. Call `await stage.syncAndUpload()` inside `window.render(t)` to trigger
  *    Blink's Paint phase via `canvas.requestPaint()` + `canvas.onpaint`, then
- *    zero-copy upload the painted DOM record via the 3-argument signature:
- *    `gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domElement)`.
+ *    upload the painted DOM record. Chrome 157+ uses
+ *    `gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, domElement)` into
+ *    pre-allocated storage; Chrome 151–154 falls back to the legacy
+ *    3-argument `gl.texElementImage2D`.
  */
+
+import {
+  assertElementTextureApi,
+  ensureCanvasDrawable,
+  markDrawable,
+  uploadElementTexture,
+} from '../../engine/html_in_canvas.js';
 
 export const FULLSCREEN_QUAD_VS = `#version 300 es
 in vec2 a_pos;
@@ -35,12 +44,14 @@ function compileShader(gl, type, source) {
 /**
  * Initializes a WebGL2 full-screen shader stage backed by a live HTML-in-Canvas DOM child.
  *
- * @param {HTMLCanvasElement} canvas - Canvas element with `layoutsubtree` attribute
+ * @param {HTMLCanvasElement} canvas - Canvas element with `content="drawable"`
  * @param {HTMLElement} domElement - Direct child element inside `canvas` to rasterize
  * @param {string} fragmentShaderSource - GLSL ES 3.00 fragment shader (`in vec2 v_uv; uniform sampler2D u_dom;`)
  * @param {string[]} [uniformNames=[]] - List of uniform names to look up on the compiled program
  */
 export function createDomShaderStage(canvas, domElement, fragmentShaderSource, uniformNames = []) {
+  ensureCanvasDrawable(canvas);
+  markDrawable(domElement);
   const gl = canvas.getContext('webgl2', {
     preserveDrawingBuffer: true,
     antialias: false,
@@ -49,11 +60,7 @@ export function createDomShaderStage(canvas, domElement, fragmentShaderSource, u
   if (!gl) {
     throw new Error('Failed to initialize WebGL2 context on HTML-in-Canvas stage.');
   }
-  if (typeof gl.texElementImage2D !== 'function') {
-    throw new Error(
-      'gl.texElementImage2D is missing. Launch Chromium 151+ with --enable-blink-features=CanvasDrawElement.'
-    );
-  }
+  assertElementTextureApi(gl);
 
   const prog = gl.createProgram();
   const vs = compileShader(gl, gl.VERTEX_SHADER, FULLSCREEN_QUAD_VS);
@@ -103,8 +110,7 @@ export function createDomShaderStage(canvas, domElement, fragmentShaderSource, u
       canvas.requestPaint();
     });
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, domTex);
-    gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domElement);
+    uploadElementTexture(gl, domTex, canvas, domElement);
   }
 
   function drawQuad() {

@@ -1,14 +1,36 @@
-# Optional voice tier. TTS is a build step; frame rendering and
-# `tools/sound.py` without `--voice` do not need any of these packages.
+# Optional voice tier for `tools/voice.py`.
+# Frame rendering and `tools/sound.py` without `--voice` do not need these packages.
 #
-#   python3 -m pip install -r requirements-voice.txt
-#   # Kokoro needs Python 3.11-3.13; keep it in a separate venv if the main
-#   # project uses an older interpreter.
+# Recommended GPU environment (Python 3.11-3.12, e.g. `/root/tts/voice312`):
+#   uv pip install -r requirements-voice.txt
 #
-# Licences: edge-tts is LGPLv3 (the Microsoft Edge service has its own terms);
-# Kokoro-82M is Apache-2.0; soundfile is BSD-3-Clause.
-edge-tts>=7.0
-kokoro-onnx>=0.4; python_version >= "3.11"
-soundfile>=0.12
+# ============================================================================
+# Explicit License Tier Matrix (开源协议与商用分级说明)
+# ============================================================================
+# 1. [免费可商用 · Apache-2.0 / MIT]
+#    - Kokoro-82M-v1.1-zh (`kokoro>=0.9`, `misaki[zh]`) : Apache-2.0 (代码与权重均免费可商用)
+#    - Kokoro-82M v1.0 (`kokoro-onnx>=0.4`)             : Apache-2.0 (代码与权重均免费可商用)
+#    - CosyVoice2-0.5B / IndexTTS-2 (via `VOICE_CMD`)   : Apache-2.0 (代码与权重均免费可商用)
+#    - faster-whisper (`faster-whisper>=1.0`)           : MIT (逐字时间戳与 ASR 回听校验)
+#    - soundfile / scipy / numpy                        : BSD-3-Clause
+#
+# 2. [免费在线 · 遵守服务商条款]
+#    - edge-tts (`edge-tts>=7.0`)                       : 代码 LGPL-3.0；在线合成受微软服务条款约束（仅作无显卡环境预览兜底）
+#
+# 3. [开源/研究免费 · 预训练权重不可商用 CC-BY-NC-4.0]
+#    - F5-TTS (`f5-tts>=1.1`)                           : 代码 MIT，预训练权重 CC-BY-NC-4.0（零样本参考音色克隆，仅限非商业/开源研究）
+#    - ChatTTS (`chattts>=0.2`)                         : 代码 AGPL-3.0，预训练权重 CC-BY-NC-4.0（仅限非商业/开源研究）
 
-# Optional ASR QA (not wired into the render pipeline yet): faster-whisper>=1.0
+# Tier 1: Commercial-Free (Apache-2.0 / MIT / BSD)
+kokoro>=0.9; python_version >= "3.10"
+misaki[zh]>=0.9; python_version >= "3.10"
+kokoro-onnx>=0.4; python_version >= "3.11"
+faster-whisper>=1.0
+soundfile>=0.12
+pyloudnorm>=0.1.1
+
+# Tier 2: Online Fallback
+edge-tts>=7.0
+
+# Tier 3: Open-Source / Research Non-Commercial Weights (CC-BY-NC-4.0)
+f5-tts>=1.1; python_version >= "3.10"

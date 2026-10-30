@@ -1,22 +1,33 @@
 /**
  * HTML-in-Canvas stage: live DOM layers (multi-scene) -> WebGL2 composite -> pass chain.
  *
- * Structure inside the canvas (Chrome 151+, --enable-blink-features=CanvasDrawElement):
+ * Chrome 157+ structure (both legacy attributes are emitted for Chrome 151–154):
  *
- *   <canvas id="stage" layoutsubtree width=W height=H>
- *     <section class="frame scene" data-scene="launch" data-dur="3.5">...</section>
- *     <section class="frame scene" data-scene="telemetry" data-dur="3.7">...</section>
- *     <aside class="card" data-layer data-scene="launch">...</aside>
+ *   <canvas id="stage" content="drawable" layoutsubtree width=W height=H>
+ *     <section class="frame scene" drawable data-scene="launch" data-dur="3.5">...</section>
+ *     <section class="frame scene" drawable data-scene="telemetry" data-dur="3.7">...</section>
+ *     <aside class="card" data-layer drawable data-scene="launch">...</aside>
  *   </canvas>
  *
- * Only *direct* children of the canvas can become textures. At any timestamp t,
- * `applyScene(canvas, t)` sets `data-active="true"` on the active `.frame` and matching
- * `[data-layer]` children and hides inactive scenes via `display: none`.
+ * At any timestamp t, `applyScene(canvas, t)` sets `data-active="true"` on the active
+ * `.frame` and matching `[data-layer]` children and hides inactive scenes via `display: none`.
  * The stage uploads only the active `.frame` (as the full-frame base layer) and active
  * `[data-layer]` children (as 3D perspective-tilted floating cards with drop shadows).
+ *
+ * Chrome 157 requires `updateElementGeometry()` for WebGL hit-testing. The stage clears
+ * geometry before layout-dependent reads and applies an affine approximation after drawing.
  */
 
 import { springStep, smootherstep, lerp, clamp } from './motion.js';
+import {
+  assertElementTextureApi,
+  clearElementGeometry,
+  ensureCanvasDrawable,
+  markDrawable,
+  markDrawableChildren,
+  uploadElementTexture,
+  updateElementGeometry,
+} from './html_in_canvas.js';
 
 const MAX_TARGETS = 16;
 
@@ -186,7 +197,7 @@ const rotY = (a) => new Float32Array([Math.cos(a), 0, -Math.sin(a), 0, 0, 1, 0, 
 const rotZ = (a) => new Float32Array([Math.cos(a), Math.sin(a), 0, 0, -Math.sin(a), Math.cos(a), 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /**
- * @param {HTMLCanvasElement} canvas  canvas with `layoutsubtree`, CSS size == pixel size
+ * @param {HTMLCanvasElement} canvas  canvas with `content="drawable"`, CSS size == pixel size
  * @param {object} opts
  * @param {Array<{pass: object, params?: object}>} opts.passes  pass chain (see engine/passes/)
  * @param {object} [opts.layers]  floating-layer feel: { tilt, lift, shadow }
@@ -196,11 +207,11 @@ const rotZ = (a) => new Float32Array([Math.cos(a), Math.sin(a), 0, 0, -Math.sin(
 export function createStage(canvas, { passes = [], layers = {}, textures = {}, world = null } = {}) {
   const W = canvas.width;
   const H = canvas.height;
+  ensureCanvasDrawable(canvas);
+  markDrawableChildren(canvas);
   const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: false, alpha: false });
   if (!gl) throw new Error('WebGL2 unavailable');
-  if (typeof gl.texElementImage2D !== 'function') {
-    throw new Error('gl.texElementImage2D missing: launch Chrome 151+ with --enable-blink-features=CanvasDrawElement');
-  }
+  assertElementTextureApi(gl);
 
   const quad = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -321,16 +332,52 @@ export function createStage(canvas, { passes = [], layers = {}, textures = {}, w
     });
   }
 
+  const geometrySupported =
+    typeof canvas.updateElementGeometry === 'function' && typeof canvas.clearElementGeometry === 'function';
+
+  function clearActiveGeometry() {
+    if (!geometrySupported) return;
+    for (const el of [activeFrame(), ...activeLayers()].filter(Boolean)) clearElementGeometry(canvas, el);
+  }
+
   function uploadActiveElements() {
     const baseEl = activeFrame();
     const layers = activeLayers();
     const toUpload = [baseEl, ...layers].filter(Boolean);
     for (const el of toUpload) {
+      markDrawable(el);
       if (!layerTex.has(el)) layerTex.set(el, makeTexture(gl));
-      gl.bindTexture(gl.TEXTURE_2D, layerTex.get(el));
-      gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, el);
+      uploadElementTexture(gl, layerTex.get(el), canvas, el);
     }
     return { baseEl, layers };
+  }
+
+  /**
+   * Re-apply canvas geometry after drawing so WebGL layers remain hit-testable
+   * and screen-reader bounds follow the composited card. Layout reads happen
+   * after `clearElementGeometry()` at the top of the frame, so this affine
+   * approximation never feeds back into the next frame's placement.
+   */
+  function syncActiveGeometry(baseEl, layers, cr, t) {
+    if (!geometrySupported) return;
+    if (baseEl) updateElementGeometry(canvas, baseEl, new DOMMatrix());
+
+    const k = W / Math.max(1, cr.width);
+    for (const el of layers) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      const lx = (r.left - cr.left) * k;
+      const ly = (r.top - cr.top) * k;
+      const lw = r.width * k;
+      const lh = r.height * k;
+      const clock = el._localT ?? t;
+      const delay = parseFloat(el.dataset.delay ?? '0.6');
+      const enter = springStep(Math.max(0, clock - delay), 0.42, 7.5).x;
+      const scale = 0.86 + 0.14 * enter;
+      const tx = (lx + lw / 2) * (1 - scale);
+      const ty = (ly + lh / 2) * (1 - scale) + (1 - enter) * 80;
+      updateElementGeometry(canvas, el, new DOMMatrix().translate(tx, ty).scale(scale, scale));
+    }
   }
 
   function drawLayer(el, tex, cr, t, focus) {
@@ -404,6 +451,10 @@ export function createStage(canvas, { passes = [], layers = {}, textures = {}, w
    * @param {object} frame { t, time, progress, sceneMix?, focus?, focusRect? }
    */
   async function render(frame) {
+    // New direct children must be drawable before Blink records their paint.
+    markDrawableChildren(canvas);
+    // Chrome 157 persists geometry across frames; reset before any layout reads.
+    clearActiveGeometry();
     placeLayers();
     const list = targets();
     const auto = tour(frame.sceneProgress ?? frame.progress, list);
@@ -491,6 +542,8 @@ export function createStage(canvas, { passes = [], layers = {}, textures = {}, w
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       if (dst) src = dst.tex;
     });
+
+    syncActiveGeometry(baseEl, layers, cr, frame.t);
     return f;
   }
 

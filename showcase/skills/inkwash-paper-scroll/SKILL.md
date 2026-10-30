@@ -19,7 +19,7 @@ stack:
 - **关联九界画风与剧场 (`Series B`)**：
   - [`world-04-inkwash`](../world-04-inkwash/SKILL.md) · [`styles/style_04_inkwash.py`](../../styles/style_04_inkwash.py) · [`worlds/world_04_inkwash/`](../../worlds/world_04_inkwash/)
   - [`world-05-paper`](../world-05-paper/SKILL.md) · [`styles/style_05_paper.py`](../../styles/style_05_paper.py) · [`worlds/world_05_paper/`](../../worlds/world_05_paper/)
-- **成片规格**：4.0s / 96f–120f（1920×1080）；Chrome 151 `<canvas layoutsubtree>` + WebGL2 宣纸水墨晕染与立体书折纸浮雕着色器。
+- **成片规格**：4.0s / 96f–120f（1920×1080）；Chrome 157+ `<canvas content="drawable">` + WebGL2 宣纸水墨晕染与立体书折纸浮雕着色器。
 
 ---
 
@@ -28,7 +28,7 @@ stack:
 - **定位**：将九界第 04 界 **「宋代水墨宣纸千里长卷」** 与第 05 界 **「纸雕立体书山谷」** 跨界合璧的东方纸本美学旗舰风格，采用**去固有化主体原则（Content-Agnostic）**，在一本于胡桃木桌面上摊开的双联古籍立体书中，展现「左页写意水墨山水 ↔ 右页模切纸雕山谷」的纸艺奇观。
 - **为什么用 `HTML-in-Canvas`**：
   - **DOM 层负责「纯正中式竖排题跋、朱砂印谱与双纸本矢量构图」**：利用浏览器原生 `writing-mode: vertical-rl; text-orientation: upright;` 排版宋明画卷引首题识、句读朱砂点 (`・`) 与阳文朱砂方印（`#cinnabar-seal-box`），完全无需手算竖排字距；同时在双联古籍 SVG 中精细绘制左页的远山淡墨、潇湘翠竹、留白石拱桥、悬空毛笔、朱砂双鲤、泥金墨荷，以及右页的四层同心暖金纸雕日轮、五重模切卡纸群山、八角走马灯亭、六盏红金纸灯笼与三只 3D 几何折纸千纸鹤。
-  - **WebGL2 层负责「生宣纸帘纹纤维、水波微扰、书脊折痕阴影与日轮柔光」**：片元着色器通过 `gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domScene)` 实时捕获 DOM 画面，在左页叠加生宣纸帘纹纤维与荷塘水波微位移，在书脊中缝 `x = 960` 处渲染真实的 3D 凹陷折痕阴影与受光脊线，并围绕暖金纸雕日轮与四角折纸星徽施加温润的径向漫射光晕。
+  - **WebGL2 层负责「生宣纸帘纹纤维、水波微扰、书脊折痕阴影与日轮柔光」**：片元着色器通过 `gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, domScene)` 实时捕获 DOM 画面，在左页叠加生宣纸帘纹纤维与荷塘水波微位移，在书脊中缝 `x = 960` 处渲染真实的 3D 凹陷折痕阴影与受光脊线，并围绕暖金纸雕日轮与四角折纸星徽施加温润的径向漫射光晕。
 
 ---
 

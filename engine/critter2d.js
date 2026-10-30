@@ -66,15 +66,13 @@ export function wrapAngleNear(a, ref) {
   return ref + d;
 }
 
-/** Blends a choreographed ear-root angle toward hanging (droop) / sideways (splay) for the ear's screen side. */
-export function shapeEarAngle(angle, side, droop, splay) {
-  if (droop <= 0.001 && splay <= 0.001) return angle;
-  const hang = [side * 0.32, 1];
+/** Blends a choreographed ear-root angle sideways (splay) for the ear's screen side. Droopy ears are not supported. */
+export function shapeEarAngle(angle, side, splay) {
+  if (splay <= 0.001) return angle;
   const spl = [side * 1, -0.22];
-  const s2 = splay * (1 - droop);
-  const wd = 1 - droop - s2;
-  const vx = Math.cos(angle) * wd + hang[0] * droop + spl[0] * s2;
-  const vy = Math.sin(angle) * wd + hang[1] * droop + spl[1] * s2;
+  const w = 1 - splay;
+  const vx = Math.cos(angle) * w + spl[0] * splay;
+  const vy = Math.sin(angle) * w + spl[1] * splay;
   return Math.atan2(vy, vx);
 }
 
@@ -87,11 +85,10 @@ export function shapeEarAngle(angle, side, droop, splay) {
  * Contour ears are part of the head silhouette, defined in head-radius units.
  */
 export const CRITTER_EAR_TYPES = {
-  long: { seg: [42, 40, 36], width: (u) => (15 + 14 * Math.sin(Math.PI * Math.pow(u, 0.72))) * (1 - 0.25 * u), droop: 0, splay: 0 },
-  lop: { seg: [40, 40, 38], width: (u) => (17 + 16 * Math.sin(Math.PI * Math.pow(u, 0.6))) * (1 - 0.1 * u), droop: 0.8, splay: 0 },
-  leaf: { seg: [30, 26, 20], width: (u) => (12 + 13 * Math.sin(Math.PI * Math.pow(u, 0.55))) * (1 - 0.55 * u), droop: 0, splay: 0.55 },
-  tri: { seg: [20, 16, 12], droop: 0, splay: 0.12, contour: { outer: [-0.90, -0.30], tip: [-0.62, -1.16], inner: [-0.20, -0.72] } },
-  round: { seg: [12, 10, 6], droop: 0, splay: 0.3, contour: { outer: [-0.86, -0.5], tip: [-0.66, -0.98], inner: [-0.36, -0.8], round: true } },
+  long: { seg: [42, 40, 36], width: (u) => (15 + 14 * Math.sin(Math.PI * Math.pow(u, 0.72))) * (1 - 0.25 * u), splay: 0 },
+  leaf: { seg: [30, 26, 20], width: (u) => (12 + 13 * Math.sin(Math.PI * Math.pow(u, 0.55))) * (1 - 0.55 * u), splay: 0.55 },
+  tri: { seg: [20, 16, 12], splay: 0.12, contour: { outer: [-0.90, -0.30], tip: [-0.62, -1.16], inner: [-0.20, -0.72] } },
+  round: { seg: [12, 10, 6], splay: 0.3, contour: { outer: [-0.86, -0.5], tip: [-0.66, -0.98], inner: [-0.36, -0.8], round: true } },
   none: null,
 };
 
@@ -147,7 +144,6 @@ export const CRITTER_BUILD_DEFAULTS = {
   earType: 'long', // keyof CRITTER_EAR_TYPES
   earLen: 1.0,
   earWidth: 1.0,
-  earDroop: null, // null = use ear type default
   earSplay: null,
   tailType: 'plume', // keyof CRITTER_TAIL_TYPES
   tailLen: 1.0,
@@ -172,7 +168,7 @@ export const DEFAULT_PLUSH_SPECIES = {
   },
   moonBunny: {
     species: 'moonBunny',
-    build: { earType: 'lop', tailType: 'pom', bodyLen: 0.96, girth: 0.98, legLen: 0.98, headR: 1.04, muzzle: 0.08, earLen: 1.08 },
+    build: { earType: 'long', tailType: 'pom', bodyLen: 0.96, girth: 0.98, legLen: 0.98, headR: 1.04, muzzle: 0.08, earLen: 1.08 },
   },
   mossDeer: {
     species: 'mossDeer',
@@ -322,7 +318,6 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
   const build = resolveCritterBuild(speciesCfg, opts.build);
   const earType = CRITTER_EAR_TYPES[build.earType] === undefined ? CRITTER_EAR_TYPES.long : CRITTER_EAR_TYPES[build.earType];
   const tailType = CRITTER_TAIL_TYPES[build.tailType] === undefined ? CRITTER_TAIL_TYPES.plume : CRITTER_TAIL_TYPES[build.tailType];
-  const droop = build.earDroop ?? earType?.droop ?? 0;
   const splay = build.earSplay ?? earType?.splay ?? 0;
 
   const restSpineLen = 68 * scale * build.bodyLen;
@@ -346,8 +341,8 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
 
   const earCurlL = [-0.10, -0.12];
   const earCurlR = [0.10, 0.12];
-  const ear0L = shapeEarAngle((initIntent.earAngleL ?? -1.9) + (initIntent.headTilt ?? 0) * 0.75, -1, droop, splay);
-  const ear0R = shapeEarAngle((initIntent.earAngleR ?? -1.24) + (initIntent.headTilt ?? 0) * 0.75, 1, droop, splay);
+  const ear0L = shapeEarAngle((initIntent.earAngleL ?? -1.9) + (initIntent.headTilt ?? 0) * 0.75, -1, splay);
+  const ear0R = shapeEarAngle((initIntent.earAngleR ?? -1.24) + (initIntent.headTilt ?? 0) * 0.75, 1, splay);
   const earLAngles = [0, 1, 2].map((k) => ({ x: ear0L + (k > 0 ? earCurlL.slice(0, k).reduce((a, b) => a + b, 0) : 0), v: 0, a: 0 }));
   const earRAngles = [0, 1, 2].map((k) => ({ x: ear0R + (k > 0 ? earCurlR.slice(0, k).reduce((a, b) => a + b, 0) : 0), v: 0, a: 0 }));
 
@@ -486,8 +481,8 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
     headPitch.x = clamp(headPitch.x, -0.32, 0.32);
 
     // 5. Ear Pendulums
-    const baseEarL = wrapAngleNear(shapeEarAngle((curIntent.earAngleL ?? -1.9) + headTilt.x * 0.75, -1, droop, splay), earLAngles[0].x);
-    const baseEarR = wrapAngleNear(shapeEarAngle((curIntent.earAngleR ?? -1.24) + headTilt.x * 0.75, 1, droop, splay), earRAngles[0].x);
+    const baseEarL = wrapAngleNear(shapeEarAngle((curIntent.earAngleL ?? -1.9) + headTilt.x * 0.75, -1, splay), earLAngles[0].x);
+    const baseEarR = wrapAngleNear(shapeEarAngle((curIntent.earAngleR ?? -1.24) + headTilt.x * 0.75, 1, splay), earRAngles[0].x);
     const earOmegas = [22.0, 18.0, 14.5];
     const earZetas = [0.66, 0.64, 0.62];
     const earFx = -0.0018 * head.ax - 0.008 * head.vx;
@@ -589,10 +584,10 @@ export function simulateCritterRig(targetT, choreoFn, scale = 1.32, opts = {}) {
 
   let earTwist = [0, 0];
   if (earType?.contour) {
-    const restL = shapeEarAngle((curIntent.earAngleL ?? -1.9) + headTilt.x * 0.75, -1, droop, splay);
-    const restR = shapeEarAngle((curIntent.earAngleR ?? -1.24) + headTilt.x * 0.75, 1, droop, splay);
-    const neutralL = shapeEarAngle(-1.9 + headTilt.x * 0.75, -1, droop, splay);
-    const neutralR = shapeEarAngle(-1.24 + headTilt.x * 0.75, 1, droop, splay);
+    const restL = shapeEarAngle((curIntent.earAngleL ?? -1.9) + headTilt.x * 0.75, -1, splay);
+    const restR = shapeEarAngle((curIntent.earAngleR ?? -1.24) + headTilt.x * 0.75, 1, splay);
+    const neutralL = shapeEarAngle(-1.9 + headTilt.x * 0.75, -1, splay);
+    const neutralR = shapeEarAngle(-1.24 + headTilt.x * 0.75, 1, splay);
     earTwist = [
       clamp(-((earLAngles[0].x - restL) * 0.45 + (restL - neutralL) * 0.35), -0.42, 0.42),
       clamp((earRAngles[0].x - restR) * 0.45 + (restR - neutralR) * 0.35, -0.42, 0.42),

@@ -4,6 +4,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 
 function detectPlaywrightChrome() {
+  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
   if (process.env.PLAYWRIGHT_CHROME) return process.env.PLAYWRIGHT_CHROME;
   const cacheRoot = path.join(os.homedir(), '.cache', 'ms-playwright');
   if (fs.existsSync(cacheRoot)) {
@@ -23,14 +24,16 @@ function detectPlaywrightChrome() {
 export const CHROME_EXE = detectPlaywrightChrome();
 
 /**
- * Required Chromium launch flags for HTML-in-Canvas (WICG CanvasDrawElement)
- * and deterministic sRGB / font rendering on headless Linux.
+ * Deterministic sRGB / font rendering on headless Linux.
+ *
+ * `CanvasDrawElement` is enabled by default in Chrome 157+. The flag is kept
+ * for the Chrome 151–154 legacy path, where the feature was still behind it.
  *
  * NOTE: Do NOT pass '--enable-gpu' by default on headless Linux without a hardware GPU,
  * as it causes WebGL2 CONTEXT_LOST_WEBGL. SwiftShader/headless WebGL2 works out of the box.
  */
 export const DEFAULT_LAUNCH_ARGS = [
-  '--enable-blink-features=CanvasDrawElement',
+  '--enable-blink-features=CanvasDrawElement', // legacy Chrome 151–154; ignored on 157+
   '--font-render-hinting=none',
   '--force-color-profile=srgb',
 ];

@@ -264,7 +264,7 @@ addEventListener('message', (e) => {
     const host = document.getElementById('params');
     host.innerHTML = '';
     if (!m.supported) {
-      host.innerHTML = '<p class="hint">此浏览器不支持 HTML-in-Canvas。请用 Chrome 151+ 并加启动参数 <code>--enable-blink-features=CanvasDrawElement</code>。</p>';
+      host.innerHTML = '<p class="hint">此浏览器不支持 HTML-in-Canvas。请用 Chrome 157+；Chrome 151–154 需加启动参数 <code>--enable-blink-features=CanvasDrawElement</code>。</p>';
       return;
     }
     document.getElementById('bypass').checked = false;

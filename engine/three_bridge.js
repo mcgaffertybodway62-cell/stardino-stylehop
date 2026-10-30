@@ -1,21 +1,29 @@
 /**
  * Three.js × Blender (.glb) × HTML-in-Canvas Bridge (`engine/three_bridge.js`).
  *
- * Bridges Chrome 151+ WICG `<canvas layoutsubtree>` (`gl.texElementImage2D`) with
- * Three.js (`THREE.WebGLRenderer`) and Blender `.glb` 3D scenes exported via `blender-agent`.
+ * Bridges WICG `<canvas content="drawable">` (`gl.texElementSubImage2D` on Chrome 157+,
+ * legacy `gl.texElementImage2D` on Chrome 151–154) with Three.js (`THREE.WebGLRenderer`)
+ * and Blender `.glb` 3D scenes exported via `blender-agent`.
  *
  * Key capabilities:
- *   1. `createDomTexture(gl, domElement, opts)` — wraps a direct child of `<canvas layoutsubtree>`
- *      into a live WebGL2 texture updated every frame via `gl.texElementImage2D`, with zero-copy
- *      injection into a `THREE.Texture` slot (`bindToThreeTexture(renderer, threeTex)`).
+ *   1. `createDomTexture(gl, domElement, opts)` — wraps a drawable child of a stage canvas
+ *      into a live WebGL2 texture updated every frame, with zero-copy injection into a
+ *      `THREE.Texture` slot (`bindToThreeTexture(renderer, threeTex)`).
  *   2. `createProceduralStudioLights(THREE, scene, preset)` — sets up deterministic 3-point
  *      key / fill / rim lighting for 3D props and deformed paper/card meshes.
  *   3. `loadBlenderGlb(loader, url, opts)` — loads a `.glb` model exported from Blender and
  *      automatically maps live HTML-in-Canvas DOM textures onto named material slots.
  */
 
+import {
+  assertElementTextureApi,
+  ensureCanvasDrawable,
+  markDrawable,
+  uploadElementTexture,
+} from './html_in_canvas.js';
+
 /**
- * Request a synchronous Blink layoutsubtree paint and resolve when `canvas.onpaint` fires.
+ * Request a synchronous Blink drawable-subtree paint and resolve when `canvas.onpaint` fires.
  * @param {HTMLCanvasElement} canvas
  * @returns {Promise<void>}
  */
@@ -30,18 +38,19 @@ export function requestCanvasPaint(canvas) {
 }
 
 /**
- * Wraps a direct child element of `<canvas layoutsubtree>` into a live WebGL2 texture
- * updated via `gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domElement)`.
+ * Wraps a drawable child of a stage canvas into a live WebGL2 texture.
  *
  * @param {WebGL2RenderingContext} gl
- * @param {HTMLElement} domElement  Direct child of `<canvas layoutsubtree>`
+ * @param {HTMLElement} domElement  Direct child of `<canvas content="drawable">`
  * @param {object} [opts]
  * @param {boolean} [opts.flipY=false]
  */
 export function createDomTexture(gl, domElement, { flipY = false } = {}) {
-  if (typeof gl.texElementImage2D !== 'function') {
-    throw new Error('gl.texElementImage2D is unavailable; requires Chrome 151+ with --enable-blink-features=CanvasDrawElement');
-  }
+  assertElementTextureApi(gl);
+  const canvas = domElement.closest?.('canvas');
+  if (!canvas) throw new Error('createDomTexture: element must be inside a <canvas>');
+  ensureCanvasDrawable(canvas);
+  markDrawable(domElement);
 
   const glTexture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, glTexture);
@@ -52,10 +61,7 @@ export function createDomTexture(gl, domElement, { flipY = false } = {}) {
 
   /** Upload the latest DOM raster from Blink into the WebGL2 texture. */
   function update() {
-    gl.bindTexture(gl.TEXTURE_2D, glTexture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, flipY ? 1 : 0);
-    gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, domElement);
-    if (flipY) gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    uploadElementTexture(gl, glTexture, canvas, domElement, { flipY });
   }
 
   /**

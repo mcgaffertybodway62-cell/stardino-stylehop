@@ -1,11 +1,12 @@
 # engine/ — HTML-in-Canvas × WebGL2 × Three.js × Deterministic Cinematography Core Engine
 
-`engine/` provides the deterministic runtime that turns multi-scene live HTML/CSS/SVG inside `<canvas id="stage" layoutsubtree>` and Three.js / Canvas2D `world.js` stages into GPU-composited 3D layers, deterministic camera choreography, optical post-processing passes, and frame-accurate audio cue sheets.
+`engine/` provides the deterministic runtime that turns multi-scene live HTML/CSS/SVG inside `<canvas id="stage" content="drawable" layoutsubtree>` and Three.js / Canvas2D `world.js` stages into GPU-composited 3D layers, deterministic camera choreography, optical post-processing passes, and frame-accurate audio cue sheets.
 
 | File | Responsibility |
 | :-- | :-- |
 | [`camera.js`](./camera.js) | **Unified Deterministic Cinematography & Camera Rig Engine**: 8 composable camera moves (`push`, `pull`, `orbit`, `crane`, `track`, `dolly-zoom`, `whip`, `static`), secondary camera physics (`evalImpactShake`, `evalHandheldSway`, `evalStopMotionBoil`), aspect-ratio framing compensation (`resolveAspectFraming`), Three.js adapter (`applyThreeCamera`), and 2D DOM camera adapter (`evalCamera2D` / `[data-cam]`) |
-| [`stage.js`](./stage.js) | Per-frame pipeline: optional `world.render(...)` 3D/Canvas backdrop upload (`worldTex`) → `requestPaint()` → `onpaint` → `gl.texElementImage2D` on the active `.frame.scene` layer and active `[data-layer]` floating cards → alpha/3D perspective composite with soft drop shadows → ping-pong WebGL2 shader pass chain (`u_paper` tactile texture on `TEXTURE2`, `u_sceneMix` transition pulse) → screen |
+| [`html_in_canvas.js`](./html_in_canvas.js) | **HTML-in-Canvas compatibility layer**: `ensureCanvasDrawable()` / `markDrawable()`, feature detection, `texElementSubImage2D` + explicit `RGBA8` storage (Chrome 157+), legacy `texElementImage2D` fallback (Chrome 151–154), and `updateElementGeometry()` helpers. Keeps browser-version branches out of the render loop |
+| [`stage.js`](./stage.js) | Per-frame pipeline: optional `world.render(...)` 3D/Canvas backdrop upload (`worldTex`) → `requestPaint()` → `onpaint` → `gl.texElementSubImage2D` (Chrome 157+; legacy `texElementImage2D` on 151–154) on the active `.frame.scene` layer and active `[data-layer]` floating cards → alpha/3D perspective composite with soft drop shadows → ping-pong WebGL2 shader pass chain (`u_paper` tactile texture on `TEXTURE2`, `u_sceneMix` transition pulse) → screen |
 | [`motion.js`](./motion.js) | Deterministic `data-*` motion (`springStep`, `smootherstep`, `prepareMotion`, `applyMotion`, `settleTime`) + `[data-cam]` 2D camera transforms + **Multi-Scene Sequencer** (`prepareScenes`, `applyScene`) + **Deterministic Sound Cue Extractor** (`extractCues` → `window.CUES`, supporting declarative `data-cues` on pure 3D scenes) |
 | [`studio3d.js`](./studio3d.js) | **Style-agnostic 3D Studio**: `createStudio3D(THREE, { width, height, look, presets, scenes, maxDist })` → renderer, aspect-adapted camera, look rig + per-scene look timeline, `applyShot`, `director()`, `render(frame)`. A 3D style kernel calls it and adds only its medium (palette, textures, materials, set floor) |
 | [`studio2d.js`](./studio2d.js) | **Style-agnostic 2D Painted Scroll / Canvas Studio**: `createStudio2D({ width, height, designWidth, designHeight, scenes, getLookState, drawBackdrop })` → full-frame `1.0x` optical baseline (`evalSceneCamera2D`), one continuous single-direction camera move per scene (`static`, `push`, `pull`, `pan`, `rise`, `drop`, `drift`, eliminating zoom ping-pong), multi-plane parallax (`beginLayer(p)` / `endLayer()`), and 2D storyboard exporter (`is2D: true`) |
@@ -18,13 +19,13 @@
 | [`passes/`](./passes/index.js) | Composable full-screen WebGL2 shader passes: [`lens.js`](./passes/lens.js), [`spotlight.js`](./passes/spotlight.js), [`clay.js`](./passes/clay.js), [`riso.js`](./passes/riso.js), [`inkbleed.js`](./passes/inkbleed.js), [`crt.js`](./passes/crt.js), [`grain.js`](./passes/grain.js) |
 | [`base.css`](./base.css) | Semantic typography & layout contract (`.frame.scene`, `#stage[data-world="true"] .frame`, `[data-layer]`, `.kicker`, `.title`, `.card`, `.metric`, `.vertical`, `.figure`) scaled via `--u` (`1%` of short canvas edge) for `16:9`, `9:16`, and `1:1` |
 | [`components/data.css`](./components/data.css) | **Opt-in, not loaded by default**: `.formula` (MathML) and `table.data`. A style imports it from its `theme.css` only when formulas or tables belong to its own medium |
-| [`serve.mjs`](./serve.mjs) / [`server.mjs`](./server.mjs) | Local static server (`--open` launches Chrome 151+ with `--enable-blink-features=CanvasDrawElement`) |
-| [`browser.mjs`](./browser.mjs) | Headless Chromium 151 launcher with deterministic sRGB and `CanvasDrawElement` flags |
+| [`serve.mjs`](./serve.mjs) / [`server.mjs`](./server.mjs) | Local static server (`--open` launches the detected Chrome; 157+ needs no flag, 151–154 gets `CanvasDrawElement`) |
+| [`browser.mjs`](./browser.mjs) | Headless Chromium launcher with deterministic sRGB and the legacy `CanvasDrawElement` flag; honors `CHROME_BIN` / `PLAYWRIGHT_CHROME` |
 | [`render.mjs`](./render.mjs) | Thin compatibility wrapper forwarding to [`tools/render.mjs`](../tools/render.mjs) |
 
 ## Multi-Scene, Pure 3D Stage & Audio Cue Architecture (`motion.js` + `camera.js` + `stage.js`)
 
-A style's `styles/<id>/scenes.html` defines multiple scenes inside `<canvas id="stage" layoutsubtree>`.
+A style's `styles/<id>/scenes.html` defines multiple scenes inside `<canvas id="stage" content="drawable" layoutsubtree>`.
 For **pure 3D styles (`stageMode: '3d-pure'`)**, `scenes.html` contains zero developer-inspection text cards so the 3D stage is 100% unobstructed, using `data-cues` to drive foley audio:
 
 ```html

@@ -2,9 +2,9 @@
  * Content-agnostic, deterministic motion & multi-scene sequencer driven by data-* attributes.
  * Every value is a pure function of t (seconds), so offline frames are 100% reproducible.
  *
- * Scene structure inside <canvas id="stage" layoutsubtree>:
- *   <section class="frame scene" data-scene="launch" data-title="01 · Launch" data-dur="3.5">...</section>
- *   <aside class="card" data-layer data-scene="launch" data-delay="1.2">...</aside>
+ * Scene structure inside <canvas id="stage" content="drawable" layoutsubtree>:
+ *   <section class="frame scene" drawable data-scene="launch" data-title="01 · Launch" data-dur="3.5">...</section>
+ *   <aside class="card" data-layer drawable data-scene="launch" data-delay="1.2">...</aside>
  *
  * Element motion attributes (evaluated in scene-local time localT):
  *   data-enter="rise|fade|scale|left|right"  spring entrance, staggered in DOM order
@@ -195,7 +195,7 @@ export function settleTime(root) {
 
 /**
  * Multi-Scene Sequencer: prepares all `.frame` scenes and `[data-layer]` floating cards
- * inside `root` (`<canvas id="stage" layoutsubtree>`).
+ * inside `root` (`<canvas id="stage" content="drawable" layoutsubtree>`).
  */
 export function prepareScenes(root) {
   prepareMotion(root);

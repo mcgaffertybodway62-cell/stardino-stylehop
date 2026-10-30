@@ -209,7 +209,7 @@ and smooth IK paw ground placement across all poses.
 Check motion with a dense still sheet (`--stills t1,…,t9`) next to the prototype's, then mp4.
 
 **Build** (`CRITTER_BUILD_DEFAULTS`): `bodyLen, girth, headR, muzzle (0..1), legLen, legGirth,
-earType ('long' | 'lop' | 'leaf' | 'tri' | 'round' | 'none'), earLen, earWidth, earDroop, earSplay,
+earType ('long' | 'leaf' | 'tri' | 'round' | 'none'), earLen, earWidth, earSplay,
 tailType ('plume' | 'pom' | 'stub' | 'thin' | 'none'), tailLen, tailWidth, horn ('none' | 'buds' | 'antlers'),
 hornColor, cheekTufts, eyeSize, eyeGap, irisColors[4], blush, noseColor`.
 
@@ -235,7 +235,7 @@ hornColor, cheekTufts, eyeSize, eyeGap, irisColors[4], blush, noseColor`.
 - *Table-driven tail (`CRITTER_TAIL_TYPES`):* Tail attachment and J/S-curve droop are 100% table-driven (`rootX`, `rootY: [ground, air]`, `dropAngle: [ground, air]`, `restCurl: [c0, c1, c2]`) without conditional branches. Thin feline tails (`thin`) emerge from the lower-back rump (`rootY: [10, 2]`), droop naturally (`dropAngle: [0.68, 0.22]`), and curl upward toward the tip (`restCurl: [-0.28, -0.42, -0.45]`); in `view: 'back'`, the tail root sits at the base of the rump along the ground (`nPelvis.y + 36 * s`).
 
 **Species presets are starting points**, each with a distinct silhouette: `fennec` (long ears, plume tail),
-`moonBunny` (lop ears, pom tail, compact), `mossDeer` (leaf ears, antlers, long legs, snout), `cubBear`
+`moonBunny` (upright long ears, pom tail, compact), `mossDeer` (leaf ears, antlers, long legs, snout), `cubBear`
 (round ears, stout, stub tail), `meadowCat` (triangle ears, thin tail). Tune `build` and palette so the cast is
 this story's own; two characters in one film must differ in silhouette, not only colour.
 
@@ -252,7 +252,7 @@ them into cotton-ball bodies with stilt legs and bolted-on muzzles. Until a `sle
 **Ears — two classes (`CRITTER_EAR_TYPES`):** *contour* ears (`tri` cat, `round` bear) are part of the head
 silhouette, defined in head-radius units, so they keep cat/bear proportions at any `headR` (`earLen` = apex height,
 `earWidth` = root spread; choreographed `earAngleL/R` swings twist them, e.g. flattened "airplane" ears). *Chain*
-ears (`long`, `lop`, `leaf`) are 3-segment spring ribbons for ears that swing; their length is also in head units.
+ears (`long`, `leaf`) are 3-segment spring ribbons for ears that swing; their length is also in head units.
 The `meadowCat` preset carries plush-kitten proportions (big round head, compact body, short legs, flat face).
 
 **Form roles — `hero` vs `world`:** only the film's protagonist (or its own kind)

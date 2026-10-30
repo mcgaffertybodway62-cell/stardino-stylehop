@@ -2,7 +2,7 @@
 /**
  * StyleHop Automated DOM-Native Style Auditor (`tools/audit.mjs`).
  *
- * Opens a style in Headless Chrome 151 via `gallery/player.html?style=<id>&size=<WxH>&mode=offline`,
+ * Opens a style in Headless Chrome 157+ via `gallery/player.html?style=<id>&size=<WxH>&mode=offline`,
  * steps deterministically across all scenes (0..DUR at 0.15s steps + each scene's settle timestamp),
  * and verifies 5 hard quality gates:
  *   1. Zero Runtime / Shader Errors (`pageerror`, `console.error`, WebGL context errors)
