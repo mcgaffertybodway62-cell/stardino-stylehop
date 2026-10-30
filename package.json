@@ -9,7 +9,8 @@
     "audit": "node tools/audit.mjs",
     "render": "node tools/render.mjs",
     "textures": "python3 tools/textures.py",
-    "sound": "python3 tools/sound.py"
+    "sound": "python3 tools/sound.py",
+    "voice": "python3 tools/voice.py"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"

@@ -33,6 +33,7 @@ Thumbs.db
 /test
 
 # Intermediate Render & Debug Directories
+.cache/
 _doc_check/
 _segments/
 chk/

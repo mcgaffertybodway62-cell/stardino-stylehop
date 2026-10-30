@@ -30,6 +30,13 @@ This project builds upon the architecture, procedural audio synthesis, and sound
   - Acoustically fitted modal/spectral Foley bank (`earshot.forge.bank`) and EBU R128 loudness mastering & sidechain ducking (`master.py`).
 - **Distribution**: referenced as a **runtime dependency only** — cloned separately via `EARSHOT_ROOT`; no earshot source is vendored in this repository.
 
+### C. Optional voice engines (`tools/voice.py`)
+- `tools/voice.py` follows the `lines.json` CLI contract and trimming/default behaviour of the upstream MIT `lemo-opuscar` voice tools (`core/tts/tts.py`, `core/tts/tts_zh.py`), reimplemented for StyleHop's scene anchors, cache, timing manifest and SRT output.
+- **Kokoro-82M** ([hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)): Apache-2.0 model weights; `kokoro-onnx` runtime is a separate optional dependency. Local/offline.
+- **edge-tts** ([rany2/edge-tts](https://github.com/rany2/edge-tts)): LGPLv3 tool, not vendored; it calls Microsoft's online Edge speech service, whose terms must be checked separately before commercial use.
+- **soundfile** ([libsndfile](https://github.com/libsndfile/libsndfile)): BSD-3-Clause; used only when `--voice` reads/writes WAV.
+- ChatTTS, F5-TTS, Spark-TTS, Fish Speech and similar CC-BY-NC / CC-BY-NC-SA weights are **not** supported for deliverable output and are not bundled.
+
 ---
 
 ## 3. Audio Sample Libraries & Fitted Foley Attribution

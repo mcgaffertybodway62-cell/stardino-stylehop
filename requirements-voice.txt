@@ -1,0 +1,14 @@
+# Optional voice tier. TTS is a build step; frame rendering and
+# `tools/sound.py` without `--voice` do not need any of these packages.
+#
+#   python3 -m pip install -r requirements-voice.txt
+#   # Kokoro needs Python 3.11-3.13; keep it in a separate venv if the main
+#   # project uses an older interpreter.
+#
+# Licences: edge-tts is LGPLv3 (the Microsoft Edge service has its own terms);
+# Kokoro-82M is Apache-2.0; soundfile is BSD-3-Clause.
+edge-tts>=7.0
+kokoro-onnx>=0.4; python_version >= "3.11"
+soundfile>=0.12
+
+# Optional ASR QA (not wired into the render pipeline yet): faster-whisper>=1.0

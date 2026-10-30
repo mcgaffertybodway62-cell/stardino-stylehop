@@ -19,7 +19,8 @@
 | **可组合 WebGL2 材质与光学 Pass 链 (`engine/passes/`)** | 内置 `lens`（斯涅尔色散透镜）、`clay`（软陶指纹浮雕与移轴景深）、`riso`（孔版双滚筒网点）、`spotlight`（双锥聚光灯）、`inkbleed`（宣纸毛细洇墨）、`crt`（阴极射线荧光）、`grain`（表面肌理与暗角）等可插拔着色器。 |
 | **DOM 原生自动化体检门禁 (`tools/audit.mjs`)** | 在无头 Chrome 151 中默认同时遍历 16:9 与 9:16 双画幅下的全部场景，自动拦截运行时报错、文字越界/裁切、过小字号（`<12px`）、文案停留时长不足与浮层恶意遮挡。 |
 | **交互式 Studio 调试工作台 (`gallery/`)** | 支持分镜单跳/循环锁定、逐帧时间轴 Scrubbing、声学事件轨预览、DOM 版面体检框实时叠加（Audit Overlay）、画布原位点击改字（`contenteditable`）与 Shader Uniform 滑杆调参。 |
-| **程序化物理贴图与画面驱动声学 (`tools/textures.py` + `tools/sound.py`)** | `textures.py` 生成宣纸纤维、软陶拇指指纹、半调网屏、拉丝金属、晒图折痕等 512×512 无缝贴图（`u_paper`）；`motion.js` 自动提取 `window.CUES` 时间码，驱动 `sound.py` 合成 48kHz 立体声拟音，由 `render.mjs` 归一至 `-14 LUFS` 母带。 |
+| **程序化物理贴图与画面驱动声学 (`tools/textures.py` + `tools/sound.py`)** | `textures.py` 生成宣纸纤维、软陶拇指指纹、半调网屏、拉丝金属、晒图折痕等 512×512 无缝贴图（`u_paper`）；`motion.js` 自动提取 `window.CUES` 时间码，驱动 `sound.py` 合成 48kHz 立体声拟音，由 `render.mjs` 归一至 `-15 LUFS` 母带。 |
+| **可选人声轨 (`tools/voice.py` + `tools/sound.py --voice`)** | 按成品 `voice.json` 的场景锚点生成 48kHz 人声、时间码与 SRT；edge-tts / Kokoro / 任意 `VOICE_CMD` 后端；`render.mjs --voice` 自动生成并混音，带 sidechain ducking 与 `--no-voice` 回退。TTS 是构建步骤，不进入逐帧渲染，默认关闭。 |
 
 ---
 
@@ -36,16 +37,91 @@ npm run serve                    # 打开 http://127.0.0.1:8080/gallery/
 # 2. 执行自动化体检门禁（默认同时检验 16:9 与 9:16 双画幅）
 node tools/audit.mjs --style <style-id>
 
-# 3. 确定性并发渲染：生成 2x2 多场景检视表与带 -14 LUFS 音效的 MP4 母带
+# 3. 确定性并发渲染：生成 2x2 多场景检视表与带 -15 LUFS 音效的 MP4 母带
 node tools/render.mjs --style <style-id> --sheet styles/<style-id>/contact_sheet.jpg
 node tools/render.mjs --style <style-id> --video <work-dir>/<style-id>/<product-slug>-v1/<product-slug>.mp4 --fps 30
 
-# 4. 素材管线：生成无缝物理质感贴图 / 合成声学音轨
+# 4. 可选人声：先生成 voice.wav + voice.timing.json + voice.srt，再随视频混音
+#    默认不启用人声；示例 manifest 见 tools/voice.example.json，后端与授权见下文
+node tools/render.mjs --style <style-id> --video <work-dir>/.../<product-slug>.mp4 \
+  --voice ../out/stardino-stylehop-test/<style-id>/<product-slug>-v1/voice.json
+
+# 5. 素材管线：生成无缝物理质感贴图 / 合成声学音轨
 python3 tools/textures.py
 python3 tools/sound.py --preset glass --out <work-dir>/demo.wav
 ```
 
 在不支持 `CanvasDrawElement` 的普通浏览器中，舞台会自动优雅降级为 DOM + 3D/Canvas 视图，页面不会白屏。
+
+---
+
+## 可选人声（Voice）
+
+人声默认关闭，只有传 `--voice` 才启用。TTS 是构建步骤：先生成 `voice.wav`、`voice.timing.json`、`voice.srt`，渲染期只做混音，不在逐帧 worker 里联网。
+
+### Manifest
+
+成品目录下的 `voice.json` 用场景锚定，字段兼容 lemo-opuscar 的 `lines.json`：
+
+```json
+{
+  "provider": "edge",
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "lines": [
+    {
+      "id": "l1",
+      "text": "一滴墨，落进整个春天。",
+      "say": "一滴墨，落进整个春天。",
+      "subtitle": "一滴墨，落进整个春天。",
+      "scene": 0,
+      "offset": 0.45,
+      "maxDur": 3.0
+    }
+  ]
+}
+```
+
+- `scene` 可写分镜序号或 id；`anchor: "scene:0"` 等价；`at` 是绝对秒，优先于场景锚点。
+- `offset` 相对场景起点，默认 `0.4s`；`maxDur` 超时直接报错，不拉伸音频——改 `rate` / `speed` 或缩短文案。
+- `say` 是实际朗读文本（数字、缩写写全），`subtitle` 是字幕；`subtitle: false` 只发声、不出字幕。
+- 未锚定的行按 `gap`（默认 `0.3s`）接在上一行之后；不允许重叠或越过场景切点。
+- 14–16s 片长建议 1–2 句；中文单句 3s 约 10–14 字。
+
+### 后端
+
+| `provider` | 实现 | 适用 |
+| :-- | :-- | :-- |
+| `edge` | edge-tts（微软 Edge 在线语音） | 中文草稿/试音；需联网，商用条款自行确认 |
+| `kokoro` | kokoro-onnx + 本地 ONNX 模型 | 英文成品、完全离线；中文 `"lang": "cmn"` 音色较平 |
+| `command` | `VOICE_CMD` 命令模板 | CosyVoice2 / Azure CLI / 其他自托管 TTS |
+| `auto` | Kokoro 可用则用，否则 edge | 快速开始 |
+
+```bash
+# edge-tts（当前机器已装）
+python3 tools/voice.py build --script voice.json --cues cues.json --out-dir out/voice
+
+# Kokoro：先装可选依赖，再把 kokoro-v1.0.onnx / voices-v1.0.bin 放进 tools/voice/
+python3 -m pip install -r requirements-voice.txt
+# 或独立 venv（Kokoro 需要 Python 3.11–3.13）
+uv venv --python 3.12 .venv-voice
+uv pip install --python .venv-voice/bin/python -r requirements-voice.txt
+
+# 任意命令行 TTS（占位符：{text} {text_file} {out} {voice} {rate} {pitch} {lang}）
+export VOICE_CMD='cosyvoice --text {text_file} --out {out} --voice {voice}'
+python3 tools/voice.py build --script voice.json --provider command --cues cues.json --out-dir out/voice
+```
+
+### 渲染
+
+```bash
+# cues.json 可手写 {dur, scenes}，或由 render.mjs 自动生成；SRT 默认写到 <video>.srt
+node tools/render.mjs --style <id> --video film.mp4 --voice voice.json \
+  [--duck-db -10] [--voice-gain 0] [--srt film.srt]
+```
+
+`render.mjs --voice` 会在渲染帧之前生成/复用缓存，然后 `sound.py --voice` 做 sidechain ducking（默认讲话段音乐压 10 dB，attack 20ms / release 250ms），最后由 FFmpeg 统一 `loudnorm` 到 -15 LUFS / TP -1.2。不传 `--voice` 或传 `--no-voice` 的行为与旧版一致。
+
+示例 manifest：[`tools/voice.example.json`](tools/voice.example.json)。授权：Kokoro-82M 为 Apache-2.0；edge-tts 工具是 LGPLv3，但使用的是微软 Edge 在线服务，商用前自行确认条款；ChatTTS / F5-TTS 等 CC-BY-NC 权重不要用于变现成品。模型权重与生成音频不进仓库，缓存放在 manifest 旁的 `.cache/voice/`。
 
 ---
 
@@ -62,9 +138,12 @@ engine/            核心引擎：
                    - components/（可选组件，默认不加载：data.css 提供公式与数据表，按需在 theme.css 中引入）
 tools/             风格工程工具链：
                    - textures.py（程序化 512x512 无缝物理质感贴图生成器 → assets/textures/）
-                   - sound.py（基于 window.CUES 的多预设声学拟音与配乐合成器 → 48kHz WAV）
+                   - sound.py（基于 window.CUES 的多预设声学拟音与配乐合成器 → 48kHz WAV；--voice 混入人声并做侧链 ducking）
+                   - voice.py（voice.json → 48kHz 人声 + timing + SRT；edge-tts / Kokoro / VOICE_CMD 后端与逐行缓存）
+                   - voice.example.json（人声 manifest 示例）
                    - audit.mjs（自动化体检门禁：零报错、文字越界/裁切、最小字号、阅读时长、浮层遮挡检测）
-                   - render.mjs（多 Worker 并发分片无头渲染 + 自动音效合成与 -14 LUFS 母带混流 → contact_sheet.jpg / MP4）
+                   - render.mjs（多 Worker 并发分片无头渲染 + 自动音效/人声混流与 -15 LUFS 母带 → contact_sheet.jpg / MP4 / SRT）
+requirements-voice.txt  可选人声依赖（edge-tts / kokoro-onnx / soundfile；不进基础安装）
 assets/textures/   物理质感贴图库（paper_fiber.png, clay_thumbprint.png, halftone_screen.png, brushed_metal.png, blueprint_cyanotype.png）
 gallery/           StyleHop Studio 交互式调试工作台（index.html, player.html, catalog.js）
 styles/            多场景风格目录：

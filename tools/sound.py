@@ -23,6 +23,7 @@ sequencers, acoustic body Impulse Response (IR) convolution, and frame-accurate 
 
 Usage:
   python3 tools/sound.py --cues cues.json --out <work-dir>/mix.wav [--preset ink|jazz|clay|paper|twilight|glass|cyber|terminal]
+  python3 tools/sound.py --cues cues.json --voice voice.wav --out mix.wav [--duck-db -10] [--voice-gain 0]
 """
 
 import argparse
@@ -1366,6 +1367,79 @@ def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1
     return out
 
 
+def _load_voice(path: str, n: int) -> np.ndarray:
+    """Read a mono/stereo voice WAV, resample to 48 kHz, and fit it to `n` samples."""
+    try:
+        import soundfile as sf
+    except ImportError:
+        raise SystemExit("sound.py: --voice needs soundfile (pip install soundfile)")
+    try:
+        audio, sr = sf.read(path, dtype="float32", always_2d=False)
+    except Exception as e:
+        raise SystemExit(f"sound.py: cannot read voice '{path}': {e}")
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    audio = audio.reshape(-1)
+    if sr != SR and audio.size:
+        audio = signal.resample_poly(audio, SR, sr).astype(np.float32)
+    if audio.size < n:
+        audio = np.pad(audio, (0, n - audio.size))
+    else:
+        audio = audio[:n]
+    return audio
+
+
+def voice_envelope(voice: np.ndarray, attack: float = 0.02, release: float = 0.25) -> np.ndarray:
+    """10 ms RMS envelope (0..1) with a fast attack and a slow release for sidechain ducking."""
+    hop = max(1, int(0.01 * SR))
+    frames = voice.size // hop
+    if frames <= 0:
+        return np.zeros(voice.size, dtype=np.float32)
+    rms = np.sqrt(np.mean(voice[: frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
+    ref = float(np.percentile(rms, 95))
+    if ref < 1e-5:
+        return np.zeros(voice.size, dtype=np.float32)
+    target = np.clip((rms / ref - 0.04) / 0.96, 0.0, 1.0)
+    ca = 1.0 - np.exp(-hop / (max(float(attack), 1e-3) * SR))
+    cr = 1.0 - np.exp(-hop / (max(float(release), 1e-3) * SR))
+    env = np.empty_like(target)
+    y = 0.0
+    for i, x in enumerate(target):
+        y += (x - y) * (ca if x > y else cr)
+        env[i] = y
+    env = np.repeat(env, hop)
+    if env.size < voice.size:
+        env = np.pad(env, (0, voice.size - env.size), constant_values=float(env[-1]) if env.size else 0.0)
+    return env[: voice.size].astype(np.float32)
+
+
+def mix_voice_into(
+    stereo: np.ndarray,
+    voice_path: str,
+    duck_db: float = -10.0,
+    voice_gain_db: float = 0.0,
+    attack: float = 0.02,
+    release: float = 0.25,
+    ceiling_db: float = -1.2,
+) -> np.ndarray:
+    """Duck the mastered music under the voice, add the voice centred, and true-peak limit the sum."""
+    voice = _load_voice(voice_path, stereo.shape[0])
+    if not np.any(voice):
+        return stereo
+    duck_db = min(0.0, float(duck_db))
+    if duck_db < 0.0:
+        env = voice_envelope(voice, attack=attack, release=release)
+        floor = 10.0 ** (duck_db / 20.0)
+        stereo = stereo * (1.0 - (1.0 - floor) * env)[:, None]
+    stereo = stereo + voice[:, None] * (10.0 ** (float(voice_gain_db) / 20.0))
+    ceiling = 10.0 ** (float(ceiling_db) / 20.0)
+    peak = float(np.max(np.abs(stereo)))
+    if peak > ceiling:
+        stereo = stereo * (ceiling / peak)
+    return stereo.astype(np.float32)
+
+
 def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) -> np.ndarray:
     rng = np.random.default_rng(seed)
     preset = resolve_preset(preset)
@@ -1497,6 +1571,11 @@ def main():
         default="glass",
         help="Sonic palette preset (ink, jazz, clay, paper, twilight, glass, cyber, terminal, or style aliases)",
     )
+    parser.add_argument("--voice", default=None, help="48 kHz mono/stereo voice WAV to mix over the score")
+    parser.add_argument("--duck-db", type=float, default=-10.0, help="Music gain reduction under speech (0 disables ducking)")
+    parser.add_argument("--voice-gain", type=float, default=0.0, help="Voice gain in dB before the final limiter")
+    parser.add_argument("--duck-attack", type=float, default=0.02, help="Sidechain attack in seconds")
+    parser.add_argument("--duck-release", type=float, default=0.25, help="Sidechain release in seconds")
     args = parser.parse_args()
 
     if args.cues:
@@ -1508,6 +1587,18 @@ def main():
     preset = resolve_preset(cue_data.get("soundPreset") or args.preset)
 
     stereo = synthesize_from_cues(cue_data, preset=preset)
+    if args.voice:
+        voice_path = Path(args.voice)
+        if not voice_path.is_file():
+            raise SystemExit(f"sound.py: voice file not found: {voice_path}")
+        stereo = mix_voice_into(
+            stereo,
+            str(voice_path),
+            duck_db=args.duck_db,
+            voice_gain_db=args.voice_gain,
+            attack=args.duck_attack,
+            release=args.duck_release,
+        )
     out_path = Path(args.out)
     write_wav(out_path, stereo)
     peak_db = 20.0 * np.log10(max(1e-9, float(np.max(np.abs(stereo)))))
@@ -1519,6 +1610,7 @@ def main():
                 "preset": preset,
                 "dur": float(cue_data.get("dur", 0)),
                 "cues": len(cue_data.get("cues", [])),
+                "voice": str(Path(args.voice)) if args.voice else None,
                 "peak_dbtp": round(peak_db, 2),
                 "rms_dbfs": round(rms_db, 2),
             }

@@ -7,12 +7,14 @@
  *      samples the settled moment of each of the 4 scenes in `styles/<id>/scenes.html`.
  *   2. Mastered MP4 Showreel (`--video <work-dir>/<id>.mp4`) — parallel headless Chromium frame rendering
  *      across `--workers` workers + procedural soundtrack synthesized via `tools/sound.py` from
- *      `window.CUES`, mastered with FFmpeg (`loudnorm=I=-14:TP=-1.2:LRA=11`).
+ *      `window.CUES`, mastered with FFmpeg (`loudnorm=I=-15:TP=-1.2:LRA=11`), plus an optional
+ *      voice track (`--voice`) synthesized once and sidechain-ducked under the score.
  *
  * Usage:
  *   node tools/render.mjs --style clay-macaron \
  *     [--scene all|0|1...] [--size 1920x1080] [--fps 30] [--workers 2] \
  *     [--sheet styles/clay-macaron/contact_sheet.jpg] [--video <work-dir>/clay-macaron.mp4] [--no-audio]
+ *     [--voice <product>/voice.json [--duck-db -10] [--voice-gain 0] [--srt <file>.srt] | --no-voice]
  *     [--look '{"env":{"share":0.7}}']   (deep-merged over style.look, 3D styles only)
  */
 
@@ -45,6 +47,11 @@ export function parseArgs(argv) {
     audio: true,
     preset: null,
     look: null,
+    voice: null,
+    noVoice: false,
+    duckDb: -10,
+    voiceGain: 0,
+    srt: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -65,13 +72,34 @@ export function parseArgs(argv) {
     else if (a === '--no-audio') o.audio = false;
     else if (a === '--preset') o.preset = next();
     else if (a === '--look') o.look = next();
+    else if (a === '--voice') o.voice = path.resolve(next());
+    else if (a === '--no-voice') o.noVoice = true;
+    else if (a === '--duck-db') o.duckDb = parseFloat(next());
+    else if (a === '--voice-gain') o.voiceGain = parseFloat(next());
+    else if (a === '--srt') o.srt = path.resolve(next());
     else if (!a.startsWith('-') && !o.page && !o.style) o.style = a;
   }
   if (!o.page && !o.style) {
     console.error(
       'Usage: node tools/render.mjs --style <id> [--scene all|0|1...] [--size WxH] [--fps 30] [--workers 2] [--sheet f.jpg] [--storyboard f.jpg] [--video f.mp4] [--no-audio]\n' +
+        '       node tools/render.mjs --style <id> --video f.mp4 --voice <dir>/voice.json [--duck-db -10] [--voice-gain 0] [--srt f.srt]\n' +
         '       node tools/render.mjs --page <dir|file.html> ...'
     );
+    process.exit(1);
+  }
+  if (o.noVoice) o.voice = null;
+  if (Number.isNaN(o.duckDb)) o.duckDb = -10;
+  if (Number.isNaN(o.voiceGain)) o.voiceGain = 0;
+  if (o.voice && !o.video) {
+    console.error('render.mjs: --voice needs --video (voice is mixed into the MP4 soundtrack)');
+    process.exit(1);
+  }
+  if (o.voice && !o.audio) {
+    console.error('render.mjs: --voice cannot be combined with --no-audio');
+    process.exit(1);
+  }
+  if (o.srt && !o.voice) {
+    console.error('render.mjs: --srt needs --voice (the SRT is generated from the voice manifest)');
     process.exit(1);
   }
   return o;
@@ -223,6 +251,44 @@ export async function main(argv = process.argv.slice(2)) {
       }
     }
 
+    // 0. Optional voice track: TTS is a build step, run once before frames so failures surface early.
+    let voiceWav = null;
+    let voiceTiming = null;
+    let voiceSrt = null;
+    if (o.voice) {
+      let voiceScript = o.voice;
+      if (fs.existsSync(voiceScript) && fs.statSync(voiceScript).isDirectory()) voiceScript = path.join(voiceScript, 'voice.json');
+      if (!fs.existsSync(voiceScript)) {
+        console.error(`render.mjs: voice manifest not found: ${voiceScript}`);
+        process.exit(1);
+      }
+      const voiceDir = path.join(tmp, 'voice');
+      const voiceCues = path.join(tmp, 'voice-cues.json');
+      fs.writeFileSync(voiceCues, JSON.stringify({ dur, scenes: cues?.scenes || [], cues: cues?.cues || [] }, null, 1));
+      execFileSync(
+        'python3',
+        [
+          path.join(REPO_ROOT, 'tools', 'voice.py'),
+          'build',
+          '--script',
+          voiceScript,
+          '--cues',
+          voiceCues,
+          '--out-dir',
+          voiceDir,
+          '--start',
+          String(startT),
+          '--dur',
+          String(renderDur),
+        ],
+        { stdio: 'inherit' }
+      );
+      voiceWav = path.join(voiceDir, 'voice.wav');
+      voiceSrt = path.join(voiceDir, 'voice.srt');
+      voiceTiming = JSON.parse(fs.readFileSync(path.join(voiceDir, 'voice.timing.json'), 'utf8'));
+      console.log(`  voice: ${voiceTiming.lines.length} line(s), ${voiceTiming.provider}`);
+    }
+
     // 1. Stills & 2x2 Multi-Scene Contact Sheet
     const stills = pickRepresentativeStills(o, dur, cues);
     const stillPaths = [];
@@ -325,11 +391,12 @@ export async function main(argv = process.argv.slice(2)) {
       }
 
       let wavPath = null;
-      if (o.audio && cues) {
+      if (o.audio && (cues || voiceWav)) {
+        const baseCues = cues || { scenes: [], cues: [] };
         const shiftedCues = {
           dur: renderDur,
           soundPreset,
-          scenes: (cues.scenes || [])
+          scenes: (baseCues.scenes || [])
             .filter((s) => s.end > startT && s.start < startT + renderDur)
             .map((s) => ({
               ...s,
@@ -343,7 +410,7 @@ export async function main(argv = process.argv.slice(2)) {
         const cuesJsonPath = path.join(tmp, 'cues.json');
         wavPath = path.join(tmp, 'mix.wav');
         fs.writeFileSync(cuesJsonPath, JSON.stringify(shiftedCues, null, 2));
-        execFileSync('python3', [
+        const soundArgs = [
           path.join(REPO_ROOT, 'tools', 'sound.py'),
           '--cues',
           cuesJsonPath,
@@ -351,7 +418,11 @@ export async function main(argv = process.argv.slice(2)) {
           wavPath,
           '--preset',
           soundPreset,
-        ]);
+        ];
+        if (voiceWav) {
+          soundArgs.push('--voice', voiceWav, '--duck-db', String(o.duckDb), '--voice-gain', String(o.voiceGain));
+        }
+        execFileSync('python3', soundArgs);
       }
 
       const ffArgs = [
@@ -389,6 +460,15 @@ export async function main(argv = process.argv.slice(2)) {
       }
       execFileSync('ffmpeg', ffArgs);
 
+      let srtOut = null;
+      if (voiceSrt && voiceTiming?.lines?.length) {
+        srtOut = o.srt || o.video.replace(/\.mp4$/i, '.srt');
+        if (srtOut === o.video) srtOut = `${o.video}.srt`;
+        fs.mkdirSync(path.dirname(srtOut), { recursive: true });
+        fs.copyFileSync(voiceSrt, srtOut);
+        console.log(`  subtitles: ${rel(srtOut)}`);
+      }
+
       video = {
         path: o.video,
         frames: totalFrames,
@@ -396,6 +476,7 @@ export async function main(argv = process.argv.slice(2)) {
         workers: workerCount,
         audio: Boolean(wavPath),
         soundPreset: wavPath ? soundPreset : null,
+        voice: voiceTiming ? { provider: voiceTiming.provider, lines: voiceTiming.lines.length, srt: srtOut ? rel(srtOut) : null } : null,
         cues: allCollectedCues.length,
         seconds: +((performance.now() - t0) / 1000).toFixed(1),
       };

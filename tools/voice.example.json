@@ -1,0 +1,16 @@
+{
+  "provider": "edge",
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+0%",
+  "pitch": "+0Hz",
+  "lines": [
+    {
+      "id": "l1",
+      "text": "一滴墨，落进整个春天。",
+      "subtitle": "一滴墨，落进整个春天。",
+      "scene": 0,
+      "offset": 0.45,
+      "maxDur": 3.0
+    }
+  ]
+}
