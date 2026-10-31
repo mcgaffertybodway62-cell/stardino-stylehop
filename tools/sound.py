@@ -117,15 +117,15 @@ PRESETS = {
     },
     "twilight": {
         "chords": [
-            [261.63, 329.63, 392.00, 493.88, 587.33],  # Cmaj9
-            [220.00, 261.63, 329.63, 392.00, 493.88],  # Am9
-            [174.61, 220.00, 261.63, 349.23, 440.00],  # Fmaj13
-            [196.00, 246.94, 293.66, 392.00, 587.33],  # Gadd9
+            [261.63, 329.63, 392.00, 523.25, 587.33],  # Scene 1: Cadd9 (C4 - E4 - G4 - C5 - D5, pure open consonant)
+            [220.00, 261.63, 329.63, 392.00, 523.25],  # Scene 2: Am7 (A3 - C4 - E4 - G4 - C5)
+            [174.61, 261.63, 349.23, 440.00, 523.25],  # Scene 3: Fadd9 (F3 - C4 - F4 - A4 - C5)
+            [261.63, 329.63, 392.00, 523.25, 659.25],  # Scene 4: Cmaj (C4 - E4 - G4 - C5 - E5, warm home resolution)
         ],
-        "pad_gain": 0.14,
-        "chime_freqs": [1046.50, 1318.51, 1567.98, 1975.53],
-        "tap_freq": 620.0,
-        "tick_freq": 1950.0,
+        "pad_gain": 0.11,
+        "chime_freqs": [392.00, 523.25, 587.33, 659.25],
+        "tap_freq": 261.63,
+        "tick_freq": 523.25,
     },
     "glass": {
         "chords": [
@@ -353,19 +353,19 @@ def modal_strike(
         click_freq, click_dur, click_amp = 1800.0, 0.003, 0.30
     elif material == "ceramic":
         ratios, amps, decays = (
-            [1.0, 1.58, 2.37, 3.44, 4.92],
-            [0.9, 0.65, 0.45, 0.28, 0.15],
-            [0.085, 0.055, 0.036, 0.022, 0.012],
+            [1.0, 1.58, 2.37, 3.44],
+            [0.9, 0.55, 0.32, 0.14],
+            [0.085, 0.055, 0.032, 0.018],
         )
-        click_freq, click_dur, click_amp = 3200.0, 0.002, 0.58
+        click_freq, click_dur, click_amp = 2200.0, 0.0025, 0.28
     elif material == "glass":
-        ratios, amps, decays = [1.0, 2.31, 4.16, 6.52], [1.0, 0.52, 0.24, 0.09], [0.38, 0.19, 0.085, 0.035]
-        click_freq, click_dur, click_amp = 4200.0, 0.0015, 0.38
+        ratios, amps, decays = [1.0, 2.0, 3.0], [1.0, 0.28, 0.08], [0.38, 0.18, 0.075]
+        click_freq, click_dur, click_amp = 1800.0, 0.0025, 0.14
     elif material == "bell":
-        ratios = [0.5, 1.0, 1.501, 2.0, 2.44, 3.12, 4.18]
-        amps = [0.32, 1.0, 0.42, 0.52, 0.25, 0.15, 0.08]
-        decays = [0.65, 0.52, 0.38, 0.28, 0.18, 0.11, 0.06]
-        click_freq, click_dur, click_amp = 3600.0, 0.002, 0.26
+        ratios = [0.5, 1.0, 1.501, 2.0, 2.44]
+        amps = [0.32, 1.0, 0.36, 0.40, 0.14]
+        decays = [0.65, 0.52, 0.34, 0.24, 0.12]
+        click_freq, click_dur, click_amp = 2100.0, 0.0025, 0.18
     elif material == "brass":
         ratios, amps, decays = (
             [1.0, 1.498, 2.002, 2.76, 3.85, 5.12],
@@ -1322,7 +1322,7 @@ def synth_paper_harp_bed(
                 sc_look = str(sc.get("look") or "day").lower()
                 break
 
-        chord = chords[(s // 6 + sc_idx) % len(chords)]
+        chord = chords[sc_idx % len(chords)]
         deg = arp_pattern[(s + sc_idx) % len(arp_pattern)] % len(chord)
         freq = chord[deg]
         mode = "harmonic" if (sc_look in ("night", "starlight") and s % 3 == 0) else "open"
@@ -1335,6 +1335,38 @@ def synth_paper_harp_bed(
     return stereo * pocket[:, None]
 
 
+def _synth_felt_piano_voice(freq: float, dur: float, rng: np.random.Generator, vel: float = 0.85) -> np.ndarray:
+    """Warm, velvety nocturnal felt-piano note (pure harmonic overtones, soft 18ms attack, zero noise click)."""
+    n = max(16, int(round(dur * SR)))
+    t = np.arange(n, dtype=np.float64) / SR
+    attack = np.sin(0.5 * np.pi * np.clip(t / 0.018, 0.0, 1.0))
+    decay = 0.72 * np.exp(-t / (dur * 0.55)) + 0.28 * np.exp(-t / (dur * 1.15))
+    env = attack * decay
+    sig = (
+        0.76 * np.sin(2.0 * np.pi * freq * t)
+        + 0.19 * np.sin(2.0 * np.pi * (freq * 2.0) * t + 0.2) * np.exp(-t / 0.38)
+        + 0.05 * np.sin(2.0 * np.pi * (freq * 3.0) * t + 0.5) * np.exp(-t / 0.18)
+    )
+    sos_lp = signal.butter(2, min(1600.0, freq * 3.6) / (0.5 * SR), btype="low", output="sos")
+    out = signal.sosfilt(sos_lp, sig * env) * 0.20 * vel
+    return fade_in_out(out, 0.008, 0.04)
+
+
+def _synth_celesta_bell(freq: float, dur: float, vel: float = 0.85) -> np.ndarray:
+    """Warm, round music-box / soft celesta tone (zero metallic inharmonic partials, soft 14ms attack)."""
+    n = max(16, int(round(dur * SR)))
+    t = np.arange(n, dtype=np.float64) / SR
+    attack = np.sin(0.5 * np.pi * np.clip(t / 0.014, 0.0, 1.0))
+    env = attack * (0.75 * np.exp(-t / 0.58) + 0.25 * np.exp(-t / 1.25))
+    tine = (
+        0.82 * np.sin(2.0 * np.pi * freq * t)
+        + 0.15 * np.sin(2.0 * np.pi * (freq * 2.0) * t + 0.15) * np.exp(-t / 0.26)
+        + 0.03 * np.sin(2.0 * np.pi * (freq * 3.0) * t + 0.4) * np.exp(-t / 0.12)
+    )
+    sos_lp = signal.butter(2, 1850.0 / (0.5 * SR), btype="low", output="sos")
+    return fade_in_out(signal.sosfilt(sos_lp, tine * env) * 0.15 * vel, 0.006, 0.04)
+
+
 def synth_twilight_celesta_bed(
     dur: float,
     scenes: list,
@@ -1344,55 +1376,111 @@ def synth_twilight_celesta_bed(
     sig: dict = None,
 ) -> np.ndarray:
     """
-    Synthesizes a scene-dramatic Celesta, Felt-Piano & Bioluminescent Forest score (`twilight-fable`):
-      - Topic-adaptive key center & modal progression
-      - Adapts texture to scene look (`fogwood` sparse mystery -> `hearth` warm felt piano -> `starlight/aurora` celesta bloom)
-      - Organic forest night-breeze & dewdrop ambience (never a static flat drone)
+    Synthesizes a warm, soothing, Studio-Ghibli style nocturnal lake score (`twilight-fable`):
+      - All instruments stay strictly in the warm middle register (65 Hz - 988 Hz), with zero metallic/high-frequency harshness.
+      - Soft Felt-Piano Arpeggios + Warm Bowed Cello (`arco` & `pizz`) + Round Music-Box Celesta Melody.
     """
     sig = sig or _derive_topic_signature({"scenes": scenes, "cues": cues})
     n_samples = int(round(dur * SR))
-    chords = _transpose_chords(cfg["chords"], sig)
-    cfg_transposed = {**cfg, "chords": chords}
-    stereo = synth_ambient_bed(dur, scenes, cfg_transposed, rng) * 0.72
+    chords = cfg["chords"]
+    stereo = synth_ambient_bed(dur, scenes, cfg, rng) * 0.82
 
-    step_sec = 0.52 / sig["tempo_scale"]
-    arp_pattern = sig["arp_pattern"]
+    if not scenes:
+        scenes = [{"start": 0.0, "dur": dur, "end": dur, "look": "twilight"}]
+
+    # 1. Warm Cello Foundation (low-passed arco & soft wooden pizzicato)
+    for idx, sc in enumerate(scenes):
+        start_t = float(sc.get("start", 0.0))
+        sc_dur = float(sc.get("dur", max(1.0, dur - start_t)))
+        chord = chords[idx % len(chords)]
+
+        if idx == 0:
+            for b_i in range(int(sc_dur / 1.5)):
+                bt = start_t + 0.2 + b_i * 1.5
+                if bt < dur - 0.35:
+                    f_b = chord[0] * 0.5 if (b_i % 2 == 0) else chord[2] * 0.5
+                    pizz = synth_cello_voice(f_b, 0.95, "pizz", rng) * 0.58
+                    mix_into(stereo, int(round(bt * SR)), pizz, pan=-0.18)
+        elif idx == 1:
+            c1 = synth_cello_voice(chord[0] * 0.5, min(sc_dur * 0.52, 2.5), "arco", rng) * 0.62
+            c2 = synth_cello_voice(chord[2] * 0.5, min(sc_dur * 0.52, 2.5), "arco", rng) * 0.58
+            mix_into(stereo, int(round((start_t + 0.12) * SR)), c1, pan=-0.20)
+            mix_into(stereo, int(round((start_t + sc_dur * 0.46) * SR)), c2, pan=-0.15)
+        elif idx == 2:
+            for b_i in range(int(sc_dur / 1.15)):
+                bt = start_t + 0.12 + b_i * 1.15
+                if bt < dur - 0.35:
+                    f_b = chord[b_i % 2] * 0.5
+                    pizz = synth_cello_voice(f_b, 0.80, "pizz", rng) * 0.55
+                    mix_into(stereo, int(round(bt * SR)), pizz, pan=-0.18)
+            leap_arco = synth_cello_voice(chord[2] * 0.5, min(2.3, sc_dur * 0.52), "arco", rng) * 0.58
+            mix_into(stereo, int(round((start_t + sc_dur * 0.40) * SR)), leap_arco, pan=0.16)
+        else:
+            c1 = synth_cello_voice(chord[0] * 0.5, min(sc_dur * 0.52, 2.4), "arco", rng) * 0.52
+            c2 = synth_cello_voice(chord[2] * 0.5, min(sc_dur * 0.52, 2.4), "arco", rng) * 0.48
+            mix_into(stereo, int(round((start_t + 0.12) * SR)), c1, pan=-0.18)
+            mix_into(stereo, int(round((start_t + sc_dur * 0.46) * SR)), c2, pan=0.16)
+
+    # 2. Unhurried, Breathing Felt-Piano Arpeggios & Warm Middle-Register Celesta Melody
+    step_sec = 0.44
+    arp_cycle = [0, 2, 3, 4, 2, 1, 3, 2]
+    melody_degrees = [2, 3, 4, 2, 1, 2, 3, 1, 4, 3, 2, 0, 1, 2, 3, 4]
     total_steps = int(np.ceil(dur / step_sec))
 
     for s in range(total_steps):
         t_s = s * step_sec
-        if t_s >= dur:
+        if t_s >= dur - 1.6:
             break
         sc_idx = 0
-        sc_look = "fogwood"
-        for idx_s, sc in enumerate(scenes or []):
+        for idx_s, sc in enumerate(scenes):
             if float(sc.get("start", 0.0)) <= t_s < float(sc.get("end", dur)):
                 sc_idx = idx_s
-                sc_look = str(sc.get("look") or sc.get("mood") or "fogwood").lower()
                 break
 
-        # In sparse opening fogwood scenes, skip every 3rd note for breathing room
-        if sc_idx == 0 and (s % 3 == 2):
+        if sc_idx == 0 and (s % 4 == 3):
             continue
 
-        chord = chords[(s // 5 + sc_idx) % len(chords)]
-        deg = arp_pattern[(s + sc_idx) % len(arp_pattern)] % len(chord)
-        octave = 1.0 if sc_look in ("hearth", "warm", "amber") else 2.0
-        f0 = chord[deg] * octave
-        n = int(0.92 * SR)
-        t = np.arange(n, dtype=np.float64) / SR
-        env = np.clip(t / 0.006, 0.0, 1.0) * np.exp(-t / 0.36)
-        tine = (
-            0.65 * np.sin(2.0 * np.pi * f0 * t)
-            + 0.24 * np.sin(2.0 * np.pi * (f0 * 2.0) * t) * np.exp(-t / 0.18)
-            + 0.11 * np.sin(2.0 * np.pi * (f0 * 2.756) * t) * np.exp(-t / 0.09)
-        ) * env * 0.17
-        pan = np.sin(s * 0.9 + sc_idx) * 0.35
-        mix_into(stereo, int(round(t_s * SR)), tine, pan=pan)
+        chord = chords[sc_idx % len(chords)]
+        arp_deg = arp_cycle[s % len(arp_cycle)] % len(chord)
+        # Keep piano strictly in warm middle register (196 Hz - 587 Hz)
+        f_arp = chord[arp_deg] * (0.5 if arp_deg >= 3 and (s % 2 == 0) else 1.0)
 
-    stereo = convolve_body_ir(stereo, "forest_canyon", wet=0.44)
-    pocket = _build_foley_pocket_mask(n_samples, scenes, cues, duck_floor=0.56)
-    return stereo * pocket[:, None]
+        vel_arp = 0.62 if sc_idx == 0 else (0.76 if sc_idx in (1, 2) else 0.72)
+        piano_note = _synth_felt_piano_voice(f_arp, 1.15, rng, vel=vel_arp)
+        pan_arp = np.sin(s * 0.6 + sc_idx) * 0.28
+        mix_into(stereo, int(round(t_s * SR)), piano_note, pan=pan_arp)
+
+        # Lyrical Celesta melody strictly capped below 988 Hz (B5)
+        play_melody = (s % 2 == 0) if sc_idx in (1, 2, 3) else (s % 3 == 0)
+        if play_melody:
+            m_deg = melody_degrees[(s // 2 + sc_idx * 2) % len(melody_degrees)] % len(chord)
+            f_mel = chord[m_deg] * (1.0 if chord[m_deg] > 420.0 else 2.0)
+            f_mel = min(f_mel, 987.77)
+            vel_mel = 0.68 if sc_idx == 0 else (0.82 if sc_idx in (1, 3) else 0.78)
+            cel = _synth_celesta_bell(f_mel, 1.25, vel=vel_mel)
+            mix_into(stereo, int(round((t_s + 0.015) * SR)), cel, pan=-pan_arp * 0.8)
+
+    # Gentle 3-note final resolution arpeggio after regular steps finish (no stacking)
+    if dur > 2.2:
+        final_t = max(0.0, dur - 1.55)
+        final_chord = chords[(len(scenes) - 1) % len(chords)]
+        for v_i, nf in enumerate(final_chord[:3]):
+            p_note = _synth_felt_piano_voice(nf, 1.45, rng, vel=0.52)
+            idx_sample = int(round((final_t + v_i * 0.22) * SR))
+            mix_into(stereo, idx_sample, p_note, pan=-0.18 + 0.18 * v_i)
+
+    # Silky, noise-free stereo hall shimmer (decorrelated smooth early reflections, zero comb harshness)
+    reverb_l = np.zeros(n_samples, dtype=np.float64)
+    reverb_r = np.zeros(n_samples, dtype=np.float64)
+    for delay_ms, gain_l, gain_r in [(31.0, 0.14, 0.11), (53.0, 0.10, 0.13), (89.0, 0.08, 0.07), (142.0, 0.05, 0.06), (218.0, 0.035, 0.035)]:
+        d = int(delay_ms * 0.001 * SR)
+        if d < n_samples:
+            reverb_l[d:] += stereo[:-d, 1] * gain_l
+            reverb_r[d:] += stereo[:-d, 0] * gain_r
+    sos_rev = signal.butter(2, 1400.0 / (0.5 * SR), btype="low", output="sos")
+    stereo[:, 0] = stereo[:, 0] * 0.84 + signal.sosfilt(sos_rev, reverb_l)
+    stereo[:, 1] = stereo[:, 1] * 0.84 + signal.sosfilt(sos_rev, reverb_r)
+    return stereo
 
 
 def synth_cello_voice(freq: float, dur: float, mode: str, rng: np.random.Generator) -> np.ndarray:
@@ -1401,7 +1489,7 @@ def synth_cello_voice(freq: float, dur: float, mode: str, rng: np.random.Generat
     t = np.arange(n, dtype=np.float64) / SR
     if mode == "pizz":
         return synth_upright_bass_note(freq, dur, rng) * 0.88
-    # Bowed `arco` with natural rosin bow-hair friction & warm wooden body formants
+    # Bowed `arco` with warm wooden body formants (no harsh high-frequency rosin hiss)
     attack = np.clip(t / min(0.28, dur * 0.25), 0.0, 1.0)
     release = np.clip((dur - t) / min(0.35, dur * 0.3), 0.0, 1.0)
     env = (np.sin(0.5 * np.pi * attack) ** 1.3) * np.sin(0.5 * np.pi * release)
@@ -1410,9 +1498,8 @@ def synth_cello_voice(freq: float, dur: float, mode: str, rng: np.random.Generat
     out = np.zeros(n, dtype=np.float64)
     for k in range(1, 8):
         out += (0.52 / (k ** 1.18)) * np.sin(k * phase + 0.2 * k)
-    rosin = generate_pink_noise(n, rng) * 0.025 * env
-    sos_body = signal.butter(2, [140.0 / (0.5 * SR), 2200.0 / (0.5 * SR)], btype="band", output="sos")
-    return signal.sosfilt(sos_body, out * env + rosin) * 0.32
+    sos_body = signal.butter(2, [95.0 / (0.5 * SR), 1050.0 / (0.5 * SR)], btype="band", output="sos")
+    return signal.sosfilt(sos_body, out * env) * 0.30
 
 
 def synth_fortepiano_note(freq: float, dur: float, rng: np.random.Generator) -> np.ndarray:
@@ -1553,9 +1640,6 @@ def synth_ambient_bed(dur: float, scenes: list, cfg: dict, rng: np.random.Genera
         stereo[s0:s1, 0] += left[: s1 - s0]
         stereo[s0:s1, 1] += right[: s1 - s0]
 
-    air = generate_pink_noise(n_samples, rng) * 0.0022
-    stereo[:, 0] += air
-    stereo[:, 1] += np.roll(air, 37)
     return stereo
 
 
@@ -1603,15 +1687,10 @@ def synth_scene_cut(cfg: dict, preset: str, intensity: float, idx: int, rng: np.
         return out * intensity
 
     if preset == "twilight":
-        dur = 0.72
-        n = int(round(dur * SR))
-        shimmer = slice_grain("crystal_shimmer_grain", n, rng, gain=0.48)
-        leaf = slice_grain("foliage_paw_grain", min(n, int(0.45 * SR)), rng, gain=0.38)
+        dur = 0.75
         f0 = cfg["chime_freqs"][idx % len(cfg["chime_freqs"])]
-        bell = modal_strike(f0, dur, "glass", rng, amp=0.22)
-        out = shimmer + bell[:n]
-        out[: len(leaf)] += leaf
-        return out * intensity
+        warm_bell = _synth_felt_piano_voice(f0, dur, rng, vel=0.55)
+        return warm_bell * (0.45 * intensity)
 
     if preset == "clay":
         dur = 0.55
@@ -1647,8 +1726,8 @@ def synth_card_enter(cfg: dict, preset: str, intensity: float, idx: int, rng: np
     if preset == "twilight":
         dur = 0.26
         n = int(round(dur * SR))
-        strike = modal_strike(f0 * 0.85, dur, "wood", rng, amp=0.20)
-        grain = slice_grain("foliage_paw_grain", n, rng, gain=0.45)
+        strike = modal_strike(f0 * 0.85, dur, "wood", rng, amp=0.16)
+        grain = slice_grain("foliage_paw_grain", n, rng, gain=0.28)
         return (strike[:n] + grain) * intensity
     if preset == "paper":
         dur = 0.25
@@ -1687,9 +1766,8 @@ def synth_layer_float(cfg: dict, preset: str, intensity: float, idx: int, rng: n
         grain = slice_grain("brass_escapement_grain", n, rng, gain=0.30)
         return (strike[:n] + grain) * intensity
     if preset == "twilight":
-        strike = modal_strike(f1, dur, "glass", rng, amp=0.22)
-        grain = slice_grain("crystal_shimmer_grain", n, rng, gain=0.45)
-        return (strike[:n] + grain) * intensity
+        warm_tone = _synth_celesta_bell(min(f1, 659.25), dur, vel=0.50)
+        return warm_tone[:n] * (0.45 * intensity)
     if preset == "paper":
         strike = synth_guqin_note(f1, dur, "open", rng) * 0.45
         grain = slice_grain("cardstock_fold_grain", n, rng, gain=0.35)
@@ -1915,47 +1993,53 @@ def synth_runtime_foley(
         )
         return (shimmer + chord_bell[:n]) * intensity
 
-    # --- TWILIGHT-FABLE FOLEY (Paw Step, Ear Perk, Critter Hop, Water Ripple, Spirit Shimmer, Wood Creak) ---
+    # --- TWILIGHT-FABLE FOLEY (100% Noise-Free, Silky Musical Foley) ---
     if kind == "paw_step":
-        dur = 0.22
+        dur = 0.16
         n = int(round(dur * SR))
-        leaf = slice_grain("foliage_paw_grain", n, rng, gain=0.68)
-        pad = modal_strike(145.0 * p_scale, dur, "wood", rng, amp=0.22)
-        return (leaf + pad[:n]) * intensity
+        t = np.arange(n, dtype=np.float64) / SR
+        # Ultra-soft low velvet cushion thud (62Hz -> 40Hz) with smooth sine attack, zero noise
+        f_pad = (40.0 + 22.0 * np.exp(-t / 0.025)) * p_scale
+        pad = np.sin(2.0 * np.pi * np.cumsum(f_pad) / SR) * np.sin(0.5 * np.pi * np.clip(t / 0.012, 0.0, 1.0)) * np.exp(-t / 0.042)
+        return fade_in_out(pad * 0.08 * intensity, 0.008, 0.03)
 
     if kind == "ear_perk":
-        dur = 0.26
-        n = int(round(dur * SR))
-        t = np.arange(n, dtype=np.float64) / SR
-        f_chirp = (420.0 + 360.0 * (1.0 - np.exp(-t / 0.06))) * p_scale
-        whoosh = time_varying_bandpass(generate_pink_noise(n, rng), f_chirp, 3.8) * np.exp(-t / 0.09) * 0.26
-        spark = modal_strike(1560.0 * p_scale, dur, "glass", rng, amp=0.20)
-        return (whoosh + spark[:n]) * intensity
+        dur = 0.45
+        return _synth_felt_piano_voice(392.00, dur, rng, vel=0.28) * (0.28 * intensity)
 
     if kind == "critter_hop":
-        dur = 0.34
+        dur = 0.55
         n = int(round(dur * SR))
-        t = np.arange(n, dtype=np.float64) / SR
-        f_arc = (240.0 + 320.0 * np.sin(np.pi * np.clip(t / 0.24, 0.0, 1.0))) * p_scale
-        arc = np.sin(2.0 * np.pi * np.cumsum(f_arc) / SR) * np.exp(-t / 0.15) * 0.18
-        leaf = slice_grain("foliage_paw_grain", n, rng, gain=0.55)
-        return (arc + leaf) * intensity
+        n1 = _synth_felt_piano_voice(293.66, dur, rng, vel=0.32)
+        n2 = _synth_felt_piano_voice(440.00, dur, rng, vel=0.28)
+        out = n1[:n].copy()
+        s2 = int(0.07 * SR)
+        if s2 < n:
+            out[s2:] += n2[: n - s2]
+        return fade_in_out(out * (0.30 * intensity), 0.01, 0.05)
 
     if kind == "water_ripple":
-        dur = 0.56
+        dur = 0.65
         n = int(round(dur * SR))
-        stream = slice_grain("stream_bubble_grain", n, rng, gain=0.68)
-        drop = minnaert_bubble(640.0 * p_scale, 0.18, amp=0.26)
-        out = stream.copy()
-        out[: len(drop)] += drop
-        return out * intensity
+        t = np.arange(n, dtype=np.float64) / SR
+        # Pure, round water droplet (smooth sine glide 330Hz -> 440Hz, soft 12ms attack, zero noise)
+        f_drop = (330.0 + 110.0 * (1.0 - np.exp(-t / 0.045))) * p_scale
+        env_d = np.sin(0.5 * np.pi * np.clip(t / 0.012, 0.0, 1.0)) * np.exp(-t / 0.085)
+        drop = np.sin(2.0 * np.pi * np.cumsum(f_drop) / SR) * env_d * 0.11
+        warm_echo = _synth_celesta_bell(523.25, dur, vel=0.26)
+        out = drop + warm_echo[:n] * 0.45
+        return fade_in_out(out * (0.32 * intensity), 0.01, 0.05)
 
     if kind == "spirit_shimmer":
-        dur = 0.64
+        dur = 0.85
         n = int(round(dur * SR))
-        crystal = slice_grain("crystal_shimmer_grain", n, rng, gain=0.68)
-        bell = modal_strike(1318.5 * p_scale, dur, "glass", rng, amp=0.22)
-        return (crystal + bell[:n]) * intensity
+        n1 = _synth_felt_piano_voice(392.00, dur, rng, vel=0.34)
+        n2 = _synth_celesta_bell(587.33, dur, vel=0.28)
+        out = n1[:n].copy()
+        s2 = int(0.11 * SR)
+        if s2 < n:
+            out[s2:] += n2[: n - s2]
+        return fade_in_out(out * (0.32 * intensity), 0.015, 0.06)
 
     if kind == "wood_creak":
         dur = 0.48
@@ -2344,6 +2428,14 @@ def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1
         # Vintage 1930s optical sound-on-film high roll-off at 5.6 kHz for authentic warm celluloid tone
         sos_lp = signal.butter(2, 5600.0 / (0.5 * SR), btype="low", output="sos")
         out = signal.sosfilt(sos_lp, out, axis=0)
+    elif preset == "twilight":
+        # Warm picture-book nocturnal tone: roll off harsh highs above 2.6 kHz
+        sos_lp = signal.butter(2, 2600.0 / (0.5 * SR), btype="low", output="sos")
+        out = signal.sosfilt(sos_lp, out, axis=0)
+    else:
+        # Gentle high roll-off at 6.8 kHz across all other styles so no preset has piercing >7kHz transients
+        sos_lp = signal.butter(2, 6800.0 / (0.5 * SR), btype="low", output="sos")
+        out = signal.sosfilt(sos_lp, out, axis=0)
 
     # Measure RMS only on active (non-silent) regions so dramatic silence holds are never pumped up
     mono_abs = np.max(np.abs(out), axis=1)
@@ -2353,17 +2445,17 @@ def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1
     else:
         active_rms = np.sqrt(np.mean(out ** 2) + 1e-12)
 
-    # Preserve wide Crest Factor for dramatic ink-wash scores while keeping healthy loudness
-    target_rms = 0.115 if preset == "ink" else 0.135
-    max_gain = 2.4 if preset == "ink" else 3.6
+    # Preserve wide Crest Factor for dramatic ink-wash & gentle twilight scores while keeping healthy loudness
+    target_rms = 0.095 if preset == "twilight" else (0.115 if preset == "ink" else 0.135)
+    max_gain = 1.8 if preset == "twilight" else (2.4 if preset == "ink" else 3.6)
     gain = float(np.clip(target_rms / active_rms, 0.55, max_gain))
     out = out * gain
 
     # Soft-knee transparent limiting only above knee_thresh (0.68 ~ -3.3 dBFS) so silence & quiet passages stay linear
-    knee_thresh = 0.68
+    knee_thresh = 0.95 if preset == "twilight" else 0.68
     mag = np.abs(out)
     over = mag > knee_thresh
-    if np.any(over):
+    if np.any(over) and preset != "twilight":
         sign = np.sign(out[over])
         excess = (mag[over] - knee_thresh) / (1.0 - knee_thresh)
         out[over] = sign * (knee_thresh + (1.0 - knee_thresh) * np.tanh(excess))
@@ -2573,6 +2665,7 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
     room_size = 0.34 if preset in ("ink", "twilight", "naturalist") else 0.22
     room_wet = 0.14 if preset in ("ink", "twilight", "naturalist") else 0.08
 
+    last_action_t = {}
     for idx, cue in enumerate(cues):
         t = float(cue.get("t", 0.0))
         kind = str(cue.get("kind", "card_enter"))
@@ -2591,6 +2684,11 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
             pan = float(np.clip(((cue_crc % 100) - 50) / 125.0, -0.40, 0.40))
 
         action = _resolve_cue_semantic_action(kind, label, preset)
+        if action != "scene_cut":
+            min_gap = 0.65 if action in ("paw_step", "critter_hop", "foot_step", "boing_hop") else (0.40 if preset == "twilight" else 0.24)
+            if action in last_action_t and (t - last_action_t[action]) < min_gap:
+                continue
+            last_action_t[action] = t
 
         if action == "scene_cut":
             if preset == "ink":

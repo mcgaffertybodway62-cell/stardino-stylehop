@@ -237,57 +237,41 @@ def gen_brass_escapement_grain(seed: int = 1003) -> np.ndarray:
 
 
 def gen_foliage_paw_grain(seed: int = 1004) -> np.ndarray:
-    """Organic moss/grass/leaf cellular rustle & soft paw pad compression (0.80s)."""
+    """Warm, soft velvet paw pad on damp moss (low-passed, zero harsh high-frequency hiss)."""
     rng = np.random.default_rng(seed)
     dur = 0.80
     n = int(dur * SR)
     out = np.zeros(n, dtype=np.float64)
 
-    # 3 distinct paw-step/rustle gestures at t=0.02, 0.28, 0.54 for slicing variety
     for idx, t0 in enumerate([0.02, 0.28, 0.54]):
         gn = int(0.22 * SR)
         gt = np.arange(gn, dtype=np.float64) / SR
-        # Soft mossy pad thud (75Hz -> 42Hz)
-        f_pad = 42.0 + 38.0 * np.exp(-gt / 0.018)
-        pad = np.sin(2.0 * np.pi * np.cumsum(f_pad) / SR) * np.exp(-gt / 0.036) * (1.0 - np.exp(-gt / 0.002)) * 0.48
-        # Grass blade / dry leaf micro-cellular rustle cluster (25 micro-grains)
-        rustle = np.zeros(gn, dtype=np.float64)
-        for _ in range(26):
-            at_g = float(rng.beta(1.5, 2.8) * 0.16)
-            ilen = int(rng.uniform(0.004, 0.016) * SR)
-            it = np.arange(ilen) / SR
-            f_leaf = float(rng.uniform(1600.0, 6800.0))
-            grain = bp(pink_noise(ilen, rng), f_leaf * 0.65, min(12000.0, f_leaf * 1.45)) * np.sin(np.pi * it / (ilen / SR)) ** 1.4
-            add_at(rustle, grain, at_g, float(rng.uniform(0.2, 0.7)))
-        swish = time_varying_bp(pink_noise(gn, rng), 900.0 + 1800.0 * np.exp(-((gt - 0.05) / 0.05) ** 2), q=2.6) * np.exp(-((gt - 0.055) / 0.055) ** 2) * 0.38
-        add_at(out, pad + rustle + swish, t0, 1.0 - 0.08 * idx)
+        f_pad = 48.0 + 32.0 * np.exp(-gt / 0.022)
+        pad = np.sin(2.0 * np.pi * np.cumsum(f_pad) / SR) * np.exp(-gt / 0.045) * (1.0 - np.exp(-gt / 0.004)) * 0.55
+        swish = bp(pink_noise(gn, rng), 220.0, 1100.0) * np.exp(-((gt - 0.05) / 0.045) ** 2) * 0.18
+        add_at(out, lp(pad + swish, 1300.0), t0, 1.0 - 0.08 * idx)
 
-    return fade_norm(out, 0.002, 0.02)
+    return fade_norm(out, 0.005, 0.03, peak=0.48)
 
 
 def gen_stream_bubble_grain(seed: int = 1005) -> np.ndarray:
-    """Natural mountain brook turbulence + Minnaert bubble pinch-off cascade (1.35s)."""
+    """Gentle, warm nocturnal lake ripple & soft low-mid water droplets (1.35s)."""
     rng = np.random.default_rng(seed)
     dur = 1.35
     n = int(dur * SR)
     t = np.arange(n, dtype=np.float64) / SR
 
-    # Flowing water bed with cavity modulation
-    lfo1 = np.sin(2.0 * np.pi * 1.8 * t + 0.3) * 0.5 + 0.5
-    lfo2 = np.sin(2.0 * np.pi * 4.3 * t + 1.1) * 0.5 + 0.5
-    stream_lo = bp(pink_noise(n, rng), 240.0, 980.0) * (0.45 + 0.35 * lfo1) * 0.42
-    stream_hi = bp(pink_noise(n, rng), 1100.0, 4800.0) * (0.40 + 0.40 * lfo2) * 0.32
-    out = stream_lo + stream_hi
+    lfo1 = np.sin(2.0 * np.pi * 1.4 * t + 0.3) * 0.5 + 0.5
+    stream_lo = bp(pink_noise(n, rng), 180.0, 720.0) * (0.45 + 0.35 * lfo1) * 0.30
+    out = stream_lo
 
-    # 28 scattered Minnaert bubbles across the 1.35s grain
-    for at in np.sort(rng.uniform(0.02, dur - 0.06, 28)):
-        f0 = float(rng.uniform(420.0, 1950.0))
-        bdur = float(rng.uniform(0.022, 0.052))
-        mult = float(rng.uniform(1.75, 2.45))
-        bub = minnaert_bubble(f0, bdur, mult)
-        add_at(out, bub, float(at), float(rng.uniform(0.25, 0.85)))
+    for at in np.sort(rng.uniform(0.05, dur - 0.08, 9)):
+        f0 = float(rng.uniform(280.0, 620.0))
+        bdur = float(rng.uniform(0.032, 0.058))
+        bub = minnaert_bubble(f0, bdur, 1.42)
+        add_at(out, bub, float(at), float(rng.uniform(0.20, 0.48)))
 
-    return fade_norm(out, 0.015, 0.025)
+    return fade_norm(lp(out, 1500.0), 0.02, 0.04, peak=0.52)
 
 
 def gen_ceramic_clink_grain(seed: int = 1006) -> np.ndarray:
@@ -403,26 +387,24 @@ def gen_vinyl_optical_grain(seed: int = 1010) -> np.ndarray:
 
 
 def gen_crystal_shimmer_grain(seed: int = 1011) -> np.ndarray:
-    """High-harmonic glass armonica & celesta bell dust shimmer (1.20s)."""
+    """Warm mid-register harmonic pad & soft wooden-bell shimmer (1.20s, zero high-frequency piercing)."""
     rng = np.random.default_rng(seed)
     dur = 1.20
     n = int(dur * SR)
     t = np.arange(n, dtype=np.float64) / SR
     out = np.zeros(n, dtype=np.float64)
 
-    # Glass armonica rubbed crystal bowls (slowly blooming pure harmonics)
-    env_rub = np.sin(np.pi * np.power(t / dur, 0.72)) ** 1.3
-    for f_rub, amp in [(1046.5, 0.38), (1567.98, 0.30), (2093.0, 0.22), (2637.02, 0.16)]:
-        vib = 1.0 + 0.003 * np.sin(2.0 * np.pi * 5.2 * t + rng.uniform(0, 6.28))
+    env_rub = np.sin(np.pi * np.power(t / dur, 0.75)) ** 1.4
+    for f_rub, amp in [(261.63, 0.42), (392.00, 0.34), (523.25, 0.26), (659.25, 0.18)]:
+        vib = 1.0 + 0.0025 * np.sin(2.0 * np.pi * 4.5 * t + rng.uniform(0, 6.28))
         out += amp * env_rub * np.sin(2.0 * np.pi * np.cumsum(f_rub * vib) / SR)
 
-    # Scattered micro crystal bell sparkles
-    for at in np.sort(rng.uniform(0.04, dur - 0.18, 9)):
-        f_bell = float(rng.choice([2093.0, 2637.0, 3136.0, 3951.0, 4186.0]) * rng.uniform(0.992, 1.008))
-        ping = modal_cluster(f_bell, [1.0, 2.002, 2.756], [1.0, 0.42, 0.18], [0.22, 0.12, 0.06], 0.28, rng)
-        add_at(out, ping, float(at), float(rng.uniform(0.28, 0.65)))
+    for at in np.sort(rng.uniform(0.08, dur - 0.22, 5)):
+        f_bell = float(rng.choice([523.25, 659.25, 783.99, 987.77]) * rng.uniform(0.996, 1.004))
+        ping = modal_cluster(f_bell, [1.0, 2.0], [1.0, 0.25], [0.28, 0.12], 0.32, rng)
+        add_at(out, ping, float(at), float(rng.uniform(0.18, 0.35)))
 
-    return fade_norm(out, 0.005, 0.04)
+    return fade_norm(lp(out, 1800.0), 0.015, 0.06, peak=0.50)
 
 
 def gen_canyon_air_ir(seed: int = 1012) -> np.ndarray:

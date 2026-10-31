@@ -373,11 +373,14 @@ export async function main(argv = process.argv.slice(2)) {
         for (const c of pageCues) rawCollected.push(c);
       }
       rawCollected.sort((a, b) => a.t - b.t);
+      const locomotionKinds = new Set(['paw_step', 'foot_step', 'critter_hop', 'boing_hop', 'cartoon_boing']);
+      const domKinds = new Set(['scene_cut', 'card_enter', 'stroke_draw', 'count_tick', 'layer_float']);
       const allCollectedCues = [];
       for (const c of rawCollected) {
         const cId = `${c.kind}:${c.label || c.kind}`;
+        const minGap = locomotionKinds.has(c.kind) ? 0.65 : domKinds.has(c.kind) ? 0.08 : 0.42;
         const dup = allCollectedCues.some(
-          (p) => `${p.kind}:${p.label || p.kind}` === cId && Math.abs(p.t - c.t) < 0.08
+          (p) => `${p.kind}:${p.label || p.kind}` === cId && Math.abs(p.t - c.t) < minGap
         );
         if (!dup) allCollectedCues.push(c);
       }
@@ -435,6 +438,9 @@ export async function main(argv = process.argv.slice(2)) {
         path.join(framesDir, 'frame_%05d.jpg'),
       ];
       if (wavPath && fs.existsSync(wavPath)) {
+        const isGentlePreset = soundPreset === 'twilight' || soundPreset === 'twilight-fable' || soundPreset === 'ink' || soundPreset === 'ink-wash';
+        const targetI = voiceWav ? -16 : isGentlePreset ? -19 : -17;
+        const targetTp = voiceWav ? -1.2 : -1.5;
         ffArgs.push(
           '-i',
           wavPath,
@@ -447,7 +453,7 @@ export async function main(argv = process.argv.slice(2)) {
           '-pix_fmt',
           'yuv420p',
           '-af',
-          'loudnorm=I=-15:TP=-1.2:LRA=20',
+          `loudnorm=I=${targetI}:TP=${targetTp}:LRA=20`,
           '-c:a',
           'aac',
           '-b:a',

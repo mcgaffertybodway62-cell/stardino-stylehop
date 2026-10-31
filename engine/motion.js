@@ -473,10 +473,13 @@ export function extractCues(root) {
 /**
  * Registers a deterministic semantic audio cue from 2D/3D character acting (`puppet2d.js`, `puppet.js`, `critter2d.js`)
  * or dynamic world primitives (`drawGesturalWave`, `bookDirector` page turns, Wuxia action primitives) into `window.CUES.cues`.
- * Automatically deduplicates cues of the same `(kind, label)` within 90ms so multi-frame renders stay idempotent.
+ * Automatically deduplicates cues of the same `(kind, label)` within a physical refractory window (650ms for steps/hops,
+ * 420ms for other runtime foley) so multi-frame renders stay idempotent and never stack rapid-fire foley noise.
  *
  * @param {{ t: number, kind: string, scene?: string, label?: string, intensity?: number }} cue
  */
+const LOCOMOTION_CUE_KINDS = new Set(['paw_step', 'foot_step', 'critter_hop', 'boing_hop', 'cartoon_boing']);
+
 export function registerRuntimeCue(cue) {
   if (typeof window === 'undefined' || !window.CUES || !Array.isArray(window.CUES.cues)) return;
   if (!cue || typeof cue.t !== 'number' || Number.isNaN(cue.t) || cue.t < 0) return;
@@ -486,7 +489,8 @@ export function registerRuntimeCue(cue) {
   const label = String(cue.label || kind);
   const t = +cue.t.toFixed(3);
   const list = window.CUES.cues;
-  const dup = list.some((c) => c.kind === kind && (c.label || c.kind) === label && Math.abs(c.t - t) < 0.09);
+  const minGap = LOCOMOTION_CUE_KINDS.has(kind) ? 0.65 : 0.42;
+  const dup = list.some((c) => c.kind === kind && (c.label || c.kind) === label && Math.abs(c.t - t) < minGap);
   if (dup) return;
   const entry = {
     t,

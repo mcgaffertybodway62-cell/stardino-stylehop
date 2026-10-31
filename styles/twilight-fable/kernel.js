@@ -2389,14 +2389,15 @@ export function drawTwilightCritter(ctx, simStateIn, lights = [], t = 0) {
     const frameT = ctx.__inkFrame.t ?? t ?? 0;
     const scId = ctx.__inkFrame.scene?.id || 'stage';
     const gY = simStateIn.groundY ?? (pelvis.y + 42 * scale);
-    if ((simStateIn.pelvis.vy ?? 0) < -160 && (gY - pelvis.y) > 52 * scale) {
-      registerRuntimeCue({ t: frameT, kind: 'critter_hop', scene: scId, label: 'critter_hop', intensity: 0.72 });
+    const liftY = gY - pelvis.y;
+    if ((simStateIn.pelvis.vy ?? 0) < -185 && liftY > 48 * scale && liftY < 76 * scale) {
+      registerRuntimeCue({ t: frameT, kind: 'critter_hop', scene: scId, label: 'critter_hop', intensity: 0.52 });
     } else if (
       simStateIn.feet?.frontL &&
-      Math.abs(simStateIn.feet.frontL.vx ?? 0) > 35 &&
-      Math.abs((simStateIn.feet.frontL.y ?? gY) - gY) < 6 * scale
+      Math.abs(simStateIn.feet.frontL.vx ?? 0) > 48 &&
+      Math.abs((simStateIn.feet.frontL.y ?? gY) - gY) < 3.2 * scale
     ) {
-      registerRuntimeCue({ t: frameT, kind: 'paw_step', scene: scId, label: 'paw_step', intensity: 0.62 });
+      registerRuntimeCue({ t: frameT, kind: 'paw_step', scene: scId, label: 'paw_step', intensity: 0.42 });
     }
   }
   const build = sim.build || CRITTER_BUILD_DEFAULTS;
