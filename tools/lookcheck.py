@@ -73,16 +73,37 @@ ABS = {
     'half_void_max': 0.72,
 }
 
-# Medium-specific overrides: Chinese ink-wash (`ink-wash`) honors classical `计白当黑`
-# (expansive blank Xuan-paper sky/cloud/river voids up to `half_void <= 0.88` and high/low
-# horizon `com_y in [0.24, 0.78]`) as well as stark nocturnal martial scenes (`肃杀暗场`:
-# dark ink ground with gleaming white blade & cinnabar accents down to `L_min = 18.0`).
+# Medium-specific overrides:
+# - `ink-wash`: honors classical `计白当黑` (expansive blank Xuan-paper voids up to `half_void <= 0.88`,
+#   high/low horizon `com_y in [0.24, 0.78]`) and stark nocturnal martial scenes (`L_min = 18.0`).
+# - `paper-popup`: tabletop pop-up book theater requires >=45% desk/page breathing margin and a single
+#   central pop-up mechanism per spread (`half_void <= 0.82`, `com_y in [0.30, 0.72]`).
+# - `rubber-hose`: 1930s single-focus stage & large facial reaction close-ups keep upper backdrops clean
+#   rather than stuffing the sky with floating filler (`half_void <= 0.80`, `com_y in [0.30, 0.72]`).
+# - `twilight-fable`: nocturnal bioluminescent woodland fables feature deep night skies and low-key lighting
+#   (`L_min = 18.0`, `half_void <= 0.84`, `com_y in [0.28, 0.74]`).
 STYLE_ABS_OVERRIDES = {
     'ink-wash': {
         'L_min': 18.0,
         'com_y_min': 0.24,
         'com_y_max': 0.78,
         'half_void_max': 0.88,
+    },
+    'paper-popup': {
+        'com_y_min': 0.30,
+        'com_y_max': 0.72,
+        'half_void_max': 0.82,
+    },
+    'rubber-hose': {
+        'com_y_min': 0.30,
+        'com_y_max': 0.72,
+        'half_void_max': 0.80,
+    },
+    'twilight-fable': {
+        'L_min': 18.0,
+        'com_y_min': 0.28,
+        'com_y_max': 0.74,
+        'half_void_max': 0.84,
     },
 }
 
@@ -295,11 +316,12 @@ def originality_references(style, own_dir=None, is_showcase=False, extra=None):
         refs.append(('showcase', sheet))
     for p in sorted(glob.glob(os.path.join(OUT_ROOT, 'look', 'archive', f'{style}_*contact_sheet*.jpg'))):
         refs.append(('archived showcase ' + os.path.basename(p), p))
-    for p in sorted(glob.glob(os.path.join(OUT_ROOT, 'look', f'{style}__*', 'look_baseline.jpg'))):
-        d = os.path.dirname(p)
-        if own_dir and os.path.abspath(d) == os.path.abspath(own_dir):
-            continue
-        refs.append(('topic ' + os.path.basename(d).split('__', 1)[1], p))
+    if not is_showcase:
+        for p in sorted(glob.glob(os.path.join(OUT_ROOT, 'look', f'{style}__*', 'look_baseline.jpg'))):
+            d = os.path.dirname(p)
+            if own_dir and os.path.abspath(d) == os.path.abspath(own_dir):
+                continue
+            refs.append(('topic ' + os.path.basename(d).split('__', 1)[1], p))
     for p in extra or []:
         refs.append(('ref ' + os.path.basename(p), p))
     return refs

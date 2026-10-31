@@ -4,8 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>World 05 · 工程蓝图 3D 浮岛 (Three.js 外部资产与 34s 柔体叙事沙盒)</title>
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../../../../engine/vendor/three.min.js"></script>
+  <script>
+    if (typeof THREE !== 'undefined' && !THREE.PlaneBufferGeometry) {
+      THREE.PlaneBufferGeometry = THREE.PlaneGeometry;
+      THREE.BoxBufferGeometry = THREE.BoxGeometry;
+      THREE.CylinderBufferGeometry = THREE.CylinderGeometry;
+      THREE.SphereBufferGeometry = THREE.SphereGeometry;
+      THREE.ConeBufferGeometry = THREE.ConeGeometry;
+      THREE.TorusBufferGeometry = THREE.TorusGeometry;
+      THREE.CircleBufferGeometry = THREE.CircleGeometry;
+      THREE.RingBufferGeometry = THREE.RingGeometry;
+    }
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>

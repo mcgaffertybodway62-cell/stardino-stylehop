@@ -129,11 +129,14 @@ export function quantizePaperTime(t, fps = 24, blend = 0.22) {
 export function evalPaperFold(globalFold = 1.0, staggerIndex = 0, staggerStep = 0.05) {
   const raw = clamp((globalFold - staggerIndex * staggerStep) / Math.max(0.15, 1.0 - staggerIndex * staggerStep), 0, 1);
   const springVal = raw <= 0.001 ? 0 : easeOutBack(raw);
-  const clamped = clamp(springVal, 0, 1);
+  const clamped = clamp(springVal, 0, 1.08);
+  // True 3D crease-hinge rotation (`rotationX` swings from 85deg flat on the page to 0deg upright),
+  // while rigid cardstock height stays near 1.0 during the swing and only tucks flat when folded (< 0.12).
+  const rigidScaleY = raw <= 0.005 ? 0.02 : smootherstep(0.0, 0.12, raw) * lerp(0.88, 1.0, clamp(springVal, 0, 1.05));
   return {
-    rotationX: (1.0 - clamped) * 1.42,
-    scaleY: Math.max(0.02, springVal),
-    liftY: (1.0 - clamped) * 0.04,
+    rotationX: (1.0 - clamped) * 1.48,
+    scaleY: Math.max(0.02, rigidScaleY),
+    liftY: (1.0 - clamp(springVal, 0, 1)) * 0.03,
     progress: raw,
   };
 }
@@ -185,6 +188,10 @@ export function evalOrigamiWingFlap(t, speed = 5.0, phase = 0.0) {
   return { flap, neckNod, hoverY };
 }
 
+/**
+ * Continuous, fluid multi-hop physics with anticipation crouch, airborne stretch & pitch,
+ * and landing cushion (`evalContinuousHopChain`).
+ */
 export function evalContinuousHopChain(u, numHops = 5, jumpHeight = 0.75) {
   const t = clamp(u, 0.0, 1.0);
   const phase = t * numHops;
@@ -193,16 +200,59 @@ export function evalContinuousHopChain(u, numHops = 5, jumpHeight = 0.75) {
   const baseLinear = phase / numHops;
   const surge = (local - Math.sin(local * Math.PI * 2) / (Math.PI * 2)) / numHops;
   const progressX = clamp(lerp(baseLinear, (hopIdx + surge * numHops) / numHops, 0.35), 0.0, 1.0);
-  const air = clamp((local - 0.12) / 0.88, 0, 1);
-  const y = local < 0.12 ? 0 : Math.sin(air * Math.PI) * jumpHeight;
-  return { y, squashY: 1.0, pitch: 0.0, progressX, hopIdx, local };
+
+  let y = 0.0;
+  let squashY = 1.0;
+  let pitch = 0.0;
+  if (local < 0.14) {
+    // Phase 1: Anticipation crouch before takeoff
+    const c = local / 0.14;
+    y = 0.0;
+    squashY = 1.0 - 0.32 * Math.sin(c * Math.PI);
+    pitch = 0.15 * Math.sin(c * Math.PI);
+  } else {
+    // Phase 2: Parabolic flight with velocity stretch & pitch
+    const air = clamp((local - 0.14) / 0.86, 0, 1);
+    y = Math.sin(air * Math.PI) * jumpHeight;
+    const vy = Math.cos(air * Math.PI);
+    squashY = 0.95 + Math.abs(vy) * 0.28;
+    pitch = -vy * 0.18;
+  }
+  return { y, squashY, pitch, progressX, hopIdx, local };
 }
 
+/**
+ * Deliberate targeted 3-phase jump (`evalTargetedJump`):
+ *   - Phase 1 `[0.00..0.22]`: Anticipation aiming crouch on platform (`squashY -> 0.58`)
+ *   - Phase 2 `[0.22..0.86]`: Parabolic flight from `startPos` to `endPos` with velocity stretch & pitch
+ *   - Phase 3 `[0.86..1.00]`: Landing cushion & elastic recovery on target
+ */
 export function evalTargetedJump(u, startPos, endPos, arcHeight = 1.2) {
   const t = clamp(u, 0.0, 1.0);
-  const pos = new THREE.Vector3().lerpVectors(startPos, endPos, smootherstep(0, 1, t));
-  pos.y += Math.sin(t * Math.PI) * arcHeight;
-  return { pos, squashY: 1.0, pitch: 0.0 };
+  const pos = new THREE.Vector3();
+  let squashY = 1.0;
+  let pitch = 0.0;
+
+  if (t < 0.22) {
+    const c = t / 0.22;
+    pos.copy(startPos);
+    squashY = lerp(1.0, 0.58, Math.sin(c * Math.PI * 0.5));
+    pitch = c * 0.24;
+  } else if (t < 0.86) {
+    const air = (t - 0.22) / 0.64;
+    const smoothAir = smootherstep(0.0, 1.0, air);
+    pos.lerpVectors(startPos, endPos, smoothAir);
+    pos.y += Math.sin(air * Math.PI) * arcHeight;
+    const vy = Math.cos(air * Math.PI);
+    squashY = 0.94 + Math.abs(vy) * 0.32;
+    pitch = -vy * 0.22;
+  } else {
+    const land = (t - 0.86) / 0.14;
+    pos.copy(endPos);
+    squashY = 1.0 - 0.32 * Math.sin(land * Math.PI);
+    pitch = (1.0 - land) * 0.12;
+  }
+  return { pos, squashY, pitch };
 }
 
 // ============================================================================
@@ -1515,6 +1565,7 @@ export function createPopUpBookBase(makeCardstockMat, options = {}) {
         item.userData.setFold(fClamped, i);
       } else if (item.scale) {
         const f = evalPaperFold(fClamped, i, 0.045);
+        if (item.rotation) item.rotation.x = f.rotationX;
         item.scale.y = f.scaleY;
       }
     });
@@ -1608,6 +1659,7 @@ export function buildPaperGround(makeCardstockMat, opts = {}) {
 
   function setFold(u = 1.0, staggerIdx = 0) {
     const f = evalPaperFold(u, staggerIdx);
+    foldPivot.rotation.x = f.rotationX;
     foldPivot.scale.y = f.scaleY;
     foldPivot.position.y = f.liftY;
   }
@@ -1744,64 +1796,105 @@ export function buildPaperPath(makeCardstockMat, opts = {}) {
 }
 
 /**
- * Geometric Crease-Folded Origami Paper Boat (`createPaperBoat`) with optional glowing star lantern.
+ * Geometric Crease-Folded Origami Paper Boat (`createPaperBoat`) with multi-facet hull,
+ * inner deck creases, double-peak origami canopy/sail, and optional glowing star lantern.
  */
 export function createPaperBoat(makeCardstockMat, options = {}) {
   const group = new THREE.Group();
   group.name = 'OrigamiPaperBoat';
   const scale = options.scale || 1.25;
   const hullHex = options.color || PAPER_PALETTE.origamiWhite;
+  const deckHex = options.deckColor || PAPER_PALETTE.deckleCream;
   const sailHex = options.sailColor || PAPER_PALETTE.lanternGold;
 
   const foldPivot = new THREE.Group();
   group.add(foldPivot);
 
-  const hullMat = makeCardstockMat(hullHex, { roughness: 0.74, flatShading: true });
+  const hullMat = makeCardstockMat(hullHex, { roughness: 0.72, flatShading: true });
+  const deckMat = makeCardstockMat(deckHex, { roughness: 0.76, flatShading: true });
   const sailMat = makeCardstockMat(sailHex, {
-    roughness: 0.62,
+    roughness: 0.58,
     emissive: sailHex,
-    emissiveIntensity: 0.25,
+    emissiveIntensity: 0.28,
     flatShading: true,
   });
 
-  const L = 0.78 * scale;
-  const H = 0.28 * scale;
-  const W = 0.34 * scale;
+  const L = 0.84 * scale;
+  const H = 0.32 * scale;
+  const W = 0.36 * scale;
 
-  const hullPos = new Float32Array([
-    -L, H * 0.9, 0, 0, H * 0.35, W, -L * 0.62, 0, 0,
-    0, H * 0.35, W, L, H * 0.9, 0, L * 0.62, 0, 0,
-    0, H * 0.35, W, L * 0.62, 0, 0, -L * 0.62, 0, 0,
-    -L, H * 0.9, 0, -L * 0.62, 0, 0, 0, H * 0.35, -W,
-    0, H * 0.35, -W, L * 0.62, 0, 0, L, H * 0.9, 0,
-    0, H * 0.35, -W, -L * 0.62, 0, 0, L * 0.62, 0, 0,
-  ]);
-  const hullGeo = new THREE.BufferGeometry();
-  hullGeo.setAttribute('position', new THREE.BufferAttribute(hullPos, 3));
-  hullGeo.computeVertexNormals();
-  const hullMesh = new THREE.Mesh(hullGeo, hullMat);
-  hullMesh.castShadow = true;
-  addWhitePaperEdge(hullMesh, 0.92, 1);
-  foldPivot.add(hullMesh);
+  function buildTri(pts, mat) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts.flat()), 3));
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    addWhitePaperEdge(m, 0.94, 1);
+    return m;
+  }
 
-  const sailH = 0.68 * scale;
-  const sailW = 0.32 * scale;
-  const sailD = 0.18 * scale;
-  const sailPos = new Float32Array([
-    0, sailH, 0, -sailW, H * 0.2, 0, 0, H * 0.2, sailD,
-    0, sailH, 0, 0, H * 0.2, sailD, sailW, H * 0.2, 0,
-    0, sailH, 0, 0, H * 0.2, -sailD, -sailW, H * 0.2, 0,
-    0, sailH, 0, sailW, H * 0.2, 0, 0, H * 0.2, -sailD,
-  ]);
-  const sailGeo = new THREE.BufferGeometry();
-  sailGeo.setAttribute('position', new THREE.BufferAttribute(sailPos, 3));
-  sailGeo.computeVertexNormals();
-  const sailMesh = new THREE.Mesh(sailGeo, sailMat);
-  sailMesh.castShadow = true;
-  addWhitePaperEdge(sailMesh, 0.95, 1);
-  foldPivot.add(sailMesh);
+  // Outer multi-facet origami hull + inner folded deck triangles
+  const bow = [L, H * 0.95, 0];
+  const stern = [-L, H * 0.95, 0];
+  const keelF = [L * 0.58, 0, 0];
+  const keelB = [-L * 0.58, 0, 0];
+  const gunwaleNearF = [L * 0.36, H * 0.48, W];
+  const gunwaleNearB = [-L * 0.36, H * 0.48, W];
+  const gunwaleFarF = [L * 0.36, H * 0.48, -W];
+  const gunwaleFarB = [-L * 0.36, H * 0.48, -W];
+  const deckCenter = [0, H * 0.24, 0];
 
-  if (options.withStar) {
+  foldPivot.add(
+    // Near hull facets
+    buildTri([bow, keelF, gunwaleNearF], hullMat),
+    buildTri([gunwaleNearF, keelF, keelB], hullMat),
+    buildTri([gunwaleNearF, keelB, gunwaleNearB], hullMat),
+    buildTri([gunwaleNearB, keelB, stern], hullMat),
+    // Far hull facets
+    buildTri([bow, gunwaleFarF, keelF], hullMat),
+    buildTri([gunwaleFarF, keelB, keelF], hullMat),
+    buildTri([gunwaleFarF, gunwaleFarB, keelB], hullMat),
+    buildTri([gunwaleFarB, stern, keelB], hullMat),
+    // Folded bow/stern deck hoods & inner deck floor
+    buildTri([bow, gunwaleNearF, deckCenter], deckMat),
+    buildTri([bow, deckCenter, gunwaleFarF], deckMat),
+    buildTri([stern, deckCenter, gunwaleNearB], deckMat),
+    buildTri([stern, gunwaleFarB, deckCenter], deckMat),
+    buildTri([gunwaleNearF, gunwaleNearB, deckCenter], deckMat),
+    buildTri([gunwaleFarB, gunwaleFarF, deckCenter], deckMat)
+  );
+
+  // Classic origami central peak sail + secondary aft fold peak
+  const sailH = 0.74 * scale;
+  const sailW = 0.34 * scale;
+  const sailD = 0.21 * scale;
+  const peakMain = [0.06 * scale, sailH, 0];
+  const peakAft = [-0.22 * scale, sailH * 0.68, 0];
+  foldPivot.add(
+    buildTri([peakMain, [-sailW * 0.5, H * 0.22, 0], [0.06 * scale, H * 0.22, sailD]], sailMat),
+    buildTri([peakMain, [0.06 * scale, H * 0.22, sailD], [sailW, H * 0.22, 0]], sailMat),
+    buildTri([peakMain, [0.06 * scale, H * 0.22, -sailD], [-sailW * 0.5, H * 0.22, 0]], sailMat),
+    buildTri([peakMain, [sailW, H * 0.22, 0], [0.06 * scale, H * 0.22, -sailD]], sailMat),
+    buildTri([peakAft, [-sailW * 1.05, H * 0.26, 0], [-0.18 * scale, H * 0.24, sailD * 0.82]], hullMat),
+    buildTri([peakAft, [-0.18 * scale, H * 0.24, -sailD * 0.82], [-sailW * 1.05, H * 0.26, 0]], hullMat)
+  );
+
+  if (options.withStar !== false) {
+    const lanternGeo = new THREE.OctahedronGeometry(0.11 * scale, 0);
+    const lanternMesh = new THREE.Mesh(
+      lanternGeo,
+      makeCardstockMat(PAPER_PALETTE.lanternGold, {
+        roughness: 0.35,
+        emissive: PAPER_PALETTE.lanternWarm,
+        emissiveIntensity: 0.85,
+        flatShading: true,
+      })
+    );
+    lanternMesh.position.set(L * 0.78, H * 1.05, 0);
+    addWhitePaperEdge(lanternMesh, 0.95, 1);
+    foldPivot.add(lanternMesh);
+
     const glow = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: getRadialGlowTexture(),
@@ -1810,13 +1903,14 @@ export function createPaperBoat(makeCardstockMat, options = {}) {
         opacity: 0.72,
       })
     );
-    glow.position.set(0, sailH + 0.14 * scale, 0);
-    glow.scale.set(1.1 * scale, 1.1 * scale, 1);
+    glow.position.set(L * 0.78, H * 1.05, 0);
+    glow.scale.set(1.15 * scale, 1.15 * scale, 1);
     foldPivot.add(glow);
   }
 
   function setFold(u = 1.0, staggerIdx = 0) {
     const f = evalPaperFold(u, staggerIdx);
+    foldPivot.rotation.x = f.rotationX;
     foldPivot.scale.y = f.scaleY;
     foldPivot.position.y = f.liftY;
   }
@@ -2069,11 +2163,18 @@ export function createOrigamiButterfly(makeCardstockMat, opts = {}) {
 }
 
 /**
- * Crease-Folded Geometric Origami Fox (`createOrigamiFox`) — pure triangular facets, zero cartoon features.
+ * Articulated Crease-Folded 3D Origami Fox (`createOrigamiFox`) with:
+ *   - `foldPivot` for 3D crease-hinge unfolding from the book page (`setFold`)
+ *   - `bodyPivot` for 3-phase anticipation crouch, airborne stretch & landing squash (`setPose` / `act`)
+ *   - 4 articulated crease-folded origami legs (`frontLeftLeg`, `frontRightLeg`, `backLeftLeg`, `backRightLeg`)
+ *   - Multi-facet origami torso with white chest bib (`chestColor`) and crisp white paper edges
+ *   - `headPivot` with pointed origami ears, inner ear creases, black nose tip, and faceted obsidian eyes with white catchlights
+ *   - 8-facet diamond-section origami brush `tailPivot` with white tail tip (`tailTipColor`)
  */
 export function createOrigamiFox(makeCardstockMat, opts = {}) {
   const {
     color = PAPER_PALETTE.canyonAmber,
+    shadeColor = PAPER_PALETTE.canyonTerra,
     chestColor = PAPER_PALETTE.origamiWhite,
     tailTipColor = PAPER_PALETTE.origamiWhite,
     scale = 1.0,
@@ -2083,68 +2184,267 @@ export function createOrigamiFox(makeCardstockMat, opts = {}) {
   group.name = 'OrigamiFox';
   const s = scale * 0.62;
 
-  function buildTri(pts, hex) {
+  const foldPivot = new THREE.Group();
+  group.add(foldPivot);
+
+  const bodyPivot = new THREE.Group();
+  foldPivot.add(bodyPivot);
+
+  function buildTri(pts, hex, edgeAlpha = 0.94) {
     const geo = new THREE.BufferGeometry();
     const arr = new Float32Array(pts.flat());
     geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, makeCardstockMat(hex, { roughness: 0.72, flatShading: true }));
+    const mesh = new THREE.Mesh(geo, makeCardstockMat(hex, { roughness: 0.7, flatShading: true }));
     mesh.castShadow = true;
-    addWhitePaperEdge(mesh, 0.94, 1);
+    mesh.receiveShadow = true;
+    if (edgeAlpha > 0) addWhitePaperEdge(mesh, edgeAlpha, 1);
     return mesh;
   }
 
+  const legH = 0.44 * s;
+  function buildOrigamiLeg(xOff, zOff, isFront) {
+    const legPivot = new THREE.Group();
+    legPivot.position.set(xOff, legH, zOff);
+    const w = 0.13 * s;
+    const d = 0.11 * s;
+    const pawX = isFront ? 0.05 * s : -0.02 * s;
+    // Upper amber prism facets + white/dark origami paw tip at y = -legH
+    legPivot.add(
+      buildTri([[0, 0, d], [w, -legH * 0.65, 0], [-w * 0.8, -legH * 0.65, 0]], color),
+      buildTri([[0, 0, -d], [-w * 0.8, -legH * 0.65, 0], [w, -legH * 0.65, 0]], shadeColor),
+      buildTri([[0, 0, d], [w, 0, 0], [w, -legH * 0.65, 0]], color),
+      buildTri([[0, 0, -d], [w, -legH * 0.65, 0], [w, 0, 0]], shadeColor),
+      // Lower paw facets
+      buildTri([[w, -legH * 0.65, 0], [pawX + w * 0.85, -legH, d * 0.65], [-w * 0.7, -legH, 0]], 0x2a1d1b),
+      buildTri([[w, -legH * 0.65, 0], [-w * 0.7, -legH, 0], [pawX + w * 0.85, -legH, -d * 0.65]], 0x2a1d1b)
+    );
+    return legPivot;
+  }
+
+  const frontLeftLeg = buildOrigamiLeg(0.36 * s, 0.22 * s, true);
+  const frontRightLeg = buildOrigamiLeg(0.36 * s, -0.22 * s, true);
+  const backLeftLeg = buildOrigamiLeg(-0.44 * s, 0.24 * s, false);
+  const backRightLeg = buildOrigamiLeg(-0.44 * s, -0.24 * s, false);
+  bodyPivot.add(frontLeftLeg, frontRightLeg, backLeftLeg, backRightLeg);
+
+  // Multi-facet Origami Torso elevated cleanly on the 4 legs
   const bodyGroup = new THREE.Group();
+  bodyGroup.position.y = legH * 0.82;
+  const pRumpTop = [-0.52 * s, 0.68 * s, 0];
+  const pWithers = [0.38 * s, 0.92 * s, 0];
+  const pChestPeak = [0.76 * s, 0.52 * s, 0];
+  const pBellyF = [0.46 * s, 0.04 * s, 0];
+  const pBellyB = [-0.48 * s, 0.08 * s, 0];
+  const pFlankNearF = [0.48 * s, 0.28 * s, 0.32 * s];
+  const pFlankNearB = [-0.58 * s, 0.22 * s, 0.30 * s];
+  const pFlankFarF = [0.48 * s, 0.28 * s, -0.32 * s];
+  const pFlankFarB = [-0.58 * s, 0.22 * s, -0.30 * s];
+
   bodyGroup.add(
-    buildTri([[-0.65 * s, 0, 0.32 * s], [0.55 * s, 0, 0.28 * s], [0.35 * s, 0.95 * s, 0]], color),
-    buildTri([[-0.65 * s, 0, 0.32 * s], [0.35 * s, 0.95 * s, 0], [-0.45 * s, 0.72 * s, 0]], color),
-    buildTri([[-0.65 * s, 0, -0.32 * s], [0.35 * s, 0.95 * s, 0], [0.55 * s, 0, -0.28 * s]], color),
-    buildTri([[-0.65 * s, 0, -0.32 * s], [-0.45 * s, 0.72 * s, 0], [0.35 * s, 0.95 * s, 0]], color),
-    buildTri([[0.55 * s, 0, 0.28 * s], [0.72 * s, 0.55 * s, 0], [0.35 * s, 0.95 * s, 0]], chestColor),
-    buildTri([[0.55 * s, 0, -0.28 * s], [0.35 * s, 0.95 * s, 0], [0.72 * s, 0.55 * s, 0]], chestColor)
+    // Near dorsal & flank facets
+    buildTri([pRumpTop, pFlankNearB, pWithers], color),
+    buildTri([pWithers, pFlankNearB, pFlankNearF], color),
+    buildTri([pFlankNearB, pBellyB, pBellyF], shadeColor),
+    buildTri([pFlankNearB, pBellyF, pFlankNearF], shadeColor),
+    // Far dorsal & flank facets
+    buildTri([pRumpTop, pWithers, pFlankFarB], shadeColor),
+    buildTri([pWithers, pFlankFarF, pFlankFarB], shadeColor),
+    buildTri([pFlankFarB, pBellyF, pBellyB], shadeColor),
+    buildTri([pFlankFarB, pFlankFarF, pBellyF], shadeColor),
+    // Crisp white origami chest bib (`chestColor`)
+    buildTri([pWithers, pFlankNearF, pChestPeak], chestColor),
+    buildTri([pChestPeak, pFlankNearF, pBellyF], chestColor),
+    buildTri([pWithers, pChestPeak, pFlankFarF], chestColor),
+    buildTri([pChestPeak, pBellyF, pFlankFarF], chestColor)
   );
-  group.add(bodyGroup);
+  bodyPivot.add(bodyGroup);
 
+  // Articulated Origami Head with Pointed Ears, Black Nose Tip & Faceted Obsidian Eyes
   const headPivot = new THREE.Group();
-  headPivot.position.set(0.42 * s, 0.92 * s, 0);
+  headPivot.position.set(0.44 * s, legH * 0.82 + 0.88 * s, 0);
+  const pCrown = [0.02 * s, 0.32 * s, 0];
+  const pBridge = [0.42 * s, 0.14 * s, 0];
+  const pNose = [0.82 * s, -0.06 * s, 0];
+  const pNoseBase = [0.64 * s, -0.02 * s, 0];
+  const pCheekNear = [0.16 * s, -0.14 * s, 0.38 * s];
+  const pCheekFar = [0.16 * s, -0.14 * s, -0.38 * s];
+  const pJaw = [0.18 * s, -0.24 * s, 0];
+
   headPivot.add(
-    buildTri([[0, 0.25 * s, 0], [0.75 * s, -0.08 * s, 0], [0.12 * s, -0.15 * s, 0.34 * s]], color),
-    buildTri([[0, 0.25 * s, 0], [0.12 * s, -0.15 * s, -0.34 * s], [0.75 * s, -0.08 * s, 0]], color),
-    buildTri([[0.12 * s, -0.15 * s, 0.34 * s], [0.75 * s, -0.08 * s, 0], [0.12 * s, -0.22 * s, 0]], chestColor),
-    buildTri([[0.12 * s, -0.15 * s, -0.34 * s], [0.12 * s, -0.22 * s, 0], [0.75 * s, -0.08 * s, 0]], chestColor),
-    buildTri([[-0.05 * s, 0.12 * s, 0.1 * s], [0.12 * s, 0.68 * s, 0.26 * s], [0.18 * s, 0.1 * s, 0.28 * s]], color),
-    buildTri([[-0.05 * s, 0.12 * s, -0.1 * s], [0.18 * s, 0.1 * s, -0.28 * s], [0.12 * s, 0.68 * s, -0.26 * s]], color)
+    // Upper skull & muzzle facets
+    buildTri([pCrown, pBridge, pCheekNear], color),
+    buildTri([pBridge, pNoseBase, pCheekNear], color),
+    buildTri([pCrown, pCheekFar, pBridge], shadeColor),
+    buildTri([pBridge, pCheekFar, pNoseBase], shadeColor),
+    // White lower cheek ruff & jaw facets
+    buildTri([pCheekNear, pNoseBase, pJaw], chestColor),
+    buildTri([pCheekFar, pJaw, pNoseBase], chestColor),
+    // Dark charcoal origami nose cone at snout tip
+    buildTri([pNoseBase, pNose, [0.62 * s, -0.08 * s, 0.11 * s]], 0x221716, 0.5),
+    buildTri([pNoseBase, [0.62 * s, -0.08 * s, -0.11 * s], pNose], 0x221716, 0.5),
+    // Pointed origami ears (outer amber + inner cream fold)
+    buildTri([[-0.06 * s, 0.18 * s, 0.08 * s], [0.10 * s, 0.78 * s, 0.28 * s], [0.22 * s, 0.14 * s, 0.30 * s]], color),
+    buildTri([[0.02 * s, 0.20 * s, 0.14 * s], [0.10 * s, 0.68 * s, 0.27 * s], [0.20 * s, 0.16 * s, 0.28 * s]], chestColor),
+    buildTri([[-0.06 * s, 0.18 * s, -0.08 * s], [0.22 * s, 0.14 * s, -0.30 * s], [0.10 * s, 0.78 * s, -0.28 * s]], shadeColor),
+    buildTri([[0.02 * s, 0.20 * s, -0.14 * s], [0.20 * s, 0.16 * s, -0.28 * s], [0.10 * s, 0.68 * s, -0.27 * s]], chestColor),
+    // Crisp dark origami eye facets + tiny white paper catchlight triangles on both sides
+    buildTri([[0.28 * s, 0.08 * s, 0.24 * s], [0.44 * s, 0.02 * s, 0.20 * s], [0.32 * s, -0.02 * s, 0.28 * s]], 0x1e1412, 0),
+    buildTri([[0.31 * s, 0.06 * s, 0.25 * s], [0.36 * s, 0.04 * s, 0.24 * s], [0.33 * s, 0.02 * s, 0.26 * s]], 0xfffdf8, 0),
+    buildTri([[0.28 * s, 0.08 * s, -0.24 * s], [0.32 * s, -0.02 * s, -0.28 * s], [0.44 * s, 0.02 * s, -0.20 * s]], 0x1e1412, 0),
+    buildTri([[0.31 * s, 0.06 * s, -0.25 * s], [0.33 * s, 0.02 * s, -0.26 * s], [0.36 * s, 0.04 * s, -0.24 * s]], 0xfffdf8, 0)
   );
-  group.add(headPivot);
+  bodyPivot.add(headPivot);
 
+  // 8-Facet 3D Diamond-Section Origami Brush Tail
   const tailPivot = new THREE.Group();
-  tailPivot.position.set(-0.58 * s, 0.18 * s, 0);
-  tailPivot.add(
-    buildTri([[0, 0, 0], [-0.62 * s, 0.42 * s, 0.18 * s], [-0.45 * s, 0.68 * s, 0]], color),
-    buildTri([[0, 0, 0], [-0.45 * s, 0.68 * s, 0], [-0.62 * s, 0.42 * s, -0.18 * s]], color),
-    buildTri([[-0.62 * s, 0.42 * s, 0.18 * s], [-1.05 * s, 0.92 * s, 0], [-0.45 * s, 0.68 * s, 0]], tailTipColor),
-    buildTri([[-0.62 * s, 0.42 * s, -0.18 * s], [-0.45 * s, 0.68 * s, 0], [-1.05 * s, 0.92 * s, 0]], tailTipColor)
-  );
-  group.add(tailPivot);
+  tailPivot.position.set(-0.56 * s, legH * 0.82 + 0.34 * s, 0);
+  const tBase = [0, 0, 0];
+  const tMidTop = [-0.52 * s, 0.56 * s, 0];
+  const tMidBot = [-0.48 * s, 0.18 * s, 0];
+  const tMidNear = [-0.50 * s, 0.38 * s, 0.24 * s];
+  const tMidFar = [-0.50 * s, 0.38 * s, -0.24 * s];
+  const tTip = [-1.12 * s, 0.86 * s, 0];
 
+  tailPivot.add(
+    buildTri([tBase, tMidNear, tMidTop], color),
+    buildTri([tBase, tMidBot, tMidNear], shadeColor),
+    buildTri([tBase, tMidTop, tMidFar], shadeColor),
+    buildTri([tBase, tMidFar, tMidBot], shadeColor),
+    buildTri([tMidNear, tTip, tMidTop], tailTipColor),
+    buildTri([tMidBot, tTip, tMidNear], tailTipColor),
+    buildTri([tMidTop, tTip, tMidFar], tailTipColor),
+    buildTri([tMidFar, tTip, tMidBot], tailTipColor)
+  );
+  bodyPivot.add(tailPivot);
+
+  function setPose(pose = {}) {
+    const sy = clamp(pose.squashY ?? 1.0, 0.55, 1.45);
+    const sxz = 1.0 / Math.sqrt(sy);
+    bodyPivot.scale.set(sxz, sy, sxz);
+    bodyPivot.rotation.z = pose.pitch ?? 0.0;
+    bodyPivot.rotation.y = pose.yaw ?? 0.0;
+
+    const stride = pose.stridePhase ?? 0.0;
+    const air = clamp((sy - 1.0) * 2.2, -0.6, 0.8);
+    if (Math.abs(stride) > 0.001) {
+      const sA = Math.sin(stride) * 0.48;
+      const sB = Math.cos(stride) * 0.48;
+      frontLeftLeg.rotation.z = sA;
+      backRightLeg.rotation.z = sA;
+      frontRightLeg.rotation.z = -sA;
+      backLeftLeg.rotation.z = -sA;
+      headPivot.rotation.z = Math.sin(stride * 2) * 0.08 + (pose.headPitch ?? 0);
+      tailPivot.rotation.z = Math.sin(stride) * 0.22 + (pose.tailWag ?? 0);
+      tailPivot.rotation.y = sB * 0.35;
+    } else {
+      frontLeftLeg.rotation.z = air * 0.55;
+      frontRightLeg.rotation.z = air * 0.45;
+      backLeftLeg.rotation.z = -air * 0.65;
+      backRightLeg.rotation.z = -air * 0.55;
+      headPivot.rotation.z = (pose.headPitch ?? 0) - air * 0.18;
+      headPivot.rotation.y = pose.headYaw ?? 0;
+      tailPivot.rotation.z = (pose.tailWag ?? 0) + air * 0.32;
+    }
+  }
+
+  function act(localT = 0, actOpts = {}) {
+    const mode = actOpts.mode || 'trot';
+    if (mode === 'hop') {
+      const hop = evalContinuousHopChain(
+        (localT * (actOpts.speed ?? 0.45)) % 1.0,
+        actOpts.numHops ?? 3,
+        actOpts.jumpHeight ?? 0.55
+      );
+      bodyPivot.position.y = hop.y;
+      setPose({
+        squashY: hop.squashY,
+        pitch: hop.pitch,
+        headPitch: Math.sin(localT * 4.2) * 0.1,
+        tailWag: Math.sin(localT * 6.5) * 0.24,
+      });
+      return hop;
+    }
+    bodyPivot.position.y = Math.abs(Math.sin(localT * 5.2)) * 0.06;
+    setPose({
+      squashY: 1.0 - 0.06 * Math.cos(localT * 10.4),
+      stridePhase: localT * 5.2,
+      headYaw: Math.sin(localT * 2.4) * 0.18,
+      tailWag: Math.sin(localT * 5.2) * 0.22,
+    });
+    return null;
+  }
+
+  function setFold(u = 1.0, staggerIdx = 0) {
+    const f = evalPaperFold(u, staggerIdx);
+    foldPivot.rotation.x = f.rotationX;
+    foldPivot.scale.y = f.scaleY;
+    foldPivot.position.y = f.liftY;
+  }
+
+  group.group = group;
+  group.pivot = group;
+  group.foldPivot = foldPivot;
+  group.bodyPivot = bodyPivot;
   group.headPivot = headPivot;
   group.tailPivot = tailPivot;
-  group.userData = { headPivot, tailPivot };
+  group.frontLeftLeg = frontLeftLeg;
+  group.frontRightLeg = frontRightLeg;
+  group.backLeftLeg = backLeftLeg;
+  group.backRightLeg = backRightLeg;
+  group.setPose = setPose;
+  group.act = act;
+  group.setFold = setFold;
+  group.userData = {
+    foldPivot,
+    bodyPivot,
+    headPivot,
+    tailPivot,
+    frontLeftLeg,
+    frontRightLeg,
+    backLeftLeg,
+    backRightLeg,
+    setPose,
+    act,
+    setFold,
+  };
   return group;
 }
 
 export function createPaperPineTree(makeCardstockMat, height = 1.0, hexColor = 0x264d59) {
   const group = new THREE.Group();
-  const mat = makeCardstockMat(hexColor, { roughness: 0.8 });
+  group.name = 'OrigamiPineTree';
+  const foldPivot = new THREE.Group();
+  group.add(foldPivot);
+
+  const trunkMat = makeCardstockMat(0x4a2533, { roughness: 0.84, flatShading: true });
+  const trunkGeo = new THREE.BoxGeometry(0.14 * height, 0.28 * height, 0.06 * height);
+  trunkGeo.translate(0, 0.14 * height, 0);
+  const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
+  addWhitePaperEdge(trunkMesh, 0.78, 8);
+  foldPivot.add(trunkMesh);
+
+  const mat = makeCardstockMat(hexColor, { roughness: 0.76, flatShading: true });
   for (let t = 0; t < 3; t++) {
-    const r = (0.36 - t * 0.08) * height;
+    const r = (0.38 - t * 0.08) * height;
     const h = 0.42 * height;
     const cone = new THREE.ConeGeometry(r, h, 4);
-    cone.translate(0, 0.25 * height + t * 0.24 * height + h * 0.5, 0);
+    cone.translate(0, 0.22 * height + t * 0.24 * height + h * 0.5, 0);
     const m = new THREE.Mesh(cone, mat);
-    addWhitePaperEdge(m, 0.85, 8);
-    group.add(m);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    addWhitePaperEdge(m, 0.9, 8);
+    foldPivot.add(m);
   }
+
+  function setFold(u = 1.0, staggerIdx = 0) {
+    const f = evalPaperFold(u, staggerIdx);
+    foldPivot.rotation.x = f.rotationX;
+    foldPivot.scale.y = f.scaleY;
+  }
+
+  group.setFold = setFold;
+  group.userData = { foldPivot, setFold };
   return group;
 }
 

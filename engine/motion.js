@@ -206,6 +206,20 @@ export function prepareScenes(root) {
   const layerEls = [...root.querySelectorAll(':scope > [data-layer]')];
 
   let cursor = 0;
+  const parseSceneTimeAttr = (raw, dur, fallback) => {
+    if (raw === undefined || raw === null || raw === '') return fallback;
+    const str = String(raw).trim();
+    if (str.endsWith('%')) {
+      const pct = parseFloat(str);
+      if (Number.isFinite(pct)) return clamp((pct / 100) * dur, 0.15, Math.max(0.15, dur - 0.15));
+    }
+    const val = parseFloat(str);
+    if (!Number.isFinite(val)) return fallback;
+    // Values in (0, 1] without 's' suffix are treated as normalized scene progress; > 1 or 's' suffix as local seconds
+    const sec = !str.endsWith('s') && val > 0 && val <= 1.0 ? val * dur : val;
+    return clamp(sec, 0.15, Math.max(0.15, dur - 0.15));
+  };
+
   const scenes = frameEls.map((el, index) => {
     const id = el.dataset.scene || `scene-${index + 1}`;
     const title = el.dataset.title || id;
@@ -214,11 +228,29 @@ export function prepareScenes(root) {
     const start = +cursor.toFixed(4);
     const end = +(cursor + dur).toFixed(4);
     cursor = end;
-    // Representative settled timestamp inside this scene (for contact sheets & audits)
-    const localSettle = Math.min(dur - 0.25, Math.max(dur * 0.72, Math.min(dur * 0.86, rawSettle)));
+    // Representative settled timestamp inside this scene (for contact sheets & audits).
+    // Scenes may specify `data-settle` or `data-keyframe` (seconds, fraction 0..1, or percentage)
+    // so contact sheets capture genuine peak action instead of forcing a frozen pose at 76%.
+    const autoSettle = Math.min(dur - 0.25, Math.max(dur * 0.72, Math.min(dur * 0.86, rawSettle)));
+    const localSettle = parseSceneTimeAttr(el.dataset.settle, dur, autoSettle);
+    const localKeyframe = parseSceneTimeAttr(el.dataset.keyframe ?? el.dataset.settle, dur, localSettle);
     const settle = +(start + localSettle).toFixed(3);
+    const keyframe = +(start + localKeyframe).toFixed(3);
     const layers = layerEls.filter((l) => !l.dataset.scene || l.dataset.scene === id);
-    return { index, id, title, start, dur, end, settle, localSettle: +localSettle.toFixed(3), el, layers };
+    return {
+      index,
+      id,
+      title,
+      start,
+      dur,
+      end,
+      settle,
+      keyframe,
+      localSettle: +localSettle.toFixed(3),
+      localKeyframe: +localKeyframe.toFixed(3),
+      el,
+      layers,
+    };
   });
 
   const totalDur = +(cursor || 4).toFixed(3);
@@ -462,6 +494,7 @@ export function extractCues(root) {
       dur: s.dur,
       end: s.end,
       settle: s.settle,
+      keyframe: s.keyframe,
       mood: s.el?.dataset?.mood || null,
       look: s.el?.dataset?.look || null,
       silence: s.el?.dataset?.silence || null,

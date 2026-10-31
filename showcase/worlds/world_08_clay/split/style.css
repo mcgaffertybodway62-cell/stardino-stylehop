@@ -108,3 +108,17 @@
     .clay-pill-btn:active {
       transform: scale(0.93);
     }
+
+    /* Offline / Sandbox Fallback Utility Rules */
+    .hidden { display: none !important; }
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .relative { position: relative; }
+    .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .pointer-events-none { pointer-events: none; }
+    .pointer-events-auto { pointer-events: auto; }
+    .opacity-0 { opacity: 0; }

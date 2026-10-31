@@ -226,7 +226,7 @@ function pickRepresentativeStills(o, dur, cues) {
   if (o.stills && o.stills.length) return o.stills;
   const scenes = cues?.scenes || [];
   if (scenes.length > 0) {
-    return scenes.map((s) => s.settle ?? +(s.start + s.dur * 0.76).toFixed(2));
+    return scenes.map((s) => s.keyframe ?? s.settle ?? +(s.start + s.dur * 0.76).toFixed(2));
   }
   return [0.22, 0.48, 0.74, 0.94].map((f) => +(f * dur).toFixed(2));
 }

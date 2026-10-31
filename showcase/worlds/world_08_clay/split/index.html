@@ -4,8 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>StyleHop v5 · World 10: 移轴微缩粘土书桌 (Three.js 3D 外部资产与互动沙盒)</title>
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../../../../engine/vendor/three.min.js"></script>
+  <script>
+    if (typeof THREE !== 'undefined' && !THREE.PlaneBufferGeometry) {
+      THREE.PlaneBufferGeometry = THREE.PlaneGeometry;
+      THREE.BoxBufferGeometry = THREE.BoxGeometry;
+      THREE.CylinderBufferGeometry = THREE.CylinderGeometry;
+      THREE.SphereBufferGeometry = THREE.SphereGeometry;
+      THREE.ConeBufferGeometry = THREE.ConeGeometry;
+      THREE.TorusBufferGeometry = THREE.TorusGeometry;
+      THREE.CircleBufferGeometry = THREE.CircleGeometry;
+      THREE.RingBufferGeometry = THREE.RingGeometry;
+    }
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css">
 </head>

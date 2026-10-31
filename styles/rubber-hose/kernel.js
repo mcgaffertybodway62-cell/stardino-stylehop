@@ -259,6 +259,70 @@ export function evalSwingBounce(t, bpm = 132, phase = 0) {
 }
 
 /**
+ * Evaluates a 3-beat 1930s Cartoon Reaction "Take" (`evalCartoonTake`):
+ *   - Beat 1 (`[triggerT - windupDur, triggerT]`): Anticipation compression crouch (`squashY < 1`)
+ *   - Beat 2 (`[triggerT, triggerT + popDur]`): Explosive upward stretch, eye-pop, jaw-drop & hat-jump
+ *   - Beat 3 (`[triggerT + popDur, triggerT + popDur + settleDur]`): Damped elastic oscillation settle
+ */
+export function evalCartoonTake(localT, triggerT = 0.55, opts = {}) {
+  const windupDur = opts.windupDur ?? 0.28;
+  const popDur = opts.popDur ?? 0.65;
+  const settleDur = opts.settleDur ?? 0.55;
+  const intensity = opts.intensity ?? 1.0;
+  const t0 = triggerT - windupDur;
+
+  if (localT <= t0) {
+    return { squashX: 1, squashY: 1, eyePop: 0, jawDrop: 0, hatJump: 0, jumpY: 0, shakeX: 0, phase: 'idle' };
+  }
+  if (localT < triggerT) {
+    const u = smootherstep(t0, triggerT, localT);
+    const sy = 1.0 - 0.30 * Math.sin(u * Math.PI * 0.5) * intensity;
+    return {
+      squashX: 1.0 / Math.sqrt(sy),
+      squashY: sy,
+      eyePop: 0,
+      jawDrop: 0,
+      hatJump: 0,
+      jumpY: 0,
+      shakeX: Math.sin(localT * 48) * 4 * u * intensity,
+      phase: 'anticipation',
+    };
+  }
+  if (localT < triggerT + popDur) {
+    const u = (localT - triggerT) / Math.max(0.001, popDur);
+    const env = Math.sin(u * Math.PI);
+    const holdEnv = u < 0.25 ? smootherstep(0, 0.25, u) : u > 0.8 ? 1.0 - smootherstep(0.8, 1.0, u) : 1.0;
+    const sy = 1.0 + 0.34 * env * intensity;
+    return {
+      squashX: 1.0 / Math.sqrt(sy),
+      squashY: sy,
+      eyePop: holdEnv * intensity,
+      jawDrop: holdEnv * intensity,
+      hatJump: holdEnv * 48 * intensity,
+      jumpY: -env * 38 * intensity,
+      shakeX: Math.sin(localT * 55) * 3.5 * holdEnv * intensity,
+      phase: 'pop',
+    };
+  }
+  if (localT < triggerT + popDur + settleDur) {
+    const u = (localT - (triggerT + popDur)) / Math.max(0.001, settleDur);
+    const damp = Math.exp(-u * 4.5) * Math.cos(u * Math.PI * 3.5);
+    const sy = 1.0 - 0.14 * damp * intensity;
+    return {
+      squashX: 1.0 / Math.sqrt(sy),
+      squashY: sy,
+      eyePop: Math.max(0, (1 - u * 2) * 0.25 * intensity),
+      jawDrop: Math.max(0, (1 - u * 2) * 0.25 * intensity),
+      hatJump: Math.max(0, (1 - u * 1.8) * 10 * intensity),
+      jumpY: 0,
+      shakeX: 0,
+      phase: 'settle',
+    };
+  }
+  return { squashX: 1, squashY: 1, eyePop: 0, jawDrop: 0, hatJump: 0, jumpY: 0, shakeX: 0, phase: 'done' };
+}
+
+/**
  * Volume-preserving 2D cartoon squash & stretch (`sx * sy^2 = const -> sx = 1 / sqrt(sy)`).
  */
 export function evalVolumeSquash(squashY = 1.0) {
@@ -852,6 +916,7 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
   const spacing = opts.spacing ?? r * 1.38;
   const lookX = clamp(opts.lookX ?? 0.25, -1, 1);
   const lookY = clamp(opts.lookY ?? -0.05, -1, 1);
+  const eyePop = clamp(opts.eyePop ?? 0, 0, 1.5);
   const t = opts.t ?? 0;
   const brows = opts.brows !== false;
   const single = opts.single ?? false;
@@ -870,6 +935,24 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
     ctx.save();
     ctx.translate(ex, ey);
 
+    // 1930s Tex Avery / Fleischer telescopic eye-pop stalks when `eyePop > 0.05`
+    const popDx = eyePop > 0.05 ? (lookX >= 0 ? 1 : -1) * eyePop * r * 1.65 + (isRight ? 4 : -4) * eyePop : 0;
+    const popDy = eyePop > 0.05 ? -eyePop * r * 0.55 + Math.sin(t * 36 + idx * 2) * eyePop * 2.5 : 0;
+    if (eyePop > 0.05) {
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.38);
+      ctx.lineTo(popDx, popDy - r * 0.46);
+      ctx.lineTo(popDx, popDy + r * 0.46);
+      ctx.lineTo(0, r * 0.38);
+      ctx.closePath();
+      ctx.fillStyle = RUBBER_PALETTE.paperCream;
+      ctx.fill();
+      ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+      ctx.lineWidth = Math.max(2.4, r * 0.18);
+      ctx.stroke();
+      ctx.translate(popDx, popDy);
+    }
+
     if (mode === 'happy' || (mode === 'wink' && isRight)) {
       ctx.beginPath();
       ctx.arc(0, r * 0.2, r * 0.85, Math.PI * 1.12, Math.PI * 1.88);
@@ -879,8 +962,9 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
     } else {
       // Tall oval cream eye socket
       ctx.save();
-      const sy = mode === 'shock' ? aspectY * 1.15 : aspectY;
-      ctx.scale(1.0, sy);
+      const popScale = 1.0 + eyePop * 0.38;
+      const sy = (mode === 'shock' || eyePop > 0.1 ? aspectY * 1.18 : aspectY) * popScale;
+      ctx.scale(popScale, sy);
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fillStyle = RUBBER_PALETTE.paperCream;
@@ -910,9 +994,9 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
         ctx.lineTo(dir * r * 0.38, 0);
         ctx.lineTo(-dir * r * 0.45, r * 0.42);
         ctx.stroke();
-      } else if (mode === 'shock') {
+      } else if (mode === 'shock' || eyePop > 0.15) {
         ctx.beginPath();
-        ctx.arc(lookX * r * 0.28, lookY * r * 0.22, r * 0.36, 0, Math.PI * 2);
+        ctx.arc(lookX * r * 0.28, lookY * r * 0.22, r * (0.34 - eyePop * 0.08), 0, Math.PI * 2);
         ctx.fillStyle = RUBBER_PALETTE.inkBlack;
         ctx.fill();
       } else {
@@ -930,11 +1014,15 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
         ctx.fill();
       }
       ctx.restore();
+
+      if (eyePop > 0.25) {
+        drawVibrationTicks(ctx, 0, 0, r * 1.45, { count: 2, rot: idx * 0.5 });
+      }
     }
 
     // Expressive 1930s Eyebrow
     if (brows) {
-      const browY = -r * aspectY - r * 0.35;
+      const browY = -r * aspectY - r * 0.35 - eyePop * r * 0.55;
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
       ctx.lineWidth = Math.max(3.0, r * 0.25);
       ctx.beginPath();
@@ -953,7 +1041,7 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
           browY - r * 0.15
         );
       } else {
-        const lift = mode === 'shock' ? -r * 0.25 : 0;
+        const lift = mode === 'shock' || eyePop > 0.1 ? -r * (0.25 + eyePop * 0.35) : 0;
         ctx.arc(0, browY + r * 0.35 + lift, r * 0.85, Math.PI * 1.15, Math.PI * 1.85);
       }
       ctx.stroke();
@@ -969,9 +1057,10 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
  * `mode`: `'grin' | 'sing' | 'roar' | 'whistle' | 'ooh' | 'teeth'`.
  */
 export function drawCartoonMouth(ctx, x, y, opts = {}) {
-  const mode = opts.mode || 'grin';
-  const w = opts.width ?? 28;
-  const h = opts.height ?? 18;
+  const jawDrop = clamp(opts.jawDrop ?? 0, 0, 1.5);
+  const mode = jawDrop > 0.15 ? 'roar' : opts.mode || 'grin';
+  const w = (opts.width ?? 28) * (1 + jawDrop * 0.35);
+  const h = (opts.height ?? 18) * (1 + jawDrop * 1.25);
   const t = opts.t ?? 0;
 
   ctx.save();
@@ -1341,10 +1430,10 @@ export function drawCelluloidBackdrop(ctx, width, height, look = RUBBER_LOOK_PRE
   ctx.fillRect(0, 0, width, height);
 
   // 2. Backdrop undulating musical staff lines
-  ctx.strokeStyle = rgba(lk.staffColor || RUBBER_PALETTE.sepiaMid, 0.38);
+  ctx.strokeStyle = rgba(lk.staffColor || RUBBER_PALETTE.sepiaMid, 0.34);
   ctx.lineWidth = Math.max(1.5, 2.0 * vpScale);
   const staffBaseY = horizonY - 115 * vpScale;
-  const sway = Math.sin(t * 2.2) * 10 * vpScale;
+  const sway = Math.sin(t * 1.6) * 2.5 * vpScale;
   for (let i = 0; i < 5; i++) {
     const sy = staffBaseY + i * 16 * vpScale;
     ctx.beginPath();
@@ -2138,17 +2227,56 @@ export function drawElasticKeyboardRoad(ctx, controlPts, opts = {}) {
  *   - Two expressive rubber-hose arms in 4-finger white cartoon gloves
  *   - Soundwave blast rings, comic impact starburst (`impactFlash`), and golden logarithmic vortex (`vortexStrength`)
  */
+export function getGramophoneSockets(cx, cy, opts = {}) {
+  const scale = opts.scale ?? 1.0;
+  const t = opts.t ?? 0;
+  const pivotX = cx + 20;
+  const pivotY = cy + 220;
+  const cabSquashY = opts.cabSquashY ?? 1.0;
+  const cabW = 240.0 / Math.max(0.45, Math.sqrt(cabSquashY));
+  const cabH = 110.0 * cabSquashY;
+  const cabBaseY = cy + 275.0;
+  const cabCy = cabBaseY - cabH * 0.5;
+  const cabCx = cx + 20.0;
+  const cabX = cabCx - cabW * 0.5;
+  const crankX = cabX + cabW;
+  const crankY = cabCy;
+  const crankRot = t * (opts.crankSpeed ?? 5.2);
+  const hubLocalX = crankX + 36;
+  const hubLocalY = crankY + 18;
+  const knobLocalX = hubLocalX + Math.cos(crankRot) * 14;
+  const knobLocalY = hubLocalY + Math.sin(crankRot) * 14;
+  const neckLeanX = opts.neckLeanX ?? Math.sin(t * 4.6) * 10;
+  const neckStretchY = opts.neckStretchY ?? Math.cos(t * 4.6) * 8;
+  const bellCx = cx - 180 + neckLeanX;
+  const bellCy = cy - 60 - neckStretchY;
+  const toWorld = (lx, ly) => [
+    pivotX + (lx - pivotX) * scale,
+    pivotY + (ly - pivotY) * scale,
+  ];
+  return {
+    crankHub: toWorld(hubLocalX, hubLocalY),
+    crankKnob: toWorld(knobLocalX, knobLocalY),
+    hornBell: toWorld(bellCx, bellCy),
+    forehead: toWorld(bellCx + 30, bellCy - 76),
+    cabinetTop: toWorld(cabCx, cabCy - cabH * 0.5),
+  };
+}
+
 export function drawAnthropomorphicGramophone(ctx, cx, cy, opts = {}) {
   const scale = opts.scale ?? 1.0;
   const t = opts.t ?? 0;
-  const swing = evalSwingBounce(t, opts.bpm ?? 132, opts.phase ?? 0);
+  const bounceEnabled = opts.bounce !== false;
+  const swing = bounceEnabled
+    ? evalSwingBounce(t, opts.bpm ?? 132, opts.phase ?? 0)
+    : { squashY: 1.0, squashX: 1.0, footTap: 0, bounce: 0, sway: 0 };
   const stunned = !!opts.stunned;
   const eyeMode = opts.eyeMode || (stunned ? 'dizzy' : 'pie');
   const cabSquashY = opts.cabSquashY ?? swing.squashY;
   const footTapAngle = opts.footTapAngle ?? swing.footTap;
   const recoilAngle = opts.recoilAngle ?? 0;
-  const neckLeanX = opts.neckLeanX ?? Math.sin(t * 4.6) * 10;
-  const neckStretchY = opts.neckStretchY ?? Math.cos(t * 4.6) * 8;
+  const neckLeanX = opts.neckLeanX ?? (bounceEnabled ? Math.sin(t * 4.6) * 10 : 0);
+  const neckStretchY = opts.neckStretchY ?? (bounceEnabled ? Math.cos(t * 4.6) * 8 : 0);
   const hornSquashX = opts.hornSquashX ?? 1.0;
   const hornSquashY = opts.hornSquashY ?? 1.0;
   const spitBlast = opts.spitBlast ?? 0.0;
@@ -2517,7 +2645,10 @@ export function drawAnthropomorphicInstrument(ctx, cx, cy, opts = {}) {
   const scale = opts.scale ?? 1.0;
   const flip = opts.flip ?? 1;
   const t = opts.t ?? 0;
-  const swing = evalSwingBounce(t, opts.bpm ?? 132, opts.phase ?? 0.25);
+  const bounceEnabled = opts.bounce !== false;
+  const swing = bounceEnabled
+    ? evalSwingBounce(t, opts.bpm ?? 132, opts.phase ?? 0.25)
+    : { squashX: 1.0, squashY: 1.0, sway: 0, footTap: 0, bounce: 0 };
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -2526,7 +2657,59 @@ export function drawAnthropomorphicInstrument(ctx, cx, cy, opts = {}) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  if (kind === 'contrabass') {
+  if (kind === 'drumkit') {
+    // 1930s Anthropomorphic Trap Drumkit (Bass Drum Face + Snare + Crash Cymbal + Gloved Arms)
+    drawCartoonShoe(ctx, -38, 108, { scale: 0.78, flip: true, tapAngle: swing.footTap });
+    drawCartoonShoe(ctx, 38, 108, { scale: 0.78, flip: false, tapAngle: 0 });
+    drawRubberHoseLimb(ctx, [-26, 68], [-36, 102], { bend: -0.22, width: 9 });
+    drawRubberHoseLimb(ctx, [26, 68], [36, 102], { bend: 0.22, width: 9 });
+
+    // Crash cymbal on brass stand
+    const cymShake = bounceEnabled ? Math.sin(t * 16) * 0.14 : 0;
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 5.0;
+    ctx.beginPath();
+    ctx.moveTo(46, 20);
+    ctx.lineTo(54, -72);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(54, -74);
+    ctx.rotate(-0.2 + cymShake);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 34, 8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = RUBBER_PALETTE.brassGold;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // Round bass drum body with red-and-gold rim and parchment drumhead
+    ctx.beginPath();
+    ctx.arc(0, 12, 62, 0, Math.PI * 2);
+    ctx.fillStyle = RUBBER_PALETTE.tcCoral;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 4.8;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, 12, 48, 0, Math.PI * 2);
+    ctx.fillStyle = RUBBER_PALETTE.paperCream;
+    ctx.fill();
+    ctx.lineWidth = 3.6;
+    ctx.stroke();
+
+    drawPieCutEyes(ctx, 0, -2, { mode: opts.eyeMode || 'pie', radius: 11, spacing: 26, lookX: 0.25, t });
+    drawCartoonMouth(ctx, 0, 24, { mode: 'grin', width: 26, height: 14, t });
+
+    // Rubber-hose gloved arms drumming
+    const hitY = bounceEnabled ? Math.sin(t * 14) * 14 : 0;
+    drawRubberHoseLimb(ctx, [-54, 4], [-22, -32 + hitY], { bend: 0.3, width: 9 });
+    drawCartoonGlove(ctx, -22, -32 + hitY, { scale: 0.72, rot: -0.5, pose: 'grip' });
+    drawRubberHoseLimb(ctx, [54, 4], [48, -58 - hitY], { bend: -0.3, width: 9 });
+    drawCartoonGlove(ctx, 48, -58 - hitY, { scale: 0.72, rot: 0.4, pose: 'grip', flip: true });
+  } else if (kind === 'contrabass') {
     // Endpin & tapping shoes
     drawCartoonShoe(ctx, -28, 120, { scale: 0.78, flip: true, tapAngle: swing.footTap });
     drawCartoonShoe(ctx, 28, 120, { scale: 0.78, flip: false, tapAngle: 0 });
@@ -3030,26 +3213,26 @@ export function drawSpinningVinyl(ctx, cx, cy, r = 64, rot = 0, opts = {}) {
 // ============================================================================
 
 const RUBBER_HUMANOID_DIMS = Object.freeze({
-  pelvisHeight: 112,
-  lumbarLen: 16,
-  thoraxLen: 26,
-  neckBaseLen: 16,
-  headPivotLen: 12,
-  headTopLen: 26,
-  topKnotLen: 16,
-  shoulderWidthL: 16,
-  shoulderWidthR: 16,
-  upperArmL: 34,
-  forearmL: 32,
-  handL: 12,
-  upperArmR: 36,
-  forearmR: 34,
-  handR: 12,
-  hipOffset: 11,
-  thighLen: 56,
-  shinLen: 54,
-  footLen: 18,
-  heelLen: 6,
+  pelvisHeight: 118,
+  lumbarLen: 18,
+  thoraxLen: 30,
+  neckBaseLen: 18,
+  headPivotLen: 14,
+  headTopLen: 32,
+  topKnotLen: 18,
+  shoulderWidthL: 20,
+  shoulderWidthR: 20,
+  upperArmL: 42,
+  forearmL: 38,
+  handL: 14,
+  upperArmR: 44,
+  forearmR: 40,
+  handR: 14,
+  hipOffset: 13,
+  thighLen: 60,
+  shinLen: 56,
+  footLen: 20,
+  heelLen: 7,
 });
 
 function drawRubberHeldProp(ctx, prop, wr, handAng, t = 0) {
@@ -3124,37 +3307,45 @@ function drawRubberHeldProp(ctx, prop, wr, handAng, t = 0) {
   } else if (prop === 'baton' || prop === 'cane') {
     const len = prop === 'cane' ? 92 : 68;
     ctx.beginPath();
-    ctx.moveTo(0, 6);
-    ctx.lineTo(len, -len * 0.45);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(len, 0);
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 6.5;
+    ctx.lineWidth = 7.0;
     ctx.stroke();
     ctx.strokeStyle = prop === 'cane' ? RUBBER_PALETTE.brassGold : RUBBER_PALETTE.paperCream;
-    ctx.lineWidth = 3.2;
+    ctx.lineWidth = 3.5;
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(len, -len * 0.45, 6.5, 0, Math.PI * 2);
+    ctx.arc(len, 0, 7.0, 0, Math.PI * 2);
     ctx.fillStyle = RUBBER_PALETTE.tcGold;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 2.4;
+    ctx.lineWidth = 2.6;
     ctx.stroke();
   } else if (prop === 'mallet') {
+    // Handle aligned along +X so IK `toolLen: 64` places mallet head directly on `a.target`
     ctx.beginPath();
-    ctx.moveTo(0, 8);
-    ctx.lineTo(58, -32);
+    ctx.moveTo(-8, 0);
+    ctx.lineTo(62, 0);
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 6.5;
+    ctx.lineWidth = 9.0;
     ctx.stroke();
+    ctx.strokeStyle = RUBBER_PALETTE.brassBright;
+    ctx.lineWidth = 4.2;
+    ctx.stroke();
+
     ctx.save();
-    ctx.translate(60, -34);
-    ctx.rotate(-0.55);
-    drawRoundedRectPath(ctx, -18, -26, 36, 52, 10);
+    ctx.translate(64, 0);
+    drawRoundedRectPath(ctx, -22, -34, 44, 68, 12);
     ctx.fillStyle = RUBBER_PALETTE.mahoganyLight;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 4.2;
     ctx.stroke();
+    // Brass impact bands on mallet head
+    ctx.fillStyle = RUBBER_PALETTE.tcGold;
+    ctx.fillRect(-20, -24, 40, 6);
+    ctx.fillRect(-20, 18, 40, 6);
     ctx.restore();
   } else if (prop === 'microphone') {
     ctx.beginPath();
@@ -3175,8 +3366,9 @@ function drawRubberHeldProp(ctx, prop, wr, handAng, t = 0) {
   ctx.restore();
 }
 
-function drawRubberHat(ctx, hat, archetype) {
+function drawRubberHat(ctx, hat, archetype, headR = 40) {
   if (!hat || hat === 'none') return;
+  const brimY = -headR + 3;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -3184,100 +3376,100 @@ function drawRubberHat(ctx, hat, archetype) {
   if (hat === 'topHat') {
     // Tall Broadway Silk Top Hat
     ctx.beginPath();
-    ctx.ellipse(0, -34, 38, 8, -0.05, 0, Math.PI * 2);
+    ctx.ellipse(0, brimY, 44, 9, -0.05, 0, Math.PI * 2);
     ctx.fillStyle = RUBBER_PALETTE.inkBlack;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.paperCream;
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 2.2;
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(-22, -34);
-    ctx.lineTo(-26, -78);
-    ctx.quadraticCurveTo(0, -84, 26, -78);
-    ctx.lineTo(22, -34);
+    ctx.moveTo(-26, brimY);
+    ctx.lineTo(-30, brimY - 48);
+    ctx.quadraticCurveTo(0, brimY - 56, 30, brimY - 48);
+    ctx.lineTo(26, brimY);
     ctx.closePath();
     ctx.fillStyle = RUBBER_PALETTE.inkBlack;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+
+    // Satin hatband
+    ctx.fillStyle = RUBBER_PALETTE.tcGold;
+    ctx.fillRect(-26, brimY - 11, 52, 9);
+    ctx.strokeRect(-26, brimY - 11, 52, 9);
+  } else if (hat === 'feather') {
+    // 1920s/1930s Flapper Headband with Jewel & Plume Feather
+    ctx.beginPath();
+    ctx.arc(0, -8, headR + 2, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.strokeStyle = RUBBER_PALETTE.tcGold;
+    ctx.lineWidth = 7.5;
+    ctx.stroke();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+
+    // Plume feather
+    ctx.beginPath();
+    ctx.moveTo(16, brimY + 2);
+    ctx.bezierCurveTo(32, brimY - 38, 10, brimY - 56, -8, brimY - 44);
+    ctx.bezierCurveTo(-14, brimY - 30, 2, brimY - 10, 16, brimY + 2);
+    ctx.closePath();
+    ctx.fillStyle = RUBBER_PALETTE.tcCoral;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
     ctx.lineWidth = 3.2;
     ctx.stroke();
 
-    // Satin hatband
-    ctx.fillStyle = RUBBER_PALETTE.tcGold;
-    ctx.fillRect(-22, -44, 44, 8);
-    ctx.strokeRect(-22, -44, 44, 8);
-  } else if (hat === 'feather') {
-    // 1920s/1930s Flapper Headband with Jewel & Plume Feather
     ctx.beginPath();
-    ctx.arc(0, -6, 35, Math.PI * 1.08, Math.PI * 1.92);
-    ctx.strokeStyle = RUBBER_PALETTE.tcGold;
-    ctx.lineWidth = 7.0;
-    ctx.stroke();
-    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
-
-    // Plume feather
-    ctx.beginPath();
-    ctx.moveTo(14, -32);
-    ctx.bezierCurveTo(28, -68, 8, -86, -8, -76);
-    ctx.bezierCurveTo(-14, -62, 2, -44, 14, -32);
-    ctx.closePath();
-    ctx.fillStyle = RUBBER_PALETTE.tcCoral;
-    ctx.fill();
-    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.0;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(14, -32, 6.5, 0, Math.PI * 2);
+    ctx.arc(16, brimY + 2, 7.2, 0, Math.PI * 2);
     ctx.fillStyle = RUBBER_PALETTE.paperCream;
     ctx.fill();
     ctx.stroke();
   } else if (hat === 'strawHat') {
     // Vaudeville Boater Straw Hat
     ctx.beginPath();
-    ctx.ellipse(0, -34, 40, 8, -0.06, 0, Math.PI * 2);
+    ctx.ellipse(0, brimY, 46, 9, -0.06, 0, Math.PI * 2);
     ctx.fillStyle = RUBBER_PALETTE.brassBright;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.2;
+    ctx.lineWidth = 3.4;
     ctx.stroke();
 
-    drawRoundedRectPath(ctx, -24, -56, 48, 22, 5);
+    drawRoundedRectPath(ctx, -28, brimY - 25, 56, 25, 6);
     ctx.fillStyle = RUBBER_PALETTE.brassBright;
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = RUBBER_PALETTE.tcCoral;
-    ctx.fillRect(-24, -43, 48, 7);
-    ctx.strokeRect(-24, -43, 48, 7);
+    ctx.fillRect(-28, brimY - 10, 56, 8);
+    ctx.strokeRect(-28, brimY - 10, 56, 8);
   } else {
     // Classic 1930s Derby Bowler Hat (default `'bowler'`)
     ctx.beginPath();
-    ctx.ellipse(0, -33, 36, 7.5, -0.06, 0, Math.PI * 2);
+    ctx.ellipse(0, brimY, 42, 8.5, -0.06, 0, Math.PI * 2);
     ctx.fillStyle = RUBBER_PALETTE.inkBlack;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.paperCream;
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 2.2;
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(0, -34, 24, Math.PI, 0);
+    ctx.arc(0, brimY - 1, 28, Math.PI, 0);
     ctx.closePath();
     ctx.fillStyle = archetype === 'jazzcat' ? '#362E28' : RUBBER_PALETTE.inkBlack;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.2;
+    ctx.lineWidth = 3.4;
     ctx.stroke();
 
     // Ribbon band
     ctx.beginPath();
-    ctx.moveTo(-23, -36);
-    ctx.quadraticCurveTo(0, -39, 23, -36);
+    ctx.moveTo(-27, brimY - 3);
+    ctx.quadraticCurveTo(0, brimY - 6, 27, brimY - 3);
     ctx.strokeStyle = RUBBER_PALETTE.tcGold;
-    ctx.lineWidth = 5.0;
+    ctx.lineWidth = 5.4;
     ctx.stroke();
   }
 
@@ -3292,6 +3484,7 @@ function drawRubberHat(ctx, hat, archetype) {
  *   - 1930s button-front trousers, tuxedo, or flapper dress with Ben-Day halftone dots
  *   - Pie-Cut cartoon eyes (`drawPieCutEyes`) & singing/grinning mouth (`drawCartoonMouth`)
  *   - Automatic 132 BPM rhythmic swing knee-bounce (`evalSwingBounce`)
+ *   - 1930s Cartoon Take (`eyePop`, `jawDrop`, `hatJump`) & IK limb targeting
  *
  * Supports:
  *   - `archetype`: `'jazzcat' | 'bandleader' | 'flapper' | 'mouse' | 'dog' | 'tinbot'`
@@ -3302,6 +3495,7 @@ function drawRubberHat(ctx, hat, archetype) {
 export function createRubberHoseCharacter(opts = {}) {
   const archetype = opts.archetype || 'jazzcat';
   const bpm = opts.bpm ?? 132;
+  const bounceScale = opts.bounceScale ?? 0.45;
   const phaseOffset = opts.bouncePhase ?? (opts.x ? opts.x * 0.001 : 0);
   const pantsColor =
     opts.pantsColor ||
@@ -3315,7 +3509,8 @@ export function createRubberHoseCharacter(opts = {}) {
 
   function skinRubberHose(ctx, skel, state, t = 0) {
     const swing = evalSwingBounce(t, bpm, phaseOffset);
-    const bounceDy = state.hopY < -4 ? 0 : -swing.bounce * 0.65;
+    const inTake = (state.takeProgress || 0) > 0.04;
+    const bounceDy = state.hopY < -4 || inTake ? 0 : -swing.bounce * bounceScale;
     const isBack = state.view === 'back';
     const isFront = state.view === 'front';
 
@@ -3325,14 +3520,14 @@ export function createRubberHoseCharacter(opts = {}) {
     // 1. Ground contact shadow (stays on floor)
     ctx.save();
     ctx.translate(0, -state.hopY * 0.85);
-    ctx.scale(1.15, 0.26);
+    ctx.scale(1.22, 0.28);
     ctx.beginPath();
-    ctx.arc(0, 0, 52, 0, Math.PI * 2);
+    ctx.arc(0, 0, 56, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(28, 20, 15, 0.38)';
     ctx.fill();
     ctx.restore();
 
-    // Apply 132 BPM swing bounce to character body
+    // Apply controlled 132 BPM swing bounce to character body
     ctx.translate(0, bounceDy);
 
     // 2. Swing Rubber-Hose Tail (for `jazzcat`, `mouse`, `dog`)
@@ -3340,20 +3535,20 @@ export function createRubberHoseCharacter(opts = {}) {
       const tailSign = isFront ? -1 : -1;
       const tailWave = Math.sin(t * 7.5 + phaseOffset * 6);
       ctx.beginPath();
-      ctx.moveTo(pelvis.x + tailSign * 16, pelvis.y + 4);
+      ctx.moveTo(pelvis.x + tailSign * 18, pelvis.y + 4);
       ctx.bezierCurveTo(
-        pelvis.x + tailSign * 56,
+        pelvis.x + tailSign * 62,
         pelvis.y - 8 + tailWave * 16,
-        pelvis.x + tailSign * 78,
-        pelvis.y - 52 - tailWave * 14,
-        pelvis.x + tailSign * 64,
-        pelvis.y - 76 + tailWave * 10
+        pelvis.x + tailSign * 86,
+        pelvis.y - 56 - tailWave * 14,
+        pelvis.x + tailSign * 70,
+        pelvis.y - 82 + tailWave * 10
       );
       ctx.strokeStyle = RUBBER_PALETTE.paperCream;
-      ctx.lineWidth = archetype === 'mouse' ? 6.5 : 11.5;
+      ctx.lineWidth = archetype === 'mouse' ? 7.5 : 13.0;
       ctx.stroke();
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-      ctx.lineWidth = archetype === 'mouse' ? 3.5 : 8.0;
+      ctx.lineWidth = archetype === 'mouse' ? 4.2 : 9.2;
       ctx.stroke();
     }
 
@@ -3365,62 +3560,64 @@ export function createRubberHoseCharacter(opts = {}) {
       [wrL.x - (isFront ? 14 : 6), wrL.y + 8],
       {
         bend: armLBend,
-        waveAmp: 4.5,
+        waveAmp: 3.5,
         wavePhase: t * 8,
-        width: 11.5,
+        width: 14.0,
       }
     );
     drawCartoonGlove(ctx, wrL.x - (isFront ? 14 : 6), wrL.y + 8, {
-      scale: 0.78,
+      scale: 0.90,
       rot: armLRes.endAngle - Math.PI * 0.5,
-      pose: 'open',
+      pose: inTake ? 'open' : 'open',
       flip: true,
     });
 
     // 4. Jointless S/C-Curve Rubber-Hose Legs & Bulbous Cartoon Shoes
-    const legLBend = state.stride !== 0 ? 0.26 * Math.sin(state.walkPhase) : -0.28;
-    const legRBend = state.stride !== 0 ? -0.26 * Math.sin(state.walkPhase) : 0.30;
+    const legLBend = state.stride !== 0 ? 0.28 * Math.sin(state.walkPhase) : -0.28;
+    const legRBend = state.stride !== 0 ? -0.28 * Math.sin(state.walkPhase) : 0.30;
 
     drawRubberHoseLimb(
       ctx,
-      [hipL.x - (isFront ? 8 : 4), hipL.y],
-      [ankleL.x - (isFront ? 10 : 4), ankleL.y - bounceDy],
-      { bend: legLBend, width: 12.0 }
+      [hipL.x - (isFront ? 9 : 4), hipL.y],
+      [ankleL.x - (isFront ? 11 : 4), ankleL.y - bounceDy],
+      { bend: legLBend, width: 14.5 }
     );
-    drawCartoonShoe(ctx, ankleL.x - (isFront ? 10 : 4), ankleL.y - bounceDy, {
-      scale: 0.88,
+    drawCartoonShoe(ctx, ankleL.x - (isFront ? 11 : 4), ankleL.y - bounceDy, {
+      scale: 1.0,
       flip: isFront,
       tapAngle: 0,
     });
 
     drawRubberHoseLimb(
       ctx,
-      [hipR.x + (isFront ? 8 : 4), hipR.y],
-      [ankleR.x + (isFront ? 10 : 4), ankleR.y - bounceDy],
-      { bend: legRBend, width: 12.5 }
+      [hipR.x + (isFront ? 9 : 4), hipR.y],
+      [ankleR.x + (isFront ? 11 : 4), ankleR.y - bounceDy],
+      { bend: legRBend, width: 15.0 }
     );
-    drawCartoonShoe(ctx, ankleR.x + (isFront ? 10 : 4), ankleR.y - bounceDy, {
-      scale: 0.92,
+    drawCartoonShoe(ctx, ankleR.x + (isFront ? 11 : 4), ankleR.y - bounceDy, {
+      scale: 1.04,
       flip: false,
-      tapAngle: state.stride === 0 ? swing.footTap : 0,
+      tapAngle: state.stride === 0 && !inTake ? swing.footTap * 0.75 : 0,
     });
 
     // 5. Rounded 1930s Cartoon Torso + Button-Front Trousers / Flapper Dress
     const torsoCx = (pelvis.x + thorax.x) * 0.5;
     const torsoCy = (pelvis.y + neckBase.y) * 0.5 + 4;
-    const torsoRx = 29 * swing.squashX;
-    const torsoRy = 38 * swing.squashY;
+    const takeStretchY = 1.0 + (state.eyePop || 0) * 0.14;
+    const takeSquashX = 1.0 / Math.sqrt(takeStretchY);
+    const torsoRx = 35 * (inTake ? takeSquashX : lerp(1, swing.squashX, bounceScale));
+    const torsoRy = 44 * (inTake ? takeStretchY : lerp(1, swing.squashY, bounceScale));
 
     // Upper black ink torso
     ctx.save();
     ctx.translate(torsoCx, torsoCy);
     ctx.rotate(skel.aThorax * 0.65);
     ctx.beginPath();
-    ctx.ellipse(0, -8, torsoRx * 0.92, torsoRy * 0.85, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -9, torsoRx * 0.92, torsoRy * 0.85, 0, 0, Math.PI * 2);
     ctx.fillStyle = archetype === 'tinbot' ? '#8C9BAE' : RUBBER_PALETTE.inkBlack;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 3.8;
     ctx.stroke();
 
     // Lower 1930s high-waisted trousers or flapper fringe skirt with Ben-Day halftone dots
@@ -3432,14 +3629,14 @@ export function createRubberHoseCharacter(opts = {}) {
       ctx.lineTo(-torsoRx * 1.18, torsoRy * 0.88);
       ctx.closePath();
     } else {
-      ctx.ellipse(0, 10, torsoRx, torsoRy * 0.72, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 11, torsoRx, torsoRy * 0.72, 0, 0, Math.PI * 2);
     }
     ctx.fillStyle = pantsColor;
     ctx.fill();
 
     ctx.save();
     ctx.clip();
-    drawBenDayDots(ctx, 4, 14, torsoRx, torsoRy * 0.72, {
+    drawBenDayDots(ctx, 4, 15, torsoRx, torsoRy * 0.72, {
       spacing: 7.5,
       alpha: 0.28,
       color: RUBBER_PALETTE.inkBlack,
@@ -3447,65 +3644,65 @@ export function createRubberHoseCharacter(opts = {}) {
     ctx.restore();
 
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.8;
+    ctx.lineWidth = 4.0;
     ctx.stroke();
 
     // Iconic 1930s twin vertical oval buttons on front of shorts/dress, or crossed X-suspenders & buttons on back view
     if (!isBack) {
-      for (const bx of isFront ? [-9, 9] : [4, 15]) {
+      for (const bx of isFront ? [-11, 11] : [5, 18]) {
         ctx.beginPath();
-        ctx.ellipse(bx, 8, 4.8, 7.2, 0, 0, Math.PI * 2);
+        ctx.ellipse(bx, 9, 5.5, 8.2, 0, 0, Math.PI * 2);
         ctx.fillStyle = RUBBER_PALETTE.paperCream;
         ctx.fill();
         ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-        ctx.lineWidth = 2.4;
+        ctx.lineWidth = 2.6;
         ctx.stroke();
       }
       // Bowtie at collar
       ctx.save();
-      ctx.translate(isFront ? 0 : 12, -26);
+      ctx.translate(isFront ? 0 : 14, -30);
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.lineTo(-12, -7);
-      ctx.lineTo(-12, 7);
+      ctx.lineTo(-14, -8);
+      ctx.lineTo(-14, 8);
       ctx.closePath();
       ctx.moveTo(0, 0);
-      ctx.lineTo(12, -7);
-      ctx.lineTo(12, 7);
+      ctx.lineTo(14, -8);
+      ctx.lineTo(14, 8);
       ctx.closePath();
       ctx.fillStyle = accentColor;
       ctx.fill();
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-      ctx.lineWidth = 2.4;
+      ctx.lineWidth = 2.6;
       ctx.stroke();
       ctx.restore();
     } else {
       // 1930s back-view crossed X-suspenders & twin back buttons
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-      ctx.lineWidth = 7.5;
+      ctx.lineWidth = 8.0;
       ctx.beginPath();
-      ctx.moveTo(-14, -26);
-      ctx.lineTo(11, 2);
-      ctx.moveTo(14, -26);
-      ctx.lineTo(-11, 2);
+      ctx.moveTo(-16, -28);
+      ctx.lineTo(13, 4);
+      ctx.moveTo(16, -28);
+      ctx.lineTo(-13, 4);
       ctx.stroke();
 
       ctx.strokeStyle = accentColor;
-      ctx.lineWidth = 4.2;
+      ctx.lineWidth = 4.5;
       ctx.beginPath();
-      ctx.moveTo(-14, -26);
-      ctx.lineTo(11, 2);
-      ctx.moveTo(14, -26);
-      ctx.lineTo(-11, 2);
+      ctx.moveTo(-16, -28);
+      ctx.lineTo(13, 4);
+      ctx.moveTo(16, -28);
+      ctx.lineTo(-13, 4);
       ctx.stroke();
 
-      for (const bx of [-10, 10]) {
+      for (const bx of [-11, 11]) {
         ctx.beginPath();
-        ctx.ellipse(bx, 6, 4.8, 7.0, 0, 0, Math.PI * 2);
+        ctx.ellipse(bx, 8, 5.5, 8.0, 0, 0, Math.PI * 2);
         ctx.fillStyle = RUBBER_PALETTE.paperCream;
         ctx.fill();
         ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-        ctx.lineWidth = 2.4;
+        ctx.lineWidth = 2.6;
         ctx.stroke();
       }
     }
@@ -3513,43 +3710,43 @@ export function createRubberHoseCharacter(opts = {}) {
 
     // 6. Expressive 1930s Cartoon Head, Pie-Cut Eyes, Mouth, Ears & Hat
     ctx.save();
-    ctx.translate(neckBase.x, neckBase.y - 24);
-    ctx.rotate(aHead * 0.8);
+    ctx.translate(neckBase.x, neckBase.y - 30);
+    ctx.rotate(aHead * 0.85);
 
-    const headR = 32;
+    const headR = 40;
 
     // Archetype Ears (Cat pointed ears, Mouse round ears, Dog floppy ears)
     if (archetype === 'jazzcat') {
       for (const [ex, rotE] of [
-        [-18, -0.35],
-        [14, 0.25],
+        [-22, -0.35],
+        [18, 0.25],
       ]) {
         ctx.save();
-        ctx.translate(ex, -headR + 6);
+        ctx.translate(ex, -headR + 7);
         ctx.rotate(rotE);
         ctx.beginPath();
-        ctx.moveTo(-12, 8);
-        ctx.lineTo(0, -20);
-        ctx.lineTo(12, 8);
+        ctx.moveTo(-15, 10);
+        ctx.lineTo(0, -25);
+        ctx.lineTo(15, 10);
         ctx.closePath();
         ctx.fillStyle = RUBBER_PALETTE.inkBlack;
         ctx.fill();
         ctx.strokeStyle = isBack ? RUBBER_PALETTE.paperCream : RUBBER_PALETTE.inkBlack;
-        ctx.lineWidth = isBack ? 2.4 : 3.2;
+        ctx.lineWidth = isBack ? 2.6 : 3.5;
         ctx.stroke();
         ctx.restore();
       }
     } else if (archetype === 'mouse') {
       for (const [ex, ey] of [
-        [-24, -26],
-        [18, -28],
+        [-30, -32],
+        [22, -34],
       ]) {
         ctx.beginPath();
-        ctx.arc(ex, ey, 18, 0, Math.PI * 2);
+        ctx.arc(ex, ey, 22, 0, Math.PI * 2);
         ctx.fillStyle = RUBBER_PALETTE.inkBlack;
         ctx.fill();
         ctx.strokeStyle = RUBBER_PALETTE.paperCream;
-        ctx.lineWidth = 2.0;
+        ctx.lineWidth = 2.2;
         ctx.stroke();
       }
     }
@@ -3560,84 +3757,86 @@ export function createRubberHoseCharacter(opts = {}) {
     ctx.fillStyle = archetype === 'tinbot' ? '#B0C0D4' : RUBBER_PALETTE.inkBlack;
     ctx.fill();
     ctx.strokeStyle = isBack ? RUBBER_PALETTE.paperCream : RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = isBack ? 2.6 : 3.8;
+    ctx.lineWidth = isBack ? 2.8 : 4.0;
     ctx.stroke();
 
     if (!isBack) {
       // Cream Mickey/Oswald-style facial mask & plump muzzle
-      const faceShiftX = isFront ? 0 : 8;
+      const faceShiftX = isFront ? 0 : 10;
       ctx.beginPath();
-      ctx.ellipse(faceShiftX - 4, -5, 16, 21, 0, 0, Math.PI * 2);
-      ctx.ellipse(faceShiftX + 10, -5, 16, 21, 0, 0, Math.PI * 2);
-      ctx.ellipse(faceShiftX + 6, 12, 26, 15, 0, 0, Math.PI * 2);
+      ctx.ellipse(faceShiftX - 5, -6, 20, 26, 0, 0, Math.PI * 2);
+      ctx.ellipse(faceShiftX + 12, -6, 20, 26, 0, 0, Math.PI * 2);
+      ctx.ellipse(faceShiftX + 7, 15, 32, 19, 0, 0, Math.PI * 2);
       ctx.fillStyle = RUBBER_PALETTE.paperCream;
       ctx.fill();
 
       // Muzzle outline
       ctx.beginPath();
-      ctx.ellipse(faceShiftX + 6, 12, 26, 15, 0, -0.15 * Math.PI, 1.15 * Math.PI);
+      ctx.ellipse(faceShiftX + 7, 15, 32, 19, 0, -0.15 * Math.PI, 1.15 * Math.PI);
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-      ctx.lineWidth = 3.0;
+      ctx.lineWidth = 3.2;
       ctx.stroke();
 
-      // Pie-Cut Cartoon Eyes
+      // Pie-Cut Cartoon Eyes (with telescopic `eyePop` support)
       const eyeMode =
         state.mood === 'angry'
           ? 'angry'
-          : state.mood === 'shock' || state.mood === 'surprised'
+          : state.mood === 'shock' || state.mood === 'surprised' || (state.eyePop || 0) > 0.1
             ? 'shock'
             : state.mood === 'dizzy'
               ? 'dizzy'
               : 'pie';
-      drawPieCutEyes(ctx, faceShiftX + 4, -7, {
+      drawPieCutEyes(ctx, faceShiftX + 5, -9, {
         mode: eyeMode,
-        radius: 10.5,
-        spacing: 21,
+        radius: 13.5,
+        spacing: 26,
         lookX: isFront ? 0.1 : 0.42,
         lookY: -0.05,
+        eyePop: state.eyePop || 0,
         t,
       });
 
       // Glossy Black Button Nose
-      const noseX = isFront ? 0 : 28;
-      const noseY = 6;
+      const noseX = isFront ? 0 : 35;
+      const noseY = 7;
       ctx.beginPath();
-      ctx.ellipse(noseX, noseY, 8.5, 6.0, -0.15, 0, Math.PI * 2);
+      ctx.ellipse(noseX, noseY, 10.5, 7.5, -0.15, 0, Math.PI * 2);
       ctx.fillStyle = RUBBER_PALETTE.inkBlack;
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(noseX - 2.5, noseY - 2, 2.2, 0, Math.PI * 2);
+      ctx.arc(noseX - 3.0, noseY - 2.4, 2.8, 0, Math.PI * 2);
       ctx.fillStyle = RUBBER_PALETTE.paperCream;
       ctx.fill();
 
       // Cat whiskers if jazzcat
       if (archetype === 'jazzcat') {
         ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-        ctx.lineWidth = 2.2;
-        for (const wy of [-3, 3]) {
+        ctx.lineWidth = 2.4;
+        for (const wy of [-4, 4]) {
           ctx.beginPath();
-          ctx.moveTo(faceShiftX + 18, 12 + wy);
-          ctx.lineTo(faceShiftX + 36, 10 + wy * 2.2);
+          ctx.moveTo(faceShiftX + 22, 14 + wy);
+          ctx.lineTo(faceShiftX + 44, 12 + wy * 2.2);
           ctx.stroke();
         }
       }
 
-      // Expressive Mouth
+      // Expressive Mouth (with `jawDrop` support)
       const mouthMode =
         state.heldProp === 'trumpet' || state.heldProp === 'saxophone'
           ? 'whistle'
           : state.mood === 'sing' || state.mood === 'roar'
             ? 'sing'
             : 'grin';
-      drawCartoonMouth(ctx, faceShiftX + 6, 18, {
+      drawCartoonMouth(ctx, faceShiftX + 7, 22, {
         mode: mouthMode,
-        width: 22,
-        height: 14,
+        width: 27,
+        height: 17,
+        jawDrop: state.jawDrop || 0,
         t,
       });
     }
 
-    // Hat on top of head
+    // Hat on top of head (with `hatJump` cartoon take pop-off!)
     const defaultHat =
       opts.hat !== undefined
         ? opts.hat
@@ -3646,7 +3845,18 @@ export function createRubberHoseCharacter(opts = {}) {
           : archetype === 'bandleader'
             ? 'topHat'
             : 'bowler';
-    drawRubberHat(ctx, defaultHat, archetype);
+    const hatJump = state.hatJump || 0;
+    const hatLiftPx = hatJump > 2.5 ? Math.min(48, hatJump) : hatJump * 36;
+    ctx.save();
+    if (hatLiftPx > 0.5) {
+      ctx.translate(-hatLiftPx * 0.28, -hatLiftPx);
+      ctx.rotate(-Math.min(0.42, hatLiftPx * 0.01));
+    }
+    drawRubberHat(ctx, defaultHat, archetype, headR);
+    ctx.restore();
+    if (hatLiftPx > 8) {
+      drawVibrationTicks(ctx, 0, -headR - hatLiftPx * 0.5, 22, { count: 2, rot: Math.PI * 0.5 });
+    }
     ctx.restore();
 
     // 7. Foreground (Right) Rubber-Hose Arm, Held Instrument/Prop & 4-Finger White Glove
@@ -3654,14 +3864,23 @@ export function createRubberHoseCharacter(opts = {}) {
     const armRRes = drawRubberHoseLimb(ctx, [shR.x, shR.y + 4], [wrR.x, wrR.y], {
       bend: armRBend,
       sCurve: state.shRAng < -0.8 ? 0.22 : 0,
-      waveAmp: 4.0,
+      waveAmp: 3.2,
       wavePhase: t * 8 + 1.5,
-      width: 12.0,
+      width: 14.5,
     });
 
-    drawRubberHeldProp(ctx, state.heldProp, wrR, aR2 - Math.PI * 0.5, t);
+    const forearmDirAng = Math.atan2(Math.cos(aR2), Math.sin(aR2));
+    drawRubberHeldProp(
+      ctx,
+      state.heldProp,
+      wrR,
+      state.heldProp === 'mallet' || state.heldProp === 'baton' || state.heldProp === 'cane'
+        ? forearmDirAng
+        : aR2 - Math.PI * 0.5,
+      t
+    );
     drawCartoonGlove(ctx, wrR.x, wrR.y, {
-      scale: 0.84,
+      scale: 0.96,
       rot: armRRes.endAngle - Math.PI * 0.5,
       pose: state.heldProp && state.heldProp !== 'none' ? 'grip' : 'point',
       flip: false,

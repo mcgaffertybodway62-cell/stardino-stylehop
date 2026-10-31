@@ -1,36 +1,41 @@
 /**
- * 1930s Rubber-Hose Cartoon · Default 4-Scene Showcase Story (`styles/rubber-hose/world.js`).
+ * 1930s Rubber-Hose Cartoon · Default 4-Scene Causal Story (`styles/rubber-hose/world.js`).
  *
- * Story: 《午夜百老汇 · 摇摆留声机狂想曲》 (Midnight Broadway · Swing Gramophone Rhapsody)
- *   - Scene 1 (`act1-curtain-up`, `sepia`, 3.6s, `wide`):
- *       01 · 胶片开映 · 百老汇摇摆揭幕 — Wide establishing shot of S-curved 3D piano road,
- *       Jazz Cat & Flapper entering on left, Note Critters on keys, Gramophone cranking on right.
- *   - Scene 2 (`act2-horn-duel`, `vaudeville`, 3.8s, `close`):
- *       02 · 铜管飙音 · 留声机咆哮斗技 — Dramatic low-angle over-the-shoulder close-up (`view: 'back'`,
- *       `scale: 2.15`) of Jazz Cat in left foreground blasting his trumpet diagonally upward against a
- *       towering close-up Giant Gramophone (`scale: 1.68`) spitting airborne Note Critters and shockwaves.
- *   - Scene 3 (`act3-technicolor-keys`, `technicolor`, 3.8s, `medium`):
- *       03 · 琴键踏浪 · 特艺三色彩环绽放 — Frontal medium action shot on a giant central arching piano wave
- *       crest (no Gramophone on right!): frontal Jazz Cat (`view: 'front'`, `scale: 1.56`) stomps a giant
- *       Black Note Critter flat at center crest, unleashing 3-Strip Technicolor rings (`r = 520`), a giant
- *       spinning 78-RPM Vinyl Record (`r = 78`), flanked by Flapper, Contrabass & Saxophone.
- *   - Scene 4 (`act4-vortex-iris`, `talkie`, 3.6s, `full`):
- *       04 · 旋涡华彩 · 经典黑幕圆圈收尾 — Midnight-blue full Broadway ensemble curtain call (Contrabass,
- *       Flapper, Top-Hat Bandleader Jazz Cat, Saxophone) + stunned Gramophone with `X X` dizzy eyes and
- *       swirling Golden Logarithmic Vortex, closing with a classic 1930s circular black Iris-Out.
+ * Story: 《午夜百老汇 · 留声机惊魂与特艺狂想》 (Midnight Broadway · The Jammed Gramophone & Technicolor Rhapsody)
+ * Causal Chain (`起因 -> 爆发与夸张特写反应 Take -> 追逐与木槌物理敲击 -> 驯服合奏与圆圈谢幕`):
+ *   - Scene 1 (`act1-curtain-up`, `sepia`, 3.6s, `wide`, `keyframe=0.72`):
+ *       01 · 摇柄蓄压 · 留声机卡壳蓄力 — Jazz Cat (`scale: 1.50`, `facing: -1`) stands at the right of the
+ *       giant brass Gramophone and physically grasps & cranks its winding handle (`do: 'crank'` locked via IK
+ *       onto `getGramophoneSockets().crankHub`). As he winds faster, the jammed brass horn swells like a
+ *       pressurized boiler while a single curious Flapper on the left watches in suspense.
+ *   - Scene 2 (`act2-horn-duel`, `vaudeville`, 3.8s, `close`, `keyframe=0.56`):
+ *       02 · 号角喷发 · 夸张惊愕大特写 — The pressurized Gramophone horn blasts out a giant rebellious
+ *       Black Note Critter (`BLAM!`). The left half of the screen is dominated by a **50% screen-height
+ *       close-up of Jazz Cat (`scale: 2.32`, `view: 'side'`)** performing a 3-beat 1930s Tex Avery / Fleischer
+ *       Cartoon Take (`do: 'take'`): anticipation squash -> extreme airborne recoil with telescopic eye-stalks
+ *       popping out (`eyePop`), jaw dropping to chest (`jawDrop`), and bowler hat flying off his head (`hatJump`)!
+ *   - Scene 3 (`act3-technicolor-keys`, `technicolor`, 3.8s, `medium`, `keyframe=0.64`):
+ *       03 · 木槌追击 · 一锤砸绽特艺三色 — Jazz Cat (`scale: 1.68`, `heldProp: 'mallet'`) chases the runaway
+ *       Note Critter up the central arching piano wave crest, winds up his giant wooden mallet behind his back,
+ *       and **physically smashes the mallet head squarely onto the Note Critter (`do: 'malletStrike'`,
+ *       `target: [1005, 615]`)**! The physical impact flattens the Note Critter into an ink pancake (`X X` dizzy
+ *       eyes + flying Technicolor stars), depresses the ivory keys (`dip: 32`), and unleashes 3-Strip Technicolor
+ *       soundwave rings that dye the sepia stage into vivid cyan, violet, coral, and gold.
+ *   - Scene 4 (`act4-vortex-iris`, `talkie`, 3.6s, `full`, `keyframe=0.68`):
+ *       04 · 驯服合奏 · 百老汇圆圈谢幕 — Tamed Note Critters and chromatic notes swirl into a golden harmonic
+ *       melody as Top-Hat Bandleader Jazz Cat (`scale: 1.48`, `heldProp: 'baton'`) and Flapper (`scale: 1.28`)
+ *       take their spotlight curtain call before the classic 1930s circular black Iris-Out.
  *
  * Architectural Rules:
  *   - Imports ONLY `./kernel.js` and `../../engine/motion.js`.
- *   - Zero gallery mascot in code, comments, or visuals.
- *   - Follows 2D Canvas Law (`一幕一构图 · 一场一单向微镜`): shot sizes (`wide -> close -> medium -> full`)
- *     are achieved by re-composing each scene's character/prop scale, placement, and view angle.
+ *   - Single visual focal point per scene: background props stay calm (`bounce: false`) so the viewer's eye
+ *     locks immediately onto the protagonist's acting and physical IK contact.
  */
 
 import { clamp, lerp, smootherstep } from '../../engine/motion.js';
 import {
   RUBBER_PALETTE,
   evalSwingBounce,
-  evalHopParabola,
   drawDipPenStroke,
   drawFourPointStar,
   drawComicBurst,
@@ -40,6 +45,7 @@ import {
   draw35mmCountdown,
   drawIrisTransition,
   drawElasticKeyboardRoad,
+  getGramophoneSockets,
   drawAnthropomorphicGramophone,
   drawAnthropomorphicInstrument,
   drawNoteCritter,
@@ -62,82 +68,88 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
   // -------------------------------------------------------------------------
   // Cast of 1930s Rubber-Hose Characters across the 4 scenes
   // -------------------------------------------------------------------------
-  // Scene 1 Wide Stage Characters (`view: 'side'`, 0.96x / 0.88x)
-  const catWide = createRubberHoseCharacter({
+  // Scene 1: Jazz Cat cranking the Gramophone (`scale: 1.50`, `facing: -1`, `heldProp: 'none'`)
+  const catCranker = createRubberHoseCharacter({
     archetype: 'jazzcat',
     view: 'side',
-    x: 470,
-    y: 785,
-    scale: 0.96,
-    facing: 1,
+    x: 1385,
+    y: 885,
+    scale: 1.50,
+    facing: -1,
+    bounceScale: 0.22,
     hat: 'bowler',
-    heldProp: 'trumpet',
+    heldProp: 'none',
     pantsColor: RUBBER_PALETTE.paperCream,
     accentColor: RUBBER_PALETTE.tcGold,
   });
 
-  const flapperWide = createRubberHoseCharacter({
+  const flapperObserver = createRubberHoseCharacter({
     archetype: 'flapper',
     view: 'side',
-    x: 295,
-    y: 845,
-    scale: 0.88,
+    x: 375,
+    y: 815,
+    scale: 1.22,
     facing: 1,
-    hat: 'feather',
-    heldProp: 'microphone',
-    pantsColor: RUBBER_PALETTE.tcCoral,
-    accentColor: RUBBER_PALETTE.tcGold,
-  });
-
-  // Scene 2 Over-the-Shoulder Close-Up Character (`view: 'back'`, 2.15x foreground close-up!)
-  const catCloseBack = createRubberHoseCharacter({
-    archetype: 'jazzcat',
-    view: 'back',
-    x: 425,
-    y: 1015,
-    scale: 2.15,
-    facing: 1,
-    hat: 'bowler',
-    heldProp: 'trumpet',
-    pantsColor: RUBBER_PALETTE.paperCream,
-    accentColor: RUBBER_PALETTE.tcGold,
-  });
-
-  // Scene 3 Frontal Medium Action Characters on Central Arching Piano Crest (`view: 'front'`, 1.56x / 1.36x)
-  const catMediumFront = createRubberHoseCharacter({
-    archetype: 'jazzcat',
-    view: 'front',
-    x: 915,
-    y: 655,
-    scale: 1.56,
-    facing: 1,
-    hat: 'bowler',
-    heldProp: 'trumpet',
-    pantsColor: RUBBER_PALETTE.paperCream,
-    accentColor: RUBBER_PALETTE.tcGold,
-  });
-
-  const flapperMediumFront = createRubberHoseCharacter({
-    archetype: 'flapper',
-    view: 'front',
-    x: 455,
-    y: 765,
-    scale: 1.36,
-    facing: 1,
+    bounceScale: 0.18,
     hat: 'feather',
     heldProp: 'none',
     pantsColor: RUBBER_PALETTE.tcCoral,
     accentColor: RUBBER_PALETTE.tcGold,
   });
 
-  // Scene 4 Full Ensemble Finale Characters (`view: 'front'`, 1.18x / 1.06x)
+  // Scene 2: 50% Screen-Height Close-Up Jazz Cat performing the 1930s Cartoon Take (`scale: 2.32`)
+  const catCloseTake = createRubberHoseCharacter({
+    archetype: 'jazzcat',
+    view: 'side',
+    x: 465,
+    y: 945,
+    scale: 2.32,
+    facing: 1,
+    bounceScale: 0.15,
+    hat: 'bowler',
+    heldProp: 'none',
+    pantsColor: RUBBER_PALETTE.paperCream,
+    accentColor: RUBBER_PALETTE.tcGold,
+  });
+
+  // Scene 3: Mallet-Swinging Action Protagonist on the Piano Wave Crest (`scale: 1.68`, `heldProp: 'mallet'`)
+  const catMalletHero = createRubberHoseCharacter({
+    archetype: 'jazzcat',
+    view: 'side',
+    x: 805,
+    y: 715,
+    scale: 1.68,
+    facing: 1,
+    bounceScale: 0.25,
+    hat: 'bowler',
+    heldProp: 'mallet',
+    pantsColor: RUBBER_PALETTE.paperCream,
+    accentColor: RUBBER_PALETTE.tcGold,
+  });
+
+  const flapperCheer = createRubberHoseCharacter({
+    archetype: 'flapper',
+    view: 'front',
+    x: 385,
+    y: 785,
+    scale: 1.32,
+    facing: 1,
+    bounceScale: 0.25,
+    hat: 'feather',
+    heldProp: 'none',
+    pantsColor: RUBBER_PALETTE.tcCoral,
+    accentColor: RUBBER_PALETTE.tcGold,
+  });
+
+  // Scene 4: Full Ensemble Finale Bandleader & Flapper (`view: 'front'`, `scale: 1.48` / `1.28`)
   const catFinale = createRubberHoseCharacter({
     archetype: 'jazzcat',
     view: 'front',
-    x: 665,
-    y: 695,
-    scale: 1.18,
+    x: 685,
+    y: 725,
+    scale: 1.48,
     facing: 1,
+    bounceScale: 0.35,
     hat: 'topHat',
     heldProp: 'baton',
     pantsColor: RUBBER_PALETTE.paperCream,
@@ -147,10 +159,11 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
   const flapperFinale = createRubberHoseCharacter({
     archetype: 'flapper',
     view: 'front',
-    x: 410,
-    y: 765,
-    scale: 1.06,
+    x: 385,
+    y: 775,
+    scale: 1.28,
     facing: 1,
+    bounceScale: 0.30,
     hat: 'feather',
     heldProp: 'microphone',
     pantsColor: RUBBER_PALETTE.tcCoral,
@@ -169,23 +182,28 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     },
     shots: {
       'act1-curtain-up': { size: 'wide', move: 'push', amount: 0.45, subject: 'broadwayStage' },
-      'act2-horn-duel': { size: 'close', move: 'pan', amount: 0.50, subject: 'hornDuelClose' },
-      'act3-technicolor-keys': { size: 'medium', move: 'track', amount: 0.50, subject: 'technicolorKeys' },
+      'act2-horn-duel': { size: 'close', move: 'pan', amount: 0.40, subject: 'hornDuelClose' },
+      'act3-technicolor-keys': { size: 'medium', move: 'track', amount: 0.45, subject: 'technicolorKeys' },
       'act4-vortex-iris': { size: 'full', move: 'pull', amount: 0.45, subject: 'vortexFinale' },
     },
   });
 
   // -------------------------------------------------------------------------
-  // Scene 1 (`wide`): 01 · 胶片开映 · 百老汇摇摆揭幕
+  // Scene 1 (`wide`): 01 · 摇柄蓄压 · 留声机卡壳蓄力
+  // Cause: Jazz Cat physically cranks the Gramophone winding handle (`do: 'crank'`),
+  // causing the jammed brass horn to swell with trapped musical pressure!
   // -------------------------------------------------------------------------
   function renderScene1(ctx, w, h, frame, look, beginLayer, endLayer) {
     const localT = frame.localT ?? 0;
     const t = frame.t ?? 0;
-    const swing = evalSwingBounce(t, 132);
+
+    // Pressure builds continuously as Jazz Cat cranks from 0.4s to 3.4s
+    const pressureU = smootherstep(0.4, 3.2, localT);
+    const hornSwell = 1.0 + pressureU * 0.24 + Math.sin(t * 16) * pressureU * 0.06;
 
     beginLayer(1.0);
 
-    // 1. Wide S-curved 3D perspective piano keyboard road
+    // 1. Calm S-curved 3D perspective piano keyboard road (`waveAmp: 0` so stage is steady)
     const roadSpine = [
       [110, 990],
       [310, 885],
@@ -200,247 +218,215 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
       numKeys: 44,
       keyWidth: 132,
       contacts: [
-        { x: catWide.state.x, y: catWide.state.y, dip: 14, radius: 64 },
-        { x: flapperWide.state.x, y: flapperWide.state.y, dip: 11, radius: 56 },
-        { x: 1020, y: 690, dip: 9, radius: 44 },
+        { x: flapperObserver.state.x, y: flapperObserver.state.y, dip: 10, radius: 56 },
       ],
+      waveAmp: 0,
       t,
     });
 
-    // 2. Background Anthropomorphic Stand Microphone dancing near center-left
-    drawAnthropomorphicInstrument(ctx, 790, 565, {
-      kind: 'microphone',
-      scale: 0.88,
+    // 2. Giant Brass Gramophone at center-right (`cx = 1120, cy = 465`), swelling with pressure
+    const gramCx = 1120;
+    const gramCy = 465;
+    const gramSockets = getGramophoneSockets(gramCx, gramCy, {
+      scale: 1.0,
+      cabSquashY: 1.0 - pressureU * 0.08,
+      crankSpeed: 6.5,
       t,
     });
 
-    // 3. Giant Anthropomorphic Brass Gramophone on right stage
-    drawAnthropomorphicGramophone(ctx, 1390, 535, {
-      scale: 0.94,
-      eyeMode: 'pie',
-      arm1Pose: 'point',
+    drawAnthropomorphicGramophone(ctx, gramCx, gramCy, {
+      scale: 1.0,
+      bounce: false,
+      cabSquashY: 1.0 - pressureU * 0.08,
+      eyeMode: pressureU > 0.5 ? 'angry' : 'pie',
+      arm1Pose: 'fist',
       arm2Pose: 'crank',
-      spitBlast: 0.35,
+      hornSquashX: hornSwell,
+      hornSquashY: hornSwell * 0.96,
+      spitBlast: pressureU * 0.45,
       t,
     });
 
-    // 4. Hopping mischievous black Note Critters marching along the piano road
-    const critter1X = lerp(1150, 940, smootherstep(0.3, 3.4, localT));
-    const critter2X = lerp(1260, 1085, smootherstep(0.3, 3.4, localT));
-    drawNoteCritter(ctx, critter1X, 665, { state: 'walk', scale: 0.96, t });
-    drawNoteCritter(ctx, critter2X, 690, { state: 'walk', scale: 0.84, t: t + 0.4 });
-
-    // 5. Stream of sepia jazz notes floating from the Gramophone horn
-    drawJazzNoteStream(ctx, 1190, 465, 520, 410, t, {
-      count: 11,
-      spreadY: 75,
-    });
-
-    // 6. Jazz Cat Trumpeter & Flapper stepping onto the keyboard road
-    flapperWide.act(localT, [
-      { do: 'walk', from: 0.2, to: 2.2, fromX: 240, toX: 335, fromY: 855, toY: 815 },
-      { do: 'wave', from: 2.0, to: 3.6, amount: 0.9 },
-    ]);
-    flapperWide.draw(ctx, t);
-
-    catWide.act(localT, [
-      { do: 'walk', from: 0.15, to: 2.0, fromX: 410, toX: 535, fromY: 805, toY: 740 },
-      {
-        do: 'pose',
-        from: 1.9,
-        to: 3.6,
-        hold: true,
-        joints: { spineAngle: -0.14, headAngle: -0.22, shRAng: -0.95, elRAng: 0.55 },
-      },
-    ]);
-    catWide.draw(ctx, t);
-
-    // Exclamation pop icon above Jazz Cat when spotting the Note Critters
-    if (localT > 1.8 && localT < 3.3) {
-      const popAlpha = Math.sin(clamp((localT - 1.8) / 1.5, 0, 1) * Math.PI);
-      drawPopIcon(ctx, catWide.state.x + 15, catWide.state.y - 235, '!', {
-        alpha: popAlpha,
-        scale: 0.95,
+    // 3. Trapped musical pressure rings & '?' / '!' pop icon above the swelling horn
+    if (pressureU > 0.25) {
+      drawTechnicolorRing(ctx, gramSockets.hornBell[0], gramSockets.hornBell[1], 75 + pressureU * 65, {
+        alpha: pressureU * 0.65,
+      });
+      drawPopIcon(ctx, gramSockets.forehead[0] - 10, gramSockets.forehead[1] - 48, '?!', {
+        alpha: smootherstep(0.35, 0.85, pressureU),
+        scale: 0.85 + pressureU * 0.2,
       });
     }
 
+    // 4. Curious Flapper on left stage leaning forward to watch the jammed Gramophone
+    flapperObserver.act(localT, [
+      { do: 'walk', from: 0.15, to: 1.6, fromX: 255, toX: 385, fromY: 855, toY: 805 },
+      {
+        do: 'pose',
+        from: 1.5,
+        to: 3.6,
+        hold: true,
+        joints: { spineAngle: 0.12, headAngle: 0.15, shRAng: -0.55, elRAng: 0.65 },
+      },
+    ]);
+    flapperObserver.draw(ctx, t);
+
+    // 5. Protagonist Jazz Cat on right (`x = 1385, y = 885, facing: -1`) physically cranking `crankHub`!
+    catCranker.act(localT, [
+      {
+        do: 'crank',
+        from: 0.0,
+        to: 3.6,
+        center: gramSockets.crankHub,
+        radius: 28,
+        speed: 6.5,
+        mood: pressureU > 0.6 ? 'surprised' : 'neutral',
+      },
+    ]);
+    catCranker.draw(ctx, t);
+
     endLayer();
 
-    // 7. Theatrical Velvet Curtains (opening rapidly in 0.0..0.62s so settle=2.74s is 100% open)
-    const openProg = smootherstep(0.05, 0.62, localT);
+    // 6. Theatrical Velvet Curtains (steady after opening in 0.0..0.60s)
+    const openProg = smootherstep(0.05, 0.60, localT);
     drawTheaterCurtains(ctx, w, h, {
       openProg,
-      bounceDy: swing.bounce * 0.45,
+      bounceDy: 0,
       look,
     });
 
-    // 8. 35mm Reel Leader Countdown (`0.0..0.50s` only)
-    if (localT < 0.50) {
-      const num = localT < 0.18 ? 3 : localT < 0.34 ? 2 : 1;
-      const cdAlpha = 1.0 - smootherstep(0.36, 0.50, localT);
+    // 7. 35mm Reel Leader Countdown (`0.0..0.48s` only)
+    if (localT < 0.48) {
+      const num = localT < 0.16 ? 3 : localT < 0.32 ? 2 : 1;
+      const cdAlpha = 1.0 - smootherstep(0.34, 0.48, localT);
       draw35mmCountdown(ctx, w, h, num, cdAlpha);
     }
   }
 
   // -------------------------------------------------------------------------
-  // Scene 2 (`close`): 02 · 铜管飙音 · 留声机咆哮斗技
-  // Low-Angle Over-the-Shoulder (`view: 'back'`) Close-Up vs. Towering Giant Gramophone!
+  // Scene 2 (`close`): 02 · 号角喷发 · 夸张惊愕大特写
+  // Peak Reaction: The Gramophone horn blasts out a giant rebellious Note Critter (`BLAM!`),
+  // triggering a 50% screen-height close-up Cartoon Take (`do: 'take'`) on Jazz Cat!
   // -------------------------------------------------------------------------
   function renderScene2(ctx, w, h, frame, look, beginLayer, endLayer) {
     const localT = frame.localT ?? 0;
     const t = frame.t ?? 0;
-    const swing = evalSwingBounce(t, 132);
+
+    // Blast occurs at localT = 0.45s; Note Critter shoots from horn (1080, 460) toward center (885, 420)
+    const blastU = smootherstep(0.35, 1.45, localT);
+    const critterX = lerp(1120, 865, blastU) + Math.sin(t * 9) * 14;
+    const critterY = lerp(475, 415, blastU) + Math.cos(t * 10) * 12;
 
     beginLayer(1.0);
 
-    // 1. Foreshortened diagonal perspective piano road plunging from bottom-left foreground to upper-right
+    // 1. Foreshortened close-up stage floor & keyboard road in lower frame
     drawElasticKeyboardRoad(
       ctx,
       [
-        [140, 1065],
+        [120, 1055],
         [490, 965],
-        [860, 865],
-        [1240, 785],
-        [1620, 735],
+        [880, 875],
+        [1280, 795],
+        [1640, 745],
       ],
       {
-        numKeys: 28,
-        keyWidth: 168,
-        contacts: [{ x: 440, y: 970, dip: 20, radius: 95 }],
-        waveAmp: 10,
+        numKeys: 26,
+        keyWidth: 165,
+        contacts: [{ x: 465, y: 945, dip: 22, radius: 95 }],
+        waveAmp: 0,
         t,
       }
     );
 
-    // 2. Acoustic Clash Starburst & Concentric Shockwaves in the upper-center sky
-    const clashR1 = 155 + Math.sin(t * 9) * 26;
-    const clashR2 = 245 + Math.cos(t * 7) * 32;
-    drawTechnicolorRing(ctx, 815, 445, clashR1, { alpha: 0.82 });
-    drawTechnicolorRing(ctx, 815, 445, clashR2, { alpha: 0.58 });
-    drawComicBurst(ctx, 815, 440, 115, {
-      scale: 0.88 + Math.sin(t * 12) * 0.10,
-      label: 'BLAM!',
-    });
-
-    // 3. Towering Right Close-Up: Giant Roaring Anthropomorphic Brass Gramophone (`scale: 1.68`)
-    drawAnthropomorphicGramophone(ctx, 1385, 555, {
-      scale: 1.68,
+    // 2. Right Side: Roaring Giant Brass Gramophone Horn (`scale: 1.48`, `bounce: false`)
+    drawAnthropomorphicGramophone(ctx, 1395, 555, {
+      scale: 1.48,
+      bounce: false,
       eyeMode: 'angry',
       arm1Pose: 'fist',
       arm2Pose: 'fist',
-      neckLeanX: -34 + Math.sin(t * 10) * 16,
-      hornSquashX: 1.12 + Math.sin(t * 14) * 0.08,
-      hornSquashY: 1.05 - Math.sin(t * 14) * 0.06,
+      neckLeanX: -32,
+      hornSquashX: 1.16 + Math.sin(t * 14) * 0.06,
+      hornSquashY: 1.06 - Math.sin(t * 14) * 0.05,
       spitBlast: 1.0,
       t,
     });
 
-    // 4. Airborne Black Note Critters (`state: 'airborne'`) blasted out of the giant Gramophone horn!
-    for (const [ncX, ncY, ncScale, ncOff] of [
-      [965, 335, 1.08, 0.0],
-      [925, 555, 0.96, 0.5],
-      [1045, 635, 0.90, 1.1],
-    ]) {
-      drawNoteCritter(
-        ctx,
-        ncX + Math.sin(t * 7 + ncOff) * 16,
-        ncY + Math.cos(t * 8 + ncOff) * 12,
-        { state: 'airborne', scale: ncScale, t: t + ncOff }
-      );
+    // 3. Acoustic Blast Rings & `BLAM!` Starburst behind the ejected Note Critter
+    if (localT > 0.30) {
+      const ringAlpha = clamp(smootherstep(0.30, 0.75, localT), 0, 1);
+      drawTechnicolorRing(ctx, 945, 445, 145 + Math.sin(t * 8) * 18, { alpha: ringAlpha * 0.85 });
+      drawTechnicolorRing(ctx, 945, 445, 235 + Math.cos(t * 7) * 22, { alpha: ringAlpha * 0.55 });
+      drawComicBurst(ctx, 995, 345, 108, {
+        scale: 0.90 + Math.sin(t * 12) * 0.08,
+        label: 'BLAM!',
+      });
     }
 
-    // 5. Dueling Jazz Note Stream & Dip-Pen Brass Soundwave Arcs
-    drawJazzNoteStream(ctx, 680, 500, 1040, 420, t, {
-      count: 11,
-      spreadY: 88,
-      technicolor: true,
+    // 4. Giant Rebellious Black Note Critter (`scale: 1.38`) shooting out of the horn toward Jazz Cat!
+    drawNoteCritter(ctx, critterX, critterY, {
+      state: localT < 0.95 ? 'airborne' : 'walk',
+      scale: 1.38,
+      flip: -1,
+      t,
     });
 
-    for (let i = 0; i < 3; i++) {
-      const p = (t * 2.5 + i * 0.33) % 1;
-      const arcX = 655 + p * 180;
-      const arcY = 505 - p * 48;
-      const arcH = 42 + p * 82;
-      drawDipPenStroke(
-        ctx,
-        [
-          [arcX - 16, arcY - arcH],
-          [arcX + 20, arcY],
-          [arcX - 16, arcY + arcH],
-        ],
-        {
-          width: 7.2 * (1 - p * 0.45),
-          color: i % 2 === 0 ? RUBBER_PALETTE.tcGold : RUBBER_PALETTE.tcCoral,
-          doubleInk: true,
-          t,
-        }
-      );
-    }
-
-    // 6. Left Foreground Over-the-Shoulder Close-Up: Jazz Cat (`view: 'back'`, `scale: 2.15`)
-    // Raising his right rubber-hose arm and golden trumpet diagonally toward the upper-right Gramophone!
-    catCloseBack.act(localT, [
-      { do: 'view', view: 'back' },
-      {
-        do: 'pose',
-        from: 0.0,
-        to: 3.8,
-        hold: true,
-        joints: {
-          spineAngle: -0.18 + Math.sin(t * 6.5) * 0.05,
-          headAngle: -0.28,
-          shRAng: -1.12 + Math.sin(t * 9) * 0.06,
-          elRAng: -0.18,
-          shLAng: 0.52,
-          elLAng: 0.45,
-          thighLAng: 0.16,
-          thighRAng: -0.18,
-        },
-      },
+    // 5. Left Foreground Close-Up (~50% screen height!): Jazz Cat (`scale: 2.32`, `view: 'side'`)
+    // performing a 3-beat 1930s Cartoon Take (`eyePop`, `jawDrop`, `hatJump`)!
+    catCloseTake.act(localT, [
+      { do: 'view', view: 'side' },
+      { do: 'take', from: 0.65, to: 3.45, intensity: 1.18 },
     ]);
-    catCloseBack.draw(ctx, t);
+    catCloseTake.draw(ctx, t);
+
+    // Overhead `!!` shock icon during the Take peak
+    if (localT > 1.05 && localT < 3.15) {
+      drawPopIcon(ctx, catCloseTake.state.x - 55, catCloseTake.state.y - 540, '!!', {
+        alpha: smootherstep(1.05, 1.35, localT),
+        scale: 1.25,
+        color: RUBBER_PALETTE.tcCoral,
+      });
+    }
 
     endLayer();
 
     drawTheaterCurtains(ctx, w, h, {
       openProg: 1.0,
-      bounceDy: swing.bounce * 0.45,
+      bounceDy: 0,
       look,
     });
   }
 
   // -------------------------------------------------------------------------
-  // Scene 3 (`medium`): 03 · 琴键踏浪 · 特艺三色彩环绽放
-  // Frontal Medium Action on a Giant Central Arching Piano Wave Crest (NO Gramophone on right!)
+  // Scene 3 (`medium`): 03 · 木槌追击 · 一锤砸绽特艺三色
+  // Action & Physical IK Contact: Jazz Cat chases the Note Critter onto the piano crest,
+  // winds up his wooden mallet, and physically smashes `[1005, 615]` (`do: 'malletStrike'`),
+  // squashing the Note Critter into an ink pancake and blooming 3-Strip Technicolor rings!
   // -------------------------------------------------------------------------
   function renderScene3(ctx, w, h, frame, look, beginLayer, endLayer) {
     const localT = frame.localT ?? 0;
     const t = frame.t ?? 0;
-    const swing = evalSwingBounce(t, 132);
 
-    // Parabolic jump landing at localT = 0.88s onto the central crest (x = 915, y = 655)
-    const hopU = clamp((localT - 0.12) / 0.78, 0, 1);
-    const hop = evalHopParabola(hopU, 740, 720, 915, 655, 145);
-    const landed = localT >= 0.88;
-    const catX = landed ? 915 : hop.x;
-    const catY = landed ? 655 - Math.abs(Math.sin((localT - 0.88) * 6.8)) * 24 : hop.y;
+    // Strike lands at localT = 1.78s (`from: 1.15, to: 3.60`, where strike phase reaches 1.0 at ~1.78s)
+    const struck = localT >= 1.78;
+    const strikeTarget = [1005, 615];
 
-    // Two Huge Expanding 3-Strip Technicolor Soundwave Rings centered on the crest stomp
-    const ring1R = landed ? lerp(110, 560, smootherstep(0.86, 3.2, localT)) : 0;
-    const ring2R = localT >= 1.35 ? lerp(85, 410, smootherstep(1.35, 3.5, localT)) : 0;
+    // Expanding 3-Strip Technicolor Soundwave Rings triggered at the exact moment of mallet impact!
+    const ring1R = struck ? lerp(95, 580, smootherstep(1.78, 3.55, localT)) : 0;
+    const ring2R = localT >= 2.10 ? lerp(75, 420, smootherstep(2.10, 3.65, localT)) : 0;
     const activeRings = [];
-    if (ring1R > 10) activeRings.push({ x: 915, y: 650, r: ring1R });
-    if (ring2R > 10) activeRings.push({ x: 915, y: 650, r: ring2R });
+    if (ring1R > 10) activeRings.push({ x: strikeTarget[0], y: strikeTarget[1] + 25, r: ring1R });
+    if (ring2R > 10) activeRings.push({ x: strikeTarget[0], y: strikeTarget[1] + 25, r: ring2R });
 
     beginLayer(1.0);
 
-    // 1. Giant Central Arching Piano Wave Crest (`Trampoline Crest` across the frame, dyed by Technicolor rings)
+    // 1. Giant Central Arching Piano Wave Crest (`Trampoline Crest`, dyed by Technicolor rings on impact)
     const crestSpine = [
       [110, 965],
       [340, 835],
       [610, 710],
-      [915, 650],
-      [1220, 705],
+      [940, 645],
+      [1240, 705],
       [1490, 815],
       [1760, 935],
     ];
@@ -448,121 +434,107 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
       numKeys: 46,
       keyWidth: 152,
       contacts: [
-        { x: catX, y: 655, dip: landed ? 28 : 6, radius: 105 },
-        { x: flapperMediumFront.state.x, y: flapperMediumFront.state.y, dip: 16, radius: 75 },
-        { x: 1365, y: 725, dip: 14, radius: 70 },
+        { x: strikeTarget[0], y: 645, dip: struck ? 34 : 8, radius: 115 },
+        { x: catMalletHero.state.x, y: catMalletHero.state.y, dip: 16, radius: 80 },
+        { x: flapperCheer.state.x, y: flapperCheer.state.y, dip: 12, radius: 68 },
       ],
       rings: activeRings,
-      waveAmp: 12,
+      waveAmp: struck ? 8 : 0,
       t,
     });
 
-    // 2. Expanding 3-Strip Technicolor Soundwave Rings radiating from the central crest
-    if (ring1R > 10) drawTechnicolorRing(ctx, 915, 610, ring1R, { alpha: 0.94 });
-    if (ring2R > 10) drawTechnicolorRing(ctx, 915, 610, ring2R, { alpha: 0.84 });
+    // 2. Expanding 3-Strip Technicolor Soundwave Rings radiating from the mallet impact point
+    if (ring1R > 10) drawTechnicolorRing(ctx, strikeTarget[0], strikeTarget[1], ring1R, { alpha: 0.94 });
+    if (ring2R > 10) drawTechnicolorRing(ctx, strikeTarget[0], strikeTarget[1], ring2R, { alpha: 0.84 });
 
-    // 3. Right Flank Accompaniment: Anthropomorphic Upright Contrabass & Brass Saxophone (NO Gramophone!)
-    drawAnthropomorphicInstrument(ctx, 1365, 635, {
+    // 3. Right Flank Accompaniment: Calm Upright Contrabass (`bounce: false` before impact)
+    drawAnthropomorphicInstrument(ctx, 1465, 665, {
       kind: 'contrabass',
-      scale: 1.38,
-      eyeMode: 'pie',
+      scale: 1.32,
+      bounce: struck,
+      eyeMode: struck ? 'shock' : 'pie',
       t,
     });
-    drawAnthropomorphicInstrument(ctx, 1595, 695, {
-      kind: 'saxophone',
-      scale: 1.28,
-      flip: -1,
-      t: t + 0.3,
-    });
 
-    // 4. Twin Spinning 78-RPM Vinyl Records (`r = 72`) & Blooming 4-Point Technicolor Stars in the upper sky
-    drawSpinningVinyl(ctx, 635, 255, 72, t * 6.5, { labelColor: RUBBER_PALETTE.tcCoral });
-    drawSpinningVinyl(ctx, 1195, 255, 72, -t * 6.5, { labelColor: RUBBER_PALETTE.tcGold });
-    for (const [sx, sy, sr] of [
-      [775, 210, 26],
-      [915, 185, 32],
-      [1055, 210, 26],
-    ]) {
-      drawFourPointStar(ctx, sx, sy + Math.sin(t * 4 + sx) * 7, sr, {
-        rot: t * 2.0 + sx * 0.01,
+    // 4. Spinning 78-RPM Vinyl Record & Technicolor 4-Point Stars blooming in the upper sky upon impact
+    if (struck) {
+      drawSpinningVinyl(ctx, 645, 245, 70, t * 6.5, { labelColor: RUBBER_PALETTE.tcCoral });
+      drawSpinningVinyl(ctx, 1245, 245, 70, -t * 6.5, { labelColor: RUBBER_PALETTE.tcGold });
+      for (const [sx, sy, sr] of [
+        [825, 205, 26],
+        [985, 175, 34],
+        [1135, 205, 26],
+      ]) {
+        drawFourPointStar(ctx, sx, sy + Math.sin(t * 4 + sx) * 6, sr, {
+          rot: t * 2.0 + sx * 0.01,
+          t,
+        });
+      }
+    }
+
+    // 5. Left Flank: Flapper cheering on the piano slope
+    flapperCheer.act(localT, [
+      { do: 'view', view: 'front' },
+      { do: 'wave', from: 1.75, to: 3.8, amount: 0.95 },
+    ]);
+    flapperCheer.draw(ctx, t);
+
+    // 6. The Target Note Critter at `[1005, 642]`:
+    // Before `1.78s`, it hops tauntingly on the crest; at `>= 1.78s`, the wooden mallet smashes it flat!
+    if (struck) {
+      drawNoteCritter(ctx, strikeTarget[0], strikeTarget[1] + 28, {
+        state: 'squashed',
+        scale: 1.38,
+        t,
+      });
+      drawComicBurst(ctx, strikeTarget[0] + 155, strikeTarget[1] - 95, 108, {
+        scale: 0.92 + Math.sin(t * 10) * 0.06,
+        label: 'POW!',
+      });
+    } else {
+      const runX = lerp(1160, strikeTarget[0], smootherstep(0.0, 1.35, localT));
+      drawNoteCritter(ctx, runX, strikeTarget[1] + 15, {
+        state: 'walk',
+        scale: 1.28,
+        flip: -1,
         t,
       });
     }
 
-    // 5. Chromatic Jazz Note Stream arching over the wave crest
-    drawJazzNoteStream(ctx, 1340, 490, 480, 460, t, {
-      count: 14,
-      rings: activeRings,
-      technicolor: true,
-      spreadY: 95,
-    });
-
-    // 6. Squashed Black Note Critter pancake under Jazz Cat's stomp + hopping critter on right slope
-    if (landed) {
-      drawNoteCritter(ctx, 915, 686, { state: 'squashed', scale: 1.32, t });
-      drawComicBurst(ctx, 1085, 555, 105, {
-        scale: 0.86 + Math.sin(t * 10) * 0.08,
-        label: 'CLANG!',
-      });
-    } else {
-      drawNoteCritter(ctx, 915, 650, { state: 'walk', scale: 1.18, t });
-    }
-    drawNoteCritter(ctx, 1185, 695, { state: 'walk', scale: 1.02, t: t + 0.5 });
-
-    // 7. Left Flank: Frontal Flapper (`view: 'front'`, `scale: 1.36`) dancing on the dyed keys
-    flapperMediumFront.act(localT, [
-      { do: 'view', view: 'front' },
-      { do: 'wave', from: 0.0, to: 3.8, amount: 1.0 },
-    ]);
-    flapperMediumFront.draw(ctx, t);
-
-    // 8. Center Crest Protagonist: Frontal Jazz Cat (`view: 'front'`, `scale: 1.56`) stomping the keys!
-    catMediumFront.state.x = catX;
-    catMediumFront.state.y = catY;
-    catMediumFront.act(localT, [
-      { do: 'view', view: 'front' },
+    // 7. Protagonist Jazz Cat (`scale: 1.68`, `heldProp: 'mallet'`) chasing & physically striking `strikeTarget`!
+    catMalletHero.act(localT, [
+      { do: 'view', view: 'side' },
+      { do: 'walk', from: 0.0, to: 1.18, fromX: 590, toX: 805, fromY: 775, toY: 715 },
       {
-        do: 'pose',
-        from: 0.0,
-        to: 3.8,
-        hold: true,
-        joints: {
-          spineAngle: landed ? -0.10 : 0.16,
-          headAngle: -0.18,
-          shRAng: -1.28 + Math.sin(t * 8) * 0.12,
-          elRAng: 0.42,
-          shLAng: 0.65 + Math.cos(t * 8) * 0.12,
-          elLAng: 0.48,
-          thighLAng: landed ? 0.18 : 0.36,
-          thighRAng: landed ? -0.18 : -0.36,
-        },
+        do: 'malletStrike',
+        from: 1.15,
+        to: 3.65,
+        target: strikeTarget,
+        toolLen: 64,
       },
     ]);
-    catMediumFront.draw(ctx, t);
+    catMalletHero.draw(ctx, t);
 
     endLayer();
 
     drawTheaterCurtains(ctx, w, h, {
       openProg: 1.0,
-      bounceDy: swing.bounce * 0.45,
+      bounceDy: 0,
       look,
     });
   }
 
   // -------------------------------------------------------------------------
-  // Scene 4 (`full`): 04 · 旋涡华彩 · 经典黑幕圆圈收尾
-  // Midnight Broadway Full Ensemble Finale & Golden Logarithmic Vortex + Circular Iris-Out
+  // Scene 4 (`full`): 04 · 驯服合奏 · 百老汇圆圈谢幕
+  // Resolution: The tamed Note Critters flow into a golden harmonic vortex while
+  // Top-Hat Bandleader Jazz Cat & Flapper take their Broadway bow before the Iris-Out!
   // -------------------------------------------------------------------------
   function renderScene4(ctx, w, h, frame, look, beginLayer, endLayer) {
     const localT = frame.localT ?? 0;
     const t = frame.t ?? 0;
     const swing = evalSwingBounce(t, 132);
 
-    const vortexStrength = smootherstep(0.35, 1.65, localT);
-    const impactFlash =
-      localT >= 0.18 && localT <= 1.45
-        ? Math.sin(clamp((localT - 0.18) / 1.27, 0, 1) * Math.PI) * 0.95
-        : 0;
+    const vortexStrength = smootherstep(0.25, 1.55, localT);
 
     beginLayer(1.0);
 
@@ -585,60 +557,48 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
         { x: flapperFinale.state.x, y: flapperFinale.state.y, dip: 12, radius: 64 },
       ],
       rings: [{ x: 820, y: 580, r: 680 }],
-      waveAmp: 8,
+      waveAmp: 4,
       t,
     });
 
-    // 2. Expanding Technicolor Aura behind ensemble
-    drawTechnicolorRing(ctx, 740, 520, 420 + Math.sin(t * 5) * 24, { alpha: 0.78 });
+    // 2. Warm Technicolor Spotlight Halo behind the curtain-call duo
+    drawTechnicolorRing(ctx, 685, 520, 390 + Math.sin(t * 4) * 16, { alpha: 0.72 });
 
-    // 3. Anthropomorphic Contrabass & Brass Saxophone joining the grand finale ensemble
-    drawAnthropomorphicInstrument(ctx, 225, 685, {
-      kind: 'contrabass',
-      scale: 0.96,
-      t,
-    });
-    drawAnthropomorphicInstrument(ctx, 915, 625, {
-      kind: 'saxophone',
-      scale: 0.98,
-      t: t + 0.25,
-    });
-
-    // 4. Giant Gramophone with Dizzy `X X` Eyes, Orbiting Stars, `CLANG!` Burst & Golden Logarithmic Vortex!
+    // 3. Tamed Giant Gramophone on right with Dizzy `X X` Eyes & Golden Harmonic Vortex
     drawAnthropomorphicGramophone(ctx, 1395, 535, {
       scale: 1.0,
+      bounce: false,
       stunned: true,
       eyeMode: 'dizzy',
-      recoilAngle: 0.08 * Math.sin(t * 6),
+      recoilAngle: 0.05 * Math.sin(t * 5),
       vortexStrength,
-      impactFlash,
-      impactLabel: 'CLANG!',
+      impactFlash: 0,
       t,
     });
 
-    // 5. Swirling Technicolor Jazz Notes & 4-Point Stars drawn into the golden horn vortex
+    // 4. Swirling Technicolor Jazz Notes & 4-Point Stars drawn into the golden horn vortex
     drawJazzNoteStream(ctx, 1215, 475, 560, 420, t, {
-      count: 15,
+      count: 14,
       vortex: vortexStrength,
       technicolor: true,
-      spreadY: 105,
+      spreadY: 95,
     });
 
     for (const [sx, sy, sr] of [
-      [540, 275, 26],
-      [840, 245, 30],
-      [1110, 285, 24],
+      [540, 265, 26],
+      [840, 235, 30],
+      [1110, 275, 24],
     ]) {
-      drawFourPointStar(ctx, sx, sy + Math.sin(t * 4 + sx) * 8, sr, {
-        rot: t * 2.2 + sx * 0.01,
+      drawFourPointStar(ctx, sx, sy + Math.sin(t * 4 + sx) * 6, sr, {
+        rot: t * 2.0 + sx * 0.01,
         t,
       });
     }
 
-    // 6. Flapper & Bandleader Jazz Cat taking their frontal Broadway bow/salute
+    // 5. Flapper & Top-Hat Bandleader Jazz Cat taking their frontal Broadway bow/salute
     flapperFinale.act(localT, [
       { do: 'view', view: 'front' },
-      { do: 'wave', from: 0.0, to: 3.6, amount: 1.0 },
+      { do: 'wave', from: 0.0, to: 3.6, amount: 0.9 },
     ]);
     flapperFinale.draw(ctx, t);
 
@@ -651,8 +611,8 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
         hold: true,
         joints: {
           spineAngle: -0.08,
-          headAngle: -0.14,
-          shRAng: -1.45 + Math.sin(t * 8) * 0.18,
+          headAngle: -0.12,
+          shRAng: -1.35 + Math.sin(t * 6) * 0.14,
           elRAng: 0.35,
           shLAng: 0.35,
           elLAng: 0.45,
@@ -661,19 +621,18 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     ]);
     catFinale.draw(ctx, t);
 
-    // 7. Classic 1930s Circular Black Iris-Out ONLY after localT > 2.92s
-    // (strictly after settle=2.74s and storyboard=2.81s so all inspection stills are 100% bright & open!)
+    // 6. Classic 1930s Circular Black Iris-Out ONLY after localT > 2.92s
     if (localT > 2.92) {
       const irisU = smootherstep(2.92, 3.58, localT);
       const irisRadius = lerp(1350, 225, irisU);
-      drawIrisTransition(ctx, w, h, catFinale.state.x + 10, catFinale.state.y - 115, irisRadius);
+      drawIrisTransition(ctx, w, h, catFinale.state.x + 10, catFinale.state.y - 135, irisRadius);
     }
 
     endLayer();
 
     drawTheaterCurtains(ctx, w, h, {
       openProg: 1.0,
-      bounceDy: swing.bounce * 0.45,
+      bounceDy: swing.bounce * 0.25,
       look,
     });
   }

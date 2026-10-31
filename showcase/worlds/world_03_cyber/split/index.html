@@ -4,8 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>空中列车跑酷场景 V16.0 - 电影级UnrealBloom辉光·远景超级巨构天际线与探照飞艇·穿桥实时扫光交互</title>
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../../../../engine/vendor/three.min.js"></script>
+  <script>
+    if (typeof THREE !== 'undefined' && !THREE.PlaneBufferGeometry) {
+      THREE.PlaneBufferGeometry = THREE.PlaneGeometry;
+      THREE.BoxBufferGeometry = THREE.BoxGeometry;
+      THREE.CylinderBufferGeometry = THREE.CylinderGeometry;
+      THREE.SphereBufferGeometry = THREE.SphereGeometry;
+      THREE.ConeBufferGeometry = THREE.ConeGeometry;
+      THREE.TorusBufferGeometry = THREE.TorusGeometry;
+      THREE.CircleBufferGeometry = THREE.CircleGeometry;
+      THREE.RingBufferGeometry = THREE.RingGeometry;
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>

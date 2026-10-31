@@ -429,6 +429,10 @@ export function createPuppet2D(opts = {}) {
     sighProgress: 0,
     rodBend: 0,
     swordSlash: 0,
+    takeProgress: 0,
+    eyePop: 0,
+    jawDrop: 0,
+    hatJump: 0,
     lastRodTip: { x: (opts.x ?? 600) + 180, y: (opts.y ?? 700) - 160 },
   };
 
@@ -474,7 +478,7 @@ export function createPuppet2D(opts = {}) {
       state.shRAng = -0.22;
       state.elRAng = 1.05;
       state.handRAng = 0.08;
-    } else if (state.heldProp === 'rod' || state.heldProp === 'staff' || state.heldProp === 'sword') {
+    } else if (state.heldProp === 'rod' || state.heldProp === 'staff' || state.heldProp === 'sword' || state.heldProp === 'mallet') {
       state.shRAng = -0.45;
       state.elRAng = 0.75;
       state.handRAng = 0.0;
@@ -488,6 +492,10 @@ export function createPuppet2D(opts = {}) {
     state.sighProgress = 0;
     state.rodBend = 0;
     state.swordSlash = 0;
+    state.takeProgress = 0;
+    state.eyePop = 0;
+    state.jawDrop = 0;
+    state.hatJump = 0;
     state.mood = opts.mood || 'calm';
   }
 
@@ -990,12 +998,106 @@ export function createPuppet2D(opts = {}) {
             }
           }
         }
+      } else if (a.do === 'take') {
+        // 1930s Cartoon Take: Phase 1 [0..0.28] anticipation crouch -> Phase 2 [0.28..0.72] extreme eye-pop / jaw-drop / hat-jump -> Phase 3 [0.72..1.0] elastic settle
+        if (localT <= to || a.hold) {
+          state.takeProgress = u;
+          if (u < 0.28) {
+            const wu = smootherstep(0, 0.28, u);
+            state.squash = wu * 0.34;
+            state.pelvisDropY = wu * 18;
+            state.spineAngle = wu * 0.22;
+            state.headAngle = wu * 0.26;
+            state.shRAng = lerp(-0.1, 0.45, wu);
+            state.elRAng = lerp(0.3, 1.35, wu);
+            state.shLAng = lerp(0.16, 0.55, wu);
+            state.elLAng = lerp(0.32, 1.25, wu);
+            state.mood = 'anticipation';
+          } else {
+            const pu = clamp((u - 0.28) / 0.44, 0, 1);
+            const popEnv = a.hold ? smootherstep(0, 0.55, pu) : Math.sin(clamp((u - 0.28) / 0.72, 0, 1) * Math.PI);
+            state.squash = -popEnv * 0.32;
+            state.hopY = -popEnv * (a.jumpHeight ?? 28);
+            state.spineAngle = -popEnv * 0.22;
+            state.headAngle = -popEnv * 0.14;
+            state.shRAng = lerp(0.45, 0.78, popEnv);
+            state.elRAng = lerp(1.35, 0.85, popEnv);
+            state.shLAng = lerp(0.55, 0.92, popEnv);
+            state.elLAng = lerp(1.25, 0.75, popEnv);
+            state.thighRAng = -popEnv * 0.36;
+            state.thighLAng = popEnv * 0.32;
+            state.eyePop = popEnv * (a.intensity ?? 1.0);
+            state.jawDrop = popEnv * (a.intensity ?? 1.0);
+            state.hatJump = popEnv * (a.hatJump ?? 38);
+            state.mood = 'shock';
+          }
+        }
+      } else if (a.do === 'crank') {
+        // Circular hand-crank action: physically locks handTipR onto rotating crank handle via 2-bone IK
+        if (localT <= to) {
+          const speed = a.speed ?? 6.5;
+          const ang = (localT - from) * speed + (a.phase ?? 0);
+          const hubSrc = a.hub || a.center;
+          const hubX = Array.isArray(hubSrc) ? hubSrc[0] : (hubSrc?.x ?? state.x + state.facing * 95);
+          const hubY = Array.isArray(hubSrc) ? hubSrc[1] : (hubSrc?.y ?? state.y - 115);
+          const rad = a.radius ?? 28;
+          const handleWorldX = hubX + Math.cos(ang) * rad;
+          const handleWorldY = hubY + Math.sin(ang) * rad;
+          // Body leans rhythmically into the crank effort
+          const effort = Math.sin(ang);
+          state.spineAngle = 0.14 + effort * 0.08;
+          state.pelvisShiftX = effort * 6;
+          state.pelvisDropY = Math.max(0, effort) * 5;
+          state.squash = effort * 0.12;
+          state.headAngle = 0.08 + effort * 0.06;
+          const preSkel = solveSkeleton(0, localT);
+          const localTx = (handleWorldX - state.x) / (preSkel.sc * state.facing);
+          const localTy = (handleWorldY - (state.y + state.hopY)) / preSkel.sc;
+          const ik = solveLimbIK2D(preSkel.shR, dims.upperArmR, dims.forearmR + dims.handR * 0.6, { x: localTx, y: localTy }, preSkel.aThorax);
+          state.shRAng = ik.shAng;
+          state.elRAng = ik.elAng;
+        }
+      } else if (a.do === 'malletStrike') {
+        // 3-Beat Cartoon Mallet Smash: [0..0.38] deep windup behind back -> [0.38..0.58] whip smash onto target -> [0.58..1.0] impact hold & recoil
+        if (localT <= to) {
+          if (u < 0.38) {
+            const wu = smootherstep(0, 0.38, u);
+            state.spineAngle = lerp(0, -0.28, wu);
+            state.headAngle = lerp(-0.02, -0.20, wu);
+            state.pelvisShiftX = lerp(0, -10, wu);
+            state.squash = -wu * 0.18;
+            state.shRAng = lerp(-0.45, -2.55, wu);
+            state.elRAng = lerp(0.75, 0.95, wu);
+          } else {
+            const su = clamp((u - 0.38) / 0.22, 0, 1);
+            const smashEnv = smootherstep(0, 1, su);
+            state.spineAngle = lerp(-0.28, 0.26, smashEnv);
+            state.headAngle = lerp(-0.20, 0.16, smashEnv);
+            state.pelvisShiftX = lerp(-10, 12, smashEnv);
+            state.pelvisDropY = smashEnv * 10;
+            state.squash = Math.sin(clamp((u - 0.38) / 0.62, 0, 1) * Math.PI) * 0.24;
+            if (a.target) {
+              const txWorld = Array.isArray(a.target) ? a.target[0] : a.target.x;
+              const tyWorld = Array.isArray(a.target) ? a.target[1] : a.target.y;
+              const preSkel = solveSkeleton(0, localT);
+              const localTx = (txWorld - state.x) / (preSkel.sc * state.facing);
+              const localTy = (tyWorld - (state.y + state.hopY)) / preSkel.sc;
+              const toolLen = a.toolLen ?? 68;
+              const ik = solveLimbIK2D(preSkel.shR, dims.upperArmR, dims.forearmR + toolLen, { x: localTx, y: localTy }, preSkel.aThorax);
+              state.shRAng = lerp(-2.55, ik.shAng, smashEnv);
+              state.elRAng = lerp(0.95, ik.elAng, smashEnv);
+            } else {
+              state.shRAng = lerp(-2.55, -0.35, smashEnv);
+              state.elRAng = lerp(0.95, 0.22, smashEnv);
+            }
+          }
+        }
       } else if (a.do === 'mood') {
         if (localT <= to) state.mood = a.mood || 'happy';
       }
 
       // Optional 2-Bone Analytic IK toward `a.target` ([worldX, worldY] | { x, y, radius })
-      if (a.target && localT <= to) {
+      if (a.target && a.do !== 'malletStrike' && localT <= to) {
         const txWorld = Array.isArray(a.target) ? a.target[0] : a.target.x;
         const tyWorld = Array.isArray(a.target) ? a.target[1] : a.target.y;
         if (Number.isFinite(txWorld) && Number.isFinite(tyWorld)) {
@@ -1003,7 +1105,15 @@ export function createPuppet2D(opts = {}) {
           const preSkel = solveSkeleton(0, localT);
           const localTx = (txWorld - state.x) / (preSkel.sc * state.facing);
           const localTy = (tyWorld - (state.y + state.hopY)) / preSkel.sc;
-          const toolLen = state.heldProp === 'sword' ? 98 : state.heldProp === 'brush' ? 28 : dims.handR;
+          const toolLen =
+            a.toolLen ??
+            (state.heldProp === 'sword'
+              ? 98
+              : state.heldProp === 'mallet'
+                ? 68
+                : state.heldProp === 'brush'
+                  ? 28
+                  : dims.handR);
           const ik = solveLimbIK2D(preSkel.shR, dims.upperArmR, dims.forearmR + toolLen, { x: localTx, y: localTy }, preSkel.aThorax);
           state.shRAng = lerp(state.shRAng, ik.shAng, env);
           state.elRAng = lerp(state.elRAng, ik.elAng, env);
@@ -1016,7 +1126,12 @@ export function createPuppet2D(opts = {}) {
                     x: postSkel.wrR.x + Math.cos(postSkel.aR3 - Math.PI * 0.5 + Math.sin(state.swordSlash * Math.PI) * 0.75) * 98,
                     y: postSkel.wrR.y + Math.sin(postSkel.aR3 - Math.PI * 0.5 + Math.sin(state.swordSlash * Math.PI) * 0.75) * 98,
                   }
-                : postSkel.handTipR;
+                : state.heldProp === 'mallet' || a.toolLen
+                  ? {
+                      x: postSkel.wrR.x + Math.cos(postSkel.aR2) * toolLen,
+                      y: postSkel.wrR.y + Math.sin(postSkel.aR2) * toolLen,
+                    }
+                  : postSkel.handTipR;
             const effWorldX = state.x + effLocal.x * postSkel.sc * state.facing;
             const effWorldY = state.y + state.hopY + effLocal.y * postSkel.sc;
             const targetRadius = a.target.radius ?? 0;

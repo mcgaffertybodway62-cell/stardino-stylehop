@@ -43,3 +43,17 @@
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: rgba(7, 21, 44, 0.6); }
     ::-webkit-scrollbar-thumb { background: rgba(110, 175, 245, 0.4); border-radius: 3px; }
+
+    /* Offline / Sandbox Fallback Utility Rules */
+    .hidden { display: none !important; }
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .relative { position: relative; }
+    .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .pointer-events-none { pointer-events: none; }
+    .pointer-events-auto { pointer-events: auto; }
+    .opacity-0 { opacity: 0; }
