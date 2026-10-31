@@ -1,0 +1,344 @@
+/*
+ * Vintage Naturalist · Parchment, Sepia Ink & Brass Typography Tokens
+ * (`styles/vintage-naturalist/theme.css`).
+ *
+ * Every size is expressed in `--u` (1% of the canvas short side), so the 1080p guide
+ * floor translates identically to 16:9, 9:16 and 1:1:
+ *   34 px @1080p = 3.15u · 35–38 px subtitle = 3.24–3.52u · 23 px floor = 2.13u.
+ */
+#stage[data-style="vintage-naturalist"] {
+  --bg: #f4ead5;
+  --surface: rgba(250, 243, 228, 0.9);
+  --surface-2: rgba(239, 226, 200, 0.92);
+  --ink: #2a211b;
+  --muted: #4a3c31;
+  --accent: #b22d25;
+  --accent-2: #1f6e66;
+  --line: rgba(42, 33, 27, 0.24);
+  --on-accent: #fff8e8;
+
+  --vnh-parchment: #f4ead5;
+  --vnh-parchment-light: #faf3e4;
+  --vnh-ink: #2a211b;
+  --vnh-ink-soft: #4a3c31;
+  --vnh-crimson: #b22d25;
+  --vnh-teal: #1f6e66;
+  --vnh-brass: #d4942a;
+  --vnh-brass-light: #f5bd41;
+  --vnh-brass-deep: #9e6416;
+  --vnh-cream: #fff8e8;
+
+  --font-display: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-body: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-cjk-serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+
+  background: radial-gradient(circle at 50% 42%, #faf3e4 0%, #f4ead5 58%, #e4d2ae 100%);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Stage: parchment is painted by kernel.js; frames only carry typography.    */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"] .frame.scene {
+  position: relative;
+  background: transparent;
+  padding: 0;
+  pointer-events: none;
+}
+
+#stage[data-style="vintage-naturalist"] .vnh-scene {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Double classical border (global plate rule). */
+#stage[data-style="vintage-naturalist"] .vnh-scene::before,
+#stage[data-style="vintage-naturalist"] .vnh-scene::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+}
+#stage[data-style="vintage-naturalist"] .vnh-scene::before {
+  inset: calc(var(--u) * 2.2);
+  border: 1px solid rgba(42, 33, 27, 0.55);
+}
+#stage[data-style="vintage-naturalist"] .vnh-scene::after {
+  inset: calc(var(--u) * 2.9);
+  border: 1px solid rgba(212, 148, 42, 0.48);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Chapter bar                                                               */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"] .vnh-chapter {
+  position: absolute;
+  left: calc(var(--u) * 2.2);
+  right: calc(var(--u) * 2.2);
+  top: calc(var(--u) * 2.2);
+  height: calc(var(--u) * 7.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(250, 243, 228, 0.96), rgba(240, 226, 200, 0.9));
+  border-bottom: 1px solid rgba(158, 100, 22, 0.55);
+  box-shadow: 0 1px 0 rgba(255, 248, 232, 0.65) inset;
+  z-index: 3;
+}
+#stage[data-style="vintage-naturalist"] .vnh-chapter__title {
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 3.15);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--vnh-ink);
+  white-space: nowrap;
+}
+#stage[data-style="vintage-naturalist"] .vnh-chapter__source {
+  position: absolute;
+  right: calc(var(--u) * 2.6);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: calc(var(--u) * 0.35) calc(var(--u) * 1.35);
+  border: 1px solid rgba(212, 148, 42, 0.8);
+  border-radius: 999px;
+  background: rgba(74, 60, 49, 0.92);
+  box-shadow: 0 0 0 1px rgba(158, 100, 22, 0.35) inset;
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 2.35);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--vnh-cream);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Title block                                                               */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"] .vnh-title-wrap {
+  position: absolute;
+  z-index: 2;
+  left: calc(var(--u) * 7);
+  top: calc(var(--u) * 14.5);
+  width: calc(var(--u) * 41);
+  color: var(--vnh-ink);
+}
+#stage[data-style="vintage-naturalist"] .vnh-kicker {
+  margin: 0 0 calc(var(--u) * 0.9);
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 2.3);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--vnh-teal);
+}
+#stage[data-style="vintage-naturalist"] .vnh-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 4.6);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--vnh-ink);
+  text-wrap: balance;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Pill badges — 100% opaque, 4–12 CJK chars, never over the illustration.     */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"] .vnh-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--u) * 0.5) calc(var(--u) * 1.55);
+  border: 2.8px solid var(--vnh-brass);
+  border-radius: 999px;
+  background: var(--vnh-ink);
+  box-shadow: 0 0 0 1px rgba(158, 100, 22, 0.55) inset, 0 calc(var(--u) * 0.25) calc(var(--u) * 0.8) rgba(42, 33, 27, 0.18);
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 2.95);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  color: var(--vnh-cream);
+  white-space: nowrap;
+}
+#stage[data-style="vintage-naturalist"] .vnh-pill--crimson {
+  background: var(--vnh-crimson);
+}
+#stage[data-style="vintage-naturalist"] .vnh-pill--teal {
+  background: var(--vnh-teal);
+}
+#stage[data-style="vintage-naturalist"] .vnh-pill--brass {
+  background: var(--vnh-brass-light);
+  color: var(--vnh-ink);
+}
+
+#stage[data-style="vintage-naturalist"] .vnh-badges {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 1.2);
+  flex-wrap: wrap;
+}
+#stage[data-style="vintage-naturalist"] .vnh-badges--s1 {
+  left: calc(var(--u) * 7);
+  bottom: calc(var(--u) * 17.5);
+  max-width: calc(var(--u) * 44);
+}
+#stage[data-style="vintage-naturalist"] .vnh-badges--s2 {
+  left: 8%;
+  right: 8%;
+  bottom: 20.5%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  justify-items: center;
+  gap: 0;
+}
+#stage[data-style="vintage-naturalist"] .vnh-badges--s2 .vnh-pill {
+  max-width: 100%;
+}
+#stage[data-style="vintage-naturalist"] .vnh-badges--s3 {
+  left: calc(var(--u) * 7);
+  bottom: calc(var(--u) * 15.5);
+  max-width: calc(var(--u) * 47);
+}
+#stage[data-style="vintage-naturalist"] .vnh-badges--s4 {
+  left: calc(var(--u) * 7);
+  bottom: calc(var(--u) * 17.5);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Subtitle dock + flowing read-progress rule                                */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"] .vnh-dock {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(var(--u) * 4.2);
+  transform: translateX(-50%);
+  width: min(94%, calc(var(--u) * 178));
+  min-height: calc(var(--u) * 9.6);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: calc(var(--u) * 1.5) calc(var(--u) * 4.2) calc(var(--u) * 2.1);
+  background: rgba(42, 33, 27, 0.95);
+  border: 2.8px solid var(--vnh-brass);
+  border-radius: calc(var(--u) * 1.7);
+  box-shadow:
+    0 0 0 1px rgba(158, 100, 22, 0.55) inset,
+    0 calc(var(--u) * 0.7) calc(var(--u) * 1.8) rgba(42, 33, 27, 0.32);
+}
+#stage[data-style="vintage-naturalist"] .vnh-subtitle {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: calc(var(--u) * 3.38);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  color: var(--vnh-cream);
+}
+#stage[data-style="vintage-naturalist"] .vnh-progress {
+  position: absolute;
+  left: calc(var(--u) * 2.4);
+  right: calc(var(--u) * 2.4);
+  bottom: calc(var(--u) * 0.75);
+  height: calc(var(--u) * 0.36);
+  border-radius: 999px;
+  background: rgba(245, 189, 65, 0.18);
+  overflow: hidden;
+}
+#stage[data-style="vintage-naturalist"] .vnh-progress__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vnh-brass), var(--vnh-brass-light) 55%, var(--vnh-crimson));
+  box-shadow: 0 0 calc(var(--u) * 0.8) rgba(245, 189, 65, 0.85);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Portrait (9:16): title stacks above the plate, badges become a right rail. */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-chapter {
+  height: calc(var(--u) * 6.4);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-chapter__title {
+  font-size: calc(var(--u) * 3.15);
+  letter-spacing: 0.06em;
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-chapter__source {
+  font-size: calc(var(--u) * 2.35);
+  right: calc(var(--u) * 1.8);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-title-wrap {
+  left: calc(var(--u) * 8);
+  top: calc(var(--u) * 12.5);
+  width: calc(var(--u) * 84);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-title {
+  font-size: calc(var(--u) * 4.7);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-badges--s1 {
+  left: calc(var(--u) * 8);
+  bottom: 14.5%;
+  max-width: calc(var(--u) * 84);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-badges--s2 {
+  left: 47%;
+  right: 5%;
+  top: 30.5%;
+  bottom: 16.5%;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(3, 1fr);
+  justify-items: start;
+  align-items: center;
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-badges--s3 {
+  left: calc(var(--u) * 8);
+  top: calc(var(--u) * 27.5);
+  bottom: auto;
+  max-width: calc(var(--u) * 84);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-badges--s4 {
+  left: calc(var(--u) * 8);
+  bottom: calc(var(--u) * 16.5);
+}
+#stage[data-style="vintage-naturalist"][data-orient="portrait"] .vnh-dock {
+  width: 94%;
+  bottom: calc(var(--u) * 3.4);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Square (1:1): title left, plate right, badges under the plate.             */
+/* ------------------------------------------------------------------------- */
+#stage[data-style="vintage-naturalist"][data-orient="square"] .vnh-title-wrap {
+  left: calc(var(--u) * 7);
+  top: calc(var(--u) * 14);
+  width: calc(var(--u) * 45);
+}
+#stage[data-style="vintage-naturalist"][data-orient="square"] .vnh-title {
+  font-size: calc(var(--u) * 4.3);
+}
+#stage[data-style="vintage-naturalist"][data-orient="square"] .vnh-badges--s2 {
+  left: 6%;
+  right: 6%;
+  bottom: 22%;
+}
+#stage[data-style="vintage-naturalist"][data-orient="square"] .vnh-badges--s3 {
+  left: calc(var(--u) * 7);
+  bottom: auto;
+  top: calc(var(--u) * 27);
+  max-width: calc(var(--u) * 82);
+}
+#stage[data-style="vintage-naturalist"][data-orient="square"] .vnh-dock {
+  width: 92%;
+  bottom: calc(var(--u) * 3.6);
+}

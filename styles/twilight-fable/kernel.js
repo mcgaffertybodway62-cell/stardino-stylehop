@@ -35,7 +35,7 @@
  */
 
 import { createStudio2D } from '../../engine/studio2d.js';
-import { clamp, lerp, smootherstep } from '../../engine/motion.js';
+import { clamp, lerp, smootherstep, registerRuntimeCue } from '../../engine/motion.js';
 import {
   STANCES,
   SKULLS,
@@ -2385,6 +2385,20 @@ function drawCritterFace(ctx, head, R, simState, lights = [], t = 0, fo = {}) {
 export function drawTwilightCritter(ctx, simStateIn, lights = [], t = 0) {
   const sim = projectCritterView(simStateIn);
   const { scale, R, pelvis, chest, head, earL, earR, tail, feet, speciesCfg = CRITTER_SPECIES.fennec, facing = -1, view } = sim;
+  if (ctx?.__inkFrame && simStateIn?.pelvis) {
+    const frameT = ctx.__inkFrame.t ?? t ?? 0;
+    const scId = ctx.__inkFrame.scene?.id || 'stage';
+    const gY = simStateIn.groundY ?? (pelvis.y + 42 * scale);
+    if ((simStateIn.pelvis.vy ?? 0) < -160 && (gY - pelvis.y) > 52 * scale) {
+      registerRuntimeCue({ t: frameT, kind: 'critter_hop', scene: scId, label: 'critter_hop', intensity: 0.72 });
+    } else if (
+      simStateIn.feet?.frontL &&
+      Math.abs(simStateIn.feet.frontL.vx ?? 0) > 35 &&
+      Math.abs((simStateIn.feet.frontL.y ?? gY) - gY) < 6 * scale
+    ) {
+      registerRuntimeCue({ t: frameT, kind: 'paw_step', scene: scId, label: 'paw_step', intensity: 0.62 });
+    }
+  }
   const build = sim.build || CRITTER_BUILD_DEFAULTS;
   const L = build.legLen ?? 1;
   const lg = build.legGirth ?? 1;

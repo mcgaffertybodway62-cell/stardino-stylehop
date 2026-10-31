@@ -467,6 +467,12 @@ export function createStage(canvas, { passes = [], layers = {}, textures = {}, w
       targets: list,
     };
 
+    // Optional world hook: update DOM overlays (subtitle progress, live counters) before
+    // Blink records the frame, so offline stills see the same state as the rendered frame.
+    if (worldRunner && typeof worldRunner.prepareDom === 'function') {
+      worldRunner.prepareDom({ ...frame, ...f, width: W, height: H });
+    }
+
     await paint();
     const { baseEl, layers } = uploadActiveElements();
     const cr = canvasRect();

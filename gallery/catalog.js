@@ -181,6 +181,43 @@ export const STYLES = [
       'tabletopOrbit',
     ],
   },
+  {
+    id: 'vintage-naturalist',
+    name: 'Vintage Naturalist',
+    zh: '复古博物学',
+    scenes: 4,
+    dur: 15.0,
+    preset: 'naturalist',
+    stageMode: 'hybrid',
+    defaultOverlay: 'typography',
+    kernel: './kernel.js',
+    bestFor: [
+      '科学史 / 博物学 / 演化与自然选择 / 生物学机制拆解',
+      '论文解读 / 顶刊成果 / 实验与证据链 / 辟谣与科学边界',
+      '天文地质 / 古生物化石 / 标本档案 / 博物馆与田野笔记',
+      '医学与神经科学 / 分子机制 / 工程原理 / 硬核知识科普',
+    ],
+    avoidFor: [
+      '高密度金融K线与财务报表',
+      '纯命令行代码终端演示',
+      '无旁白的抽象情绪短片 / 纯氛围音乐可视化',
+    ],
+    keywords: [
+      '科普', '博物', '博物学', '科学', '论文', '顶刊', '研究', '实验', '证据', '机制',
+      '演化', '进化', '自然选择', '达尔文', '雀', '地雀', '喙', '标本', '化石', '古生物',
+      '生物', '基因', '细胞', '分子', '医学', '神经', '大脑', '天文', '地质', '博物馆',
+      '田野', '档案', '图版', '铜版画', '羊皮纸', '复古', '手稿', '辟谣', '硬核', '数据',
+      'science', 'natural history', 'engraving', 'copperplate', 'parchment', 'specimen',
+      'evolution', 'darwin', 'fossil', 'museum', 'explainer',
+    ],
+    cameraPresets: [
+      'macroPush',
+      'widePull',
+      'craneReveal',
+      'lateralTrack',
+      'finalePull',
+    ],
+  },
 ];
 
 export const SIZES = [

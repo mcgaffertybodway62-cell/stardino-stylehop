@@ -26,12 +26,12 @@
  */
 
 import '../../engine/vendor/three.min.js';
-import { clamp, lerp, smootherstep, flowStep, springStep } from '../../engine/motion.js';
+import { clamp, lerp, smootherstep, flowStep, springStep, registerRuntimeCue } from '../../engine/motion.js';
 import { LOOK_DEFAULTS, LOOK_PRESETS, resolveLook } from '../../engine/look.js';
 import { createStudio3D } from '../../engine/studio3d.js';
 
 export const THREE = globalThis.THREE;
-export { clamp, lerp, smootherstep, flowStep, springStep };
+export { clamp, lerp, smootherstep, flowStep, springStep, registerRuntimeCue };
 
 // ============================================================================
 // 1. PALETTE TOKENS (`PAPER_PALETTE`)
@@ -2289,6 +2289,13 @@ export function createPopupBookDirector(studio, scenes = [], spreadSpecs = {}) {
     const swayAmp = spec.swayAmp ?? 0.22;
 
     const u = clamp(frame.sceneProgress ?? 0, 0, 1);
+    if (frame.t != null) {
+      if (idx > 0 && u > 0.03 && u < 0.14) {
+        registerRuntimeCue({ t: frame.t, kind: 'page_turn', scene: sc.id || 'spread', label: 'page_turn', intensity: 0.78 });
+      } else if (u > 0.22 && u < 0.34) {
+        registerRuntimeCue({ t: frame.t, kind: 'popup_snap', scene: sc.id || 'spread', label: 'popup_snap', intensity: 0.74 });
+      }
+    }
     let pos = sPos;
     let tgt = sTgt;
     let swayW = 0.25;

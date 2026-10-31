@@ -142,7 +142,7 @@ tools/             风格工程工具链：
                    - sound.py（基于 window.CUES 的多预设声学拟音与配乐合成器 → 48kHz WAV；--voice 混入人声并做侧链 ducking）
                    - voice.py（voice.json → 48kHz 人声 + timing + SRT；edge-tts / Kokoro / VOICE_CMD 后端与逐行缓存）
                    - voice.example.json（人声 manifest 示例）
-                   - audit.mjs（自动化体检门禁：零报错、文字越界/裁切、最小字号、阅读时长、浮层遮挡检测）
+                   - audit.mjs（自动化体检门禁：零报错、文字越界/裁切、最小字号（--min-font）、阅读时长、浮层遮挡检测）
                    - render.mjs（多 Worker 并发分片无头渲染 + 自动音效/人声混流与 -15 LUFS 母带 → contact_sheet.jpg / MP4 / SRT）
 requirements-voice.txt  可选人声依赖（edge-tts / kokoro-onnx / soundfile；不进基础安装）
 assets/textures/   物理质感贴图库（paper_fiber.png, clay_thumbprint.png, halftone_screen.png, brushed_metal.png, blueprint_cyanotype.png）
@@ -150,6 +150,7 @@ gallery/           StyleHop Studio 交互式调试工作台（index.html, player
 styles/            多场景风格目录：
                    - _template/（去固化内容的标准风格脚手架：SPEC.md + theme.css + style.js + scenes.html）
                    - clay-macaron/（3D 软陶定格 · kernel.js 介质 + world.js 示例故事 + 角色 / 布景零件）
+                   - vintage-naturalist/（复古博物学 · 铜版画蚀刻/黄铜仪表内核 + 15s 雀喙标本样片 + 23px 字号红线）
 showcase/          宣发物料与历史归档（画廊吉祥物「星芒史莱姆」九界短片等，与 styles/ 完全解耦）
 ```
 

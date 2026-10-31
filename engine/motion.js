@@ -55,7 +55,10 @@ const ENTER = {
 };
 
 function delayOf(el, fallback) {
-  return el.dataset.delay != null ? parseFloat(el.dataset.delay) : fallback;
+  if (el.dataset.delay != null) return parseFloat(el.dataset.delay);
+  const ent = parseFloat(el.dataset.enter);
+  if (!Number.isNaN(ent)) return ent;
+  return fallback;
 }
 
 // Delay of the nearest entering ancestor, so counters/strokes start with their card.
@@ -315,17 +318,27 @@ export function extractCues(root) {
 
     const enterDelays = new Map();
     let i = 0;
-    for (const el of s.el.querySelectorAll('[data-enter]')) {
+    for (const el of s.el.querySelectorAll('[data-enter], [data-sfx]')) {
       const delay = delayOf(el, 0.15 + i++ * 0.11);
       enterDelays.set(el, delay);
       if (el.hasAttribute('data-layer') || el.classList.contains('frame')) continue;
-      if (delay < s.dur - 0.1) {
+      if (delay < s.dur - 0.05) {
+        const sfxKind = el.dataset.sfx ? el.dataset.sfx.trim() : null;
+        const gain = el.dataset.gain != null ? parseFloat(el.dataset.gain) : null;
+        const pitch = el.dataset.pitch != null ? parseFloat(el.dataset.pitch) : null;
         rawCues.push({
           t: +(s.start + delay).toFixed(3),
-          kind: 'card_enter',
+          kind: sfxKind || 'card_enter',
           scene: s.id,
-          label: `${el.dataset.enter || 'rise'}:${(el.className || el.tagName).toString().split(/\s+/)[0]}`,
-          intensity: +clamp(0.82 - (i - 1) * 0.06, 0.35, 0.85).toFixed(2),
+          label: sfxKind
+            ? `${s.id}:${sfxKind}`
+            : `${el.dataset.enter || 'rise'}:${(el.className || el.tagName).toString().split(/\s+/)[0]}`,
+          intensity: +clamp(
+            gain != null && !Number.isNaN(gain) ? gain : 0.82 - (i - 1) * 0.06,
+            0.2,
+            1.0
+          ).toFixed(2),
+          ...(pitch != null && !Number.isNaN(pitch) ? { pitch: +clamp(pitch, 0.5, 2.0).toFixed(3) } : {}),
         });
       }
     }
@@ -475,12 +488,19 @@ export function registerRuntimeCue(cue) {
   const list = window.CUES.cues;
   const dup = list.some((c) => c.kind === kind && (c.label || c.kind) === label && Math.abs(c.t - t) < 0.09);
   if (dup) return;
-  list.push({
+  const entry = {
     t,
     kind,
     scene: cue.scene || 'stage',
     label,
     intensity: +clamp(cue.intensity ?? 0.75, 0.15, 1.0).toFixed(2),
-  });
+  };
+  if (typeof cue.pitch === 'number' && !Number.isNaN(cue.pitch)) {
+    entry.pitch = +clamp(cue.pitch, 0.5, 2.0).toFixed(3);
+  }
+  if (typeof cue.pan === 'number' && !Number.isNaN(cue.pan)) {
+    entry.pan = +clamp(cue.pan, -1.0, 1.0).toFixed(3);
+  }
+  list.push(entry);
   list.sort((a, b) => a.t - b.t);
 }

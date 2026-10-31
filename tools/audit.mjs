@@ -19,6 +19,7 @@
  *
  * Usage:
  *   node tools/audit.mjs --style clay-macaron [--size 1920x1080] [--all-sizes] [--facts "营收1280万, 同比32%"]
+ *   node tools/audit.mjs --style vintage-naturalist --all-sizes --min-font 23
  */
 
 import fs from 'fs';
@@ -43,6 +44,7 @@ function parseArgs(argv) {
     step: 0.15,
     json: false,
     facts: null,
+    minFont: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -55,6 +57,7 @@ function parseArgs(argv) {
     else if (a === '--step') o.step = parseFloat(next());
     else if (a === '--json') o.json = true;
     else if (a === '--facts') o.facts = next();
+    else if (a === '--min-font') o.minFont = parseFloat(next());
   }
   return o;
 }
@@ -172,7 +175,8 @@ async function auditSize(browser, baseUrl, opts, sizeStr, stepSec) {
 
   const totalCueCount = await page.evaluate(() => window.CUES?.cues?.length || 0);
 
-  const minFontPx = Math.max(10, Math.round((Math.min(width, height) / 1080) * 12));
+  const baseMinFont = Number.isFinite(opts.minFont) ? opts.minFont : 12;
+  const minFontPx = Math.max(10, Math.round((Math.min(width, height) / 1080) * baseMinFont));
   const sceneReports = [];
 
   for (const sc of scenes) {
