@@ -617,27 +617,28 @@ def build_body_ir(ir_kind: str) -> np.ndarray:
     rng = np.random.default_rng(abs(hash(ir_kind)) % 100000)
     if ir_kind == "guqin_wood":
         # Hollowed aged Paulownia & Catalpa wood cavity (桐木梓木琴腔) + mountain canyon air tail
+        # Balanced modes across 165Hz-1480Hz so open bass never muddies the 100-140Hz chest register
         n = int(0.85 * SR)
         t = np.arange(n, dtype=np.float64) / SR
         ir = np.zeros(n, dtype=np.float64)
-        ir[0] = 0.55
+        ir[0] = 0.62
         modes = [
-            (116.0, 0.22, 0.085),
-            (238.0, 0.30, 0.068),
-            (412.0, 0.26, 0.052),
-            (740.0, 0.18, 0.036),
-            (1320.0, 0.12, 0.024),
-            (2380.0, 0.07, 0.015),
+            (168.0, 0.16, 0.065),
+            (284.0, 0.28, 0.062),
+            (436.0, 0.26, 0.052),
+            (685.0, 0.22, 0.040),
+            (1080.0, 0.15, 0.028),
+            (1640.0, 0.08, 0.018),
         ]
         for freq, amp, tau in modes:
             ir += amp * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / tau)
-        # Early canyon reflections + airy silk tail
-        for delay_ms, gain in [(19.0, 0.16), (43.0, -0.11), (88.0, 0.08), (154.0, 0.05)]:
+        # Early canyon reflections + warm silk tail
+        for delay_ms, gain in [(21.0, 0.15), (46.0, -0.10), (92.0, 0.07), (158.0, 0.045)]:
             idx = int(delay_ms * 0.001 * SR)
             if idx < n:
                 ir[idx] += gain
-        tail = rng.standard_normal(n) * np.exp(-t / 0.28) * 0.012
-        sos = signal.butter(2, [180.0 / (0.5 * SR), 3200.0 / (0.5 * SR)], btype="band", output="sos")
+        tail = generate_pink_noise(n, rng) * np.exp(-t / 0.28) * 0.009
+        sos = signal.butter(2, [220.0 / (0.5 * SR), 2200.0 / (0.5 * SR)], btype="band", output="sos")
         ir += signal.sosfilt(sos, tail)
     elif ir_kind == "vintage_horn":
         # 1930s acoustic brass / gramophone horn formant + studio slapback
@@ -710,96 +711,102 @@ def synth_guqin_note(
     slide_ratio: float = 1.125,
 ) -> np.ndarray:
     """
-    Extended Karplus-Strong & modal waveguide for Chinese seven-string Guqin (`古琴`):
-      - `open` (`散音`): Deep silk-string pluck with strong fundamental & woody resonance
-      - `harmonic` (`泛音`): Crystalline 7th/9th-hui octave/fifth harmonic chime
-      - `slide` (`走手音 / 吟猱`): Expressive pitch-gliding press note with silk fingerboard friction
+    Physical silk-string modal & waveguide synthesizer for Chinese seven-string Guqin (`古琴`):
+      - `open` (`散音`): Deep silk-string pluck with rich 2nd-6th woody overtones & sympathetic string beating
+      - `harmonic` (`泛音`): Jade-like 7th/9th-hui harmonic chime (`如珠落玉盘`, zero white-noise click)
+      - `slide` (`走手音 / 吟猱`): Expressive pitch-gliding press note with warm silk fingerboard resonance
     """
-    n = int(round(dur * SR))
+    n = max(16, int(round(dur * SR)))
     t = np.arange(n, dtype=np.float64) / SR
 
     if mode == "harmonic":
-        # 泛音: Pure high-order harmonic nodes (octave + 12th + double octave) with fingernail transient
-        f0 = freq * 2.0
-        pluck_click = rng.standard_normal(n) * np.exp(-t / 0.004) * 0.14
-        sos_click = signal.butter(2, [900.0 / (0.5 * SR), 4200.0 / (0.5 * SR)], btype="band", output="sos")
-        click = signal.sosfilt(sos_click, pluck_click)
-        env = np.clip(t / 0.006, 0.0, 1.0) * np.exp(-t / (dur * 0.58))
-        harm = (
-            0.68 * np.sin(2.0 * np.pi * f0 * t)
-            + 0.28 * np.sin(2.0 * np.pi * (f0 * 1.5008) * t + 0.3) * np.exp(-t / (dur * 0.35))
-            + 0.14 * np.sin(2.0 * np.pi * (f0 * 2.002) * t + 0.7) * np.exp(-t / (dur * 0.22))
+        # 泛音: Round, jade-like flageolet node (octave 2*f0 + warm f0 body + fifth 3*f0), zero noise click
+        f0 = min(freq * 2.0, 880.0)
+        env = np.sin(0.5 * np.pi * np.clip(t / 0.008, 0.0, 1.0)) * (
+            0.74 * np.exp(-t / (dur * 0.56)) + 0.26 * np.exp(-t / (dur * 0.92))
         )
-        return (harm * env + click) * 0.38
+        harm = (
+            0.66 * np.sin(2.0 * np.pi * f0 * t)
+            + 0.24 * np.sin(2.0 * np.pi * (f0 * 0.5) * t + 0.2) * np.exp(-t / (dur * 0.48))
+            + 0.22 * np.sin(2.0 * np.pi * (f0 * 1.499) * t + 0.4) * np.exp(-t / (dur * 0.32))
+            + 0.09 * np.sin(2.0 * np.pi * (f0 * 2.001) * t + 0.8) * np.exp(-t / (dur * 0.20))
+        )
+        # Soft flesh-and-nail touch transient (warm wooden modal ping, no high white noise)
+        touch = np.sin(2.0 * np.pi * min(f0 * 2.5, 1320.0) * t) * np.exp(-t / 0.012) * 0.08
+        return fade_in_out((harm * env + touch) * 0.36, 0.004, 0.03)
 
     if mode == "slide":
-        # 走手音 + 吟猱: Pitch glides smoothly from `freq` to `freq * slide_ratio` with 5.4 Hz Yin-Nao vibrato
+        # 走手音 + 吟猱: Smooth pitch glide from `freq` to `freq * slide_ratio` with 5.2 Hz Yin-Nao vibrato
         glide_curve = 0.5 - 0.5 * np.cos(np.pi * np.clip((t - 0.08) / max(0.18, dur * 0.42), 0.0, 1.0))
-        yin_nao = 0.008 * np.sin(2.0 * np.pi * 5.4 * t) * np.clip((t - 0.15) / 0.25, 0.0, 1.0)
+        yin_nao = 0.0072 * np.sin(2.0 * np.pi * 5.2 * t) * np.clip((t - 0.16) / 0.26, 0.0, 1.0)
         inst_freq = freq * (1.0 + (slide_ratio - 1.0) * glide_curve + yin_nao)
         phase = 2.0 * np.pi * np.cumsum(inst_freq) / SR
 
         out = np.zeros(n, dtype=np.float64)
-        for k in range(1, 9):
-            # Inharmonicity of silk string + faster high-partial damping
-            harm_decay = np.exp(-t / (dur * (0.68 / (k ** 0.65))))
-            amp = (0.58 / (k ** 1.15)) * (1.0 + 0.25 * np.sin(k * 1.3))
-            out += amp * np.sin(k * phase) * harm_decay
+        # Silk string harmonic weights: warm 2nd, 3rd, 4th partials give singing `走手音` body
+        weights = [0.46, 0.54, 0.38, 0.24, 0.14, 0.08, 0.04]
+        for k, w_k in enumerate(weights, 1):
+            harm_decay = np.exp(-t / (dur * (0.72 / (k ** 0.58))))
+            out += w_k * np.sin(k * phase + 0.18 * k) * harm_decay
 
-        # Silk string sliding friction (`走手擦弦声`) during the pitch glide window
+        # Subtle warm silk fingerboard friction (260-1150 Hz pink noise, never harsh hiss)
         slide_win = np.exp(-((t - 0.22) / 0.14) ** 2)
-        friction = rng.standard_normal(n) * slide_win * 0.055
-        sos_fr = signal.butter(2, [700.0 / (0.5 * SR), 2900.0 / (0.5 * SR)], btype="band", output="sos")
+        friction = generate_pink_noise(n, rng) * slide_win * 0.012
+        sos_fr = signal.butter(2, [260.0 / (0.5 * SR), 1150.0 / (0.5 * SR)], btype="band", output="sos")
         out += signal.sosfilt(sos_fr, friction)
-        attack = np.clip(t / 0.005, 0.0, 1.0)
-        return out * attack * 0.46
+        attack = np.sin(0.5 * np.pi * np.clip(t / 0.008, 0.0, 1.0))
+        return fade_in_out(out * attack * 0.42, 0.005, 0.03)
 
-    # Default `open` (`散音`): Extended Karplus-Strong delay-line waveguide
-    delay_samples = max(8, int(round(SR / max(freq, 45.0))))
-    # Pluck excitation: filtered noise burst + warm fundamental half-sine pluck shape
-    excite = rng.standard_normal(delay_samples) * 0.65
-    u = np.linspace(0.0, 1.0, delay_samples)
-    excite += 0.85 * np.sin(np.pi * u) + 0.35 * np.sin(2.0 * np.pi * u)
-    excite -= np.mean(excite)
+    # Default `open` (`散音`): Multi-harmonic silk-string modal synthesis with natural stiffness inharmonicity
+    # and sympathetic string beating so 200-900 Hz woody overtones bloom alongside the deep fundamental
+    stiffness_b = 0.00018
+    # Balanced partial weights: moderate fundamental so <150Hz never booms, rich 2nd/3rd/4th woody harmonics
+    f0_w = 0.42 if freq < 135.0 else 0.52
+    harm_weights = [f0_w, 0.58, 0.44, 0.28, 0.17, 0.10, 0.055, 0.028]
+    out = np.zeros(n, dtype=np.float64)
+    for k, w_k in enumerate(harm_weights, 1):
+        fk = freq * k * np.sqrt(1.0 + stiffness_b * (k ** 2))
+        if fk >= 2200.0:
+            break
+        tau_k = dur * (0.76 / (k ** 0.62))
+        env_k = np.exp(-t / max(0.06, tau_k))
+        # Subtle sympathetic string / soundboard dual-mode beating on 2nd & 3rd partials (`余韵`)
+        beat = 0.88 + 0.12 * np.cos(2.0 * np.pi * (0.34 * k) * t) if k in (2, 3) else 1.0
+        out += w_k * np.sin(2.0 * np.pi * fk * t + 0.22 * k) * env_k * beat
 
-    buf = np.zeros(n, dtype=np.float64)
-    buf[:delay_samples] = excite
-    # Silk string low-pass loop damping
-    damping = 0.9965 if freq < 180.0 else 0.9945
-    blend = 0.32  # silk string warmth (more lowpass than steel string)
-    for i in range(delay_samples, n):
-        prev0 = buf[i - delay_samples]
-        prev1 = buf[i - delay_samples + 1] if (i - delay_samples + 1) < i else prev0
-        buf[i] = damping * ((1.0 - blend) * prev0 + blend * prev1)
-
-    # Layer subtle sub-body warmth for Guqin open bass
-    body_sub = 0.24 * np.sin(2.0 * np.pi * freq * t) * np.exp(-t / (dur * 0.65))
-    return (buf * 0.42 + body_sub) * np.clip(t / 0.003, 0.0, 1.0)
+    # Warm flesh-and-nail pluck transient (band-limited 220-1450 Hz)
+    pluck_env = np.exp(-t / 0.016) * np.sin(0.5 * np.pi * np.clip(t / 0.003, 0.0, 1.0))
+    pluck_body = np.sin(2.0 * np.pi * min(freq * 3.0, 920.0) * (1.0 + 0.18 * np.exp(-t / 0.008)) * t) * pluck_env * 0.14
+    attack = np.sin(0.5 * np.pi * np.clip(t / 0.006, 0.0, 1.0))
+    return fade_in_out((out * attack + pluck_body) * 0.40, 0.004, 0.035)
 
 
 def synth_xiao_phrase(freq: float, dur: float, rng: np.random.Generator) -> np.ndarray:
-    """Synthesizes an airy Chinese vertical bamboo flute (`洞箫`) phrase with breath turbulence & vibrato."""
-    n = int(round(dur * SR))
+    """Synthesizes a warm, hollow Chinese vertical bamboo flute (`洞箫`) phrase with low-noise breath & vibrato."""
+    n = max(16, int(round(dur * SR)))
     t = np.arange(n, dtype=np.float64) / SR
-    attack = np.clip(t / 0.32, 0.0, 1.0)
-    release = np.clip((dur - t) / 0.42, 0.0, 1.0)
+    attack = np.clip(t / 0.34, 0.0, 1.0)
+    release = np.clip((dur - t) / 0.44, 0.0, 1.0)
     env = (np.sin(0.5 * np.pi * attack) ** 1.4) * np.sin(0.5 * np.pi * release)
 
     # Abdominal vibrato (`腹震音`) that blooms after 0.35s
-    vib = 0.0055 * np.sin(2.0 * np.pi * 4.8 * t) * np.clip((t - 0.35) / 0.3, 0.0, 1.0)
+    vib = 0.0048 * np.sin(2.0 * np.pi * 4.6 * t) * np.clip((t - 0.35) / 0.32, 0.0, 1.0)
     phase = 2.0 * np.pi * np.cumsum(freq * (1.0 + vib)) / SR
 
+    # Hollow bamboo cylindrical bore: strong fundamental + woody odd-harmonic warmth (3rd) + soft 2nd
     pipe = (
-        0.62 * np.sin(phase)
-        + 0.24 * np.sin(2.0 * phase + 0.4)
-        + 0.14 * np.sin(3.0 * phase + 1.1)
-        + 0.05 * np.sin(4.0 * phase)
+        0.64 * np.sin(phase)
+        + 0.22 * np.sin(2.0 * phase + 0.4)
+        + 0.20 * np.sin(3.0 * phase + 1.1)
+        + 0.06 * np.sin(4.0 * phase + 0.5)
+        + 0.04 * np.sin(5.0 * phase + 1.6)
     )
-    # Chiff / edge-tone breath noise around 1.2kHz - 3.4kHz
-    breath = rng.standard_normal(n) * (0.045 + 0.035 * np.exp(-t / 0.18))
-    sos = signal.butter(2, [950.0 / (0.5 * SR), 3200.0 / (0.5 * SR)], btype="band", output="sos")
+    # Warm bamboo embouchure breath (360-1380 Hz pink noise, gentle onset chiff tapering to a quiet whisper)
+    breath_env = 0.006 + 0.018 * np.exp(-t / 0.14)
+    breath = generate_pink_noise(n, rng) * breath_env
+    sos = signal.butter(2, [360.0 / (0.5 * SR), 1380.0 / (0.5 * SR)], btype="band", output="sos")
     breath_filt = signal.sosfilt(sos, breath)
-    return (pipe + breath_filt) * env * 0.22
+    return fade_in_out((pipe + breath_filt) * env * 0.22, 0.02, 0.06)
 
 
 def synth_taiko_impact(intensity: float, rng: np.random.Generator) -> np.ndarray:
@@ -834,7 +841,7 @@ def synth_taiko_impact(intensity: float, rng: np.random.Generator) -> np.ndarray
 def synth_qin_strumming_slash(chord: list, dur: float, intensity: float, rng: np.random.Generator) -> np.ndarray:
     """
     Synthesizes a fierce martial Guqin/Pipa strumming roll (`古琴滚拂 / 琵琶杀伐扫弦摧音`):
-    Rapid 7-string cascade with fingernail scrape transient, metallic string buzz (`煞音`), and urgent tremolando.
+    Rapid 7-string cascade with warm fingernail transient, silk-string fret buzz (`煞音`), and urgent tremolando.
     """
     n = int(round(dur * SR))
     out = np.zeros(n, dtype=np.float64)
@@ -848,12 +855,12 @@ def synth_qin_strumming_slash(chord: list, dur: float, intensity: float, rng: np
         rem_dur = max(0.25, dur - s_idx * 0.016)
         note = synth_guqin_note(f_str, rem_dur, "open", rng)
         t_n = np.arange(len(note), dtype=np.float64) / SR
-        # Add fierce Pipa/Guqin fingernail attack & string-fret buzz (`杀伐煞音`)
-        nail = rng.standard_normal(len(note)) * np.exp(-t_n / 0.006) * 0.18
-        sos_nail = signal.butter(2, [1400.0 / (0.5 * SR), 5800.0 / (0.5 * SR)], btype="band", output="sos")
-        buzz = np.tanh(note * 2.8) * 0.38 + signal.sosfilt(sos_nail, nail)
+        # Warm Pipa/Guqin fingernail attack & silk string-fret buzz (`杀伐煞音`, band-limited 750-2400 Hz)
+        nail = generate_pink_noise(len(note), rng) * np.exp(-t_n / 0.008) * 0.08
+        sos_nail = signal.butter(2, [750.0 / (0.5 * SR), 2400.0 / (0.5 * SR)], btype="band", output="sos")
+        buzz = np.tanh(note * 2.1) * 0.26 + signal.sosfilt(sos_nail, nail)
         end_i = min(n, s_off + len(note))
-        out[s_off:end_i] += (note[: end_i - s_off] * 0.75 + buzz[: end_i - s_off]) * (0.85 + 0.05 * s_idx)
+        out[s_off:end_i] += (note[: end_i - s_off] * 0.80 + buzz[: end_i - s_off]) * (0.85 + 0.05 * s_idx)
 
     # 2. Secondary urgent martial tremolando / reverse sweep (`拂弦余威`) at +0.36s and +0.74s
     for accent_t, gain in [(0.36, 0.68), (0.74, 0.52)]:
@@ -1847,10 +1854,10 @@ def synth_runtime_foley(
         dur = 0.56
         n = int(round(dur * SR))
         t = np.arange(n, dtype=np.float64) / SR
-        guard_click = modal_strike(940.0 * p_scale, dur, "brass", rng, amp=0.32)
-        scrape_env = np.exp(-((t - 0.052) / 0.034) ** 2) * np.clip((t - 0.008) / 0.012, 0.0, 1.0)
-        scrape = time_varying_bandpass(generate_pink_noise(n, rng), 2400.0 + 2800.0 * (t / dur), 4.5) * scrape_env * 0.28
-        ring = modal_strike(2640.0 * p_scale, dur, "metal", rng, amp=0.36)
+        guard_click = modal_strike(680.0 * p_scale, dur, "brass", rng, amp=0.26)
+        scrape_env = np.exp(-((t - 0.052) / 0.036) ** 2) * np.clip((t - 0.008) / 0.012, 0.0, 1.0)
+        scrape = time_varying_bandpass(generate_pink_noise(n, rng), 980.0 + 1350.0 * (t / dur), 3.6) * scrape_env * 0.22
+        ring = synth_guqin_note(293.66 * p_scale, dur, "harmonic", rng) * 0.72
         return (guard_click[:n] + scrape + ring[:n]) * intensity
 
     if kind == "blade_cleave":
@@ -1860,9 +1867,9 @@ def synth_runtime_foley(
         f_sub = (54.0 + 135.0 * np.exp(-t / 0.042)) * p_scale
         sub_wave = np.sin(2.0 * np.pi * np.cumsum(f_sub) / SR) * np.exp(-t / 0.14) * np.clip(t / 0.003, 0.0, 1.0) * 0.42
         noise = generate_pink_noise(n, rng)
-        f_whip = 2400.0 * np.exp(-t / 0.16) + 280.0
-        whip = time_varying_bandpass(noise, f_whip, 2.2) * np.exp(-((t - 0.055) / 0.052) ** 2) * 0.44
-        steel_ring = modal_strike(1920.0 * p_scale, dur, "metal", rng, amp=0.34)
+        f_whip = 1580.0 * np.exp(-t / 0.16) + 260.0
+        whip = time_varying_bandpass(noise, f_whip, 2.2) * np.exp(-((t - 0.055) / 0.052) ** 2) * 0.38
+        steel_ring = modal_strike(1180.0 * p_scale, dur, "metal", rng, amp=0.26)
         return (sub_wave + whip + steel_ring[:n]) * intensity
 
     if kind == "blood_splatter":
@@ -1891,10 +1898,10 @@ def synth_runtime_foley(
         n = int(round(dur * SR))
         t = np.arange(n, dtype=np.float64) / SR
         glide_win = np.sin(np.pi * np.clip(t / 0.44, 0.0, 1.0)) ** 0.85 * (t <= 0.44).astype(np.float64)
-        f_slide = (1420.0 + 1780.0 * np.clip(t / 0.44, 0.0, 1.0) ** 1.2) * p_scale
-        glide = time_varying_bandpass(generate_pink_noise(n, rng), np.clip(f_slide, 300.0, 6000.0), 5.0) * glide_win * 0.28
+        f_slide = (780.0 + 920.0 * np.clip(t / 0.44, 0.0, 1.0) ** 1.2) * p_scale
+        glide = time_varying_bandpass(generate_pink_noise(n, rng), np.clip(f_slide, 260.0, 2400.0), 4.0) * glide_win * 0.22
         lock_idx = int(round(0.47 * SR))
-        clasp = modal_strike(760.0 * p_scale, 0.28, "wood", rng, amp=0.32) + modal_strike(2880.0 * p_scale, 0.28, "brass", rng, amp=0.34)
+        clasp = modal_strike(580.0 * p_scale, 0.28, "wood", rng, amp=0.28) + modal_strike(1420.0 * p_scale, 0.28, "brass", rng, amp=0.24)
         out = glide.copy()
         rem = min(len(clasp), n - lock_idx)
         if rem > 0:
@@ -1933,17 +1940,17 @@ def synth_runtime_foley(
         n = int(round(dur * SR))
         t = np.arange(n, dtype=np.float64) / SR
         noise = generate_pink_noise(n, rng)
-        f_whip = 3200.0 * np.exp(-t / 0.12) + 420.0
-        whoosh = time_varying_bandpass(noise, f_whip, 2.6) * np.exp(-((t - 0.08) / 0.055) ** 2) * 0.34
-        ring = modal_strike(1760.0 * p_scale, dur, "metal", rng, amp=0.22)
+        f_whip = 1650.0 * np.exp(-t / 0.12) + 340.0
+        whoosh = time_varying_bandpass(noise, f_whip, 2.2) * np.exp(-((t - 0.08) / 0.055) ** 2) * 0.28
+        ring = synth_guqin_note(329.63 * p_scale, dur, "harmonic", rng) * 0.55
         return (whoosh + ring[:n]) * intensity
 
     if kind == "drink_sip":
-        dur = 0.30
+        dur = 0.38
         n = int(round(dur * SR))
-        b1 = minnaert_bubble(580.0 * p_scale, 0.14, amp=0.24)
-        b2 = minnaert_bubble(790.0 * p_scale, 0.14, amp=0.20)
-        clink = modal_strike(2180.0 * p_scale, dur, "ceramic", rng, amp=0.18)
+        b1 = minnaert_bubble(420.0 * p_scale, 0.14, amp=0.22)
+        b2 = minnaert_bubble(560.0 * p_scale, 0.14, amp=0.18)
+        clink = modal_strike(780.0 * p_scale, dur, "ceramic", rng, amp=0.16)
         out = clink[:n].copy()
         out[: len(b1)] += b1
         s2 = min(n - len(b2), int(0.08 * SR))
@@ -2419,8 +2426,8 @@ def _resolve_cue_semantic_action(kind: str, label: str, preset: str) -> str:
 
 def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1.2) -> np.ndarray:
     """Applies medium-appropriate tonal shaping, DC block, dynamic-range-preserving leveling, and true-peak limiting."""
-    # High-pass to remove DC/rumble (1930s optical film rolls off below 95Hz; modern/ink keeps deep Taiko sub-bass down to 26Hz)
-    hp_hz = 95.0 if preset == "jazz" else 26.0
+    # High-pass to remove DC/rumble (1930s optical film rolls off below 95Hz; ink rolls off sub-48Hz rumble; others 28Hz)
+    hp_hz = 95.0 if preset == "jazz" else (48.0 if preset == "ink" else 28.0)
     sos_hp = signal.butter(2, hp_hz / (0.5 * SR), btype="high", output="sos")
     out = signal.sosfilt(sos_hp, stereo, axis=0)
 
@@ -2431,6 +2438,10 @@ def master_bus(stereo: np.ndarray, preset: str = "glass", ceiling_db: float = -1
     elif preset == "twilight":
         # Warm picture-book nocturnal tone: roll off harsh highs above 2.6 kHz
         sos_lp = signal.butter(2, 2600.0 / (0.5 * SR), btype="low", output="sos")
+        out = signal.sosfilt(sos_lp, out, axis=0)
+    elif preset == "ink":
+        # Warm Song-Yuan silk-scroll Guqin/Xiao tone: roll off harsh highs above 3.8 kHz
+        sos_lp = signal.butter(2, 3800.0 / (0.5 * SR), btype="low", output="sos")
         out = signal.sosfilt(sos_lp, out, axis=0)
     else:
         # Gentle high roll-off at 6.8 kHz across all other styles so no preset has piercing >7kHz transients

@@ -257,31 +257,35 @@ def _peaking_biquad_sos(f0: float, gain_db: float, q: float = 1.2, sr: int = SR)
 def apply_vocal_eq(audio: np.ndarray, profile: str = "recite") -> np.ndarray:
     """
     Shapes neural TTS vocals:
-      - 80 Hz high-pass to clean sub-rumble
-      - +1.8 dB @ 185 Hz chest resonance warmth (fixes thin TTS fundamental)
-      - -1.4 dB @ 310 Hz boxiness cut
-      - -2.5 dB @ 3150 Hz broadcast-anchor nasal harshness dip
-      - +0.8 dB @ 9200 Hz delicate breath air
+      - 92 Hz high-pass to clean sub-rumble
+      - +0.8 dB @ 165 Hz gentle chest warmth
+      - -2.8 dB @ 285 Hz & -1.6 dB @ 420 Hz low-mid mud / barrel boxiness cut
+      - +1.8 dB @ 1680 Hz & +1.4 dB @ 2650 Hz natural vocal articulation & presence
+      - -1.8 dB @ 3650 Hz nasal harshness dip
+      - +1.0 dB @ 7600 Hz delicate silk breath air
     """
     if profile == "raw":
         return audio
     x = np.asarray(audio, dtype=np.float64)
-    sos_hp = signal.butter(2, 80.0 / (0.5 * SR), btype="high", output="sos")
+    sos_hp = signal.butter(2, 92.0 / (0.5 * SR), btype="high", output="sos")
     x = signal.sosfilt(sos_hp, x)
 
     if profile in ("recite", "classical_poem", "ink_poem"):
         sections = [
-            _peaking_biquad_sos(185.0, +1.9, q=1.05),
-            _peaking_biquad_sos(315.0, -1.4, q=1.55),
-            _peaking_biquad_sos(1450.0, -0.8, q=1.40),
-            _peaking_biquad_sos(3150.0, -2.6, q=1.35),
-            _peaking_biquad_sos(9200.0, +0.9, q=0.90),
+            _peaking_biquad_sos(165.0, +0.8, q=1.15),
+            _peaking_biquad_sos(285.0, -2.8, q=1.35),
+            _peaking_biquad_sos(420.0, -1.6, q=1.40),
+            _peaking_biquad_sos(1680.0, +1.8, q=1.10),
+            _peaking_biquad_sos(2650.0, +1.4, q=1.20),
+            _peaking_biquad_sos(3650.0, -1.8, q=1.50),
+            _peaking_biquad_sos(7600.0, +1.0, q=0.90),
         ]
     else:
         sections = [
-            _peaking_biquad_sos(190.0, +1.2, q=1.10),
-            _peaking_biquad_sos(320.0, -1.0, q=1.50),
-            _peaking_biquad_sos(3200.0, -1.6, q=1.40),
+            _peaking_biquad_sos(175.0, +0.9, q=1.15),
+            _peaking_biquad_sos(295.0, -2.2, q=1.40),
+            _peaking_biquad_sos(1850.0, +1.4, q=1.15),
+            _peaking_biquad_sos(3500.0, -1.5, q=1.45),
         ]
     sos_eq = np.vstack(sections)
     return signal.sosfilt(sos_eq, x).astype(np.float32)
@@ -437,13 +441,17 @@ def _get_vocal_space_ir(kind: str = "canyon_silk") -> np.ndarray:
         if idx < n:
             ir[idx] += g
 
-    # Warm diffused tail starting at 32 ms, low-passed at 2650 Hz so sibilants never ring in the reverb
+    # Warm diffused tail starting at 32 ms
     pre = int(0.032 * SR)
     t_tail = np.arange(n - pre, dtype=np.float64) / SR
     env = (1.0 - np.exp(-t_tail / 0.025)) * np.exp(-6.9078 * t_tail / rt60)
     tail = rng.standard_normal(n - pre) * env * 0.16
-    sos = signal.butter(2, [160.0 / (0.5 * SR), 2650.0 / (0.5 * SR)], btype="band", output="sos")
-    ir[pre:] += signal.sosfilt(sos, tail)
+    ir[pre:] += tail
+
+    # Bandpass entire spatial IR (240 Hz - 2650 Hz) so early reflections never comb-filter <240 Hz chest bass
+    # and sibilants never ring in the reverb tail
+    sos = signal.butter(2, [240.0 / (0.5 * SR), 2650.0 / (0.5 * SR)], btype="band", output="sos")
+    ir = signal.sosfilt(sos, ir)
 
     norm = float(np.sqrt(np.sum(ir ** 2) + 1e-12))
     ir = (ir / max(norm, 1e-6)).astype(np.float32)
@@ -1533,8 +1541,8 @@ def spectral_duck_and_mix(
     mid = 0.5 * (bg[:, 0] + bg[:, 1])
     side = 0.5 * (bg[:, 0] - bg[:, 1])
 
-    # Split Mid into Low (<200 Hz), Vocal Formant (200 - 4200 Hz), and High Wind/Water Hiss (>4200 Hz)
-    sos_low = signal.butter(2, 200.0 / (0.5 * SR), btype="low", output="sos")
+    # Split Mid into Low (<125 Hz), Vocal Formant (125 - 4200 Hz), and High Wind/Water Hiss (>4200 Hz)
+    sos_low = signal.butter(2, 125.0 / (0.5 * SR), btype="low", output="sos")
     sos_high = signal.butter(2, 4200.0 / (0.5 * SR), btype="high", output="sos")
     mid_low = signal.sosfilt(sos_low, mid)
     mid_high = signal.sosfilt(sos_high, mid)
@@ -1551,9 +1559,9 @@ def spectral_duck_and_mix(
     out_l = mid_ducked + side_ducked
     out_r = mid_ducked - side_ducked
 
-    # Add centered vocal + subtle decorrelated stereo canyon halo (13 ms / 21 ms Haas reflections, low-passed)
+    # Add centered vocal + subtle decorrelated stereo canyon halo (13 ms / 21 ms Haas reflections, band-passed 260-2600 Hz)
     v_scaled = v * db_to_amp(float(voice_gain_db))
-    sos_halo = signal.butter(2, [200.0 / (0.5 * SR), 2800.0 / (0.5 * SR)], btype="band", output="sos")
+    sos_halo = signal.butter(2, [260.0 / (0.5 * SR), 2600.0 / (0.5 * SR)], btype="band", output="sos")
     v_halo = signal.sosfilt(sos_halo, v_scaled) * float(stereo_tail_width)
     d_l = int(0.013 * SR)
     d_r = int(0.021 * SR)
@@ -1577,7 +1585,7 @@ def spectral_duck_and_mix(
     return mix.astype(np.float32)
 
 
-def two_pass_loudnorm_mux(v_in: Path, wav_in: Path, v_out: Path, target_i: float = -14.0, target_tp: float = -1.2, target_lra: float = 11.0) -> dict:
+def two_pass_loudnorm_mux(v_in: Path, wav_in: Path, v_out: Path, target_i: float = -16.0, target_tp: float = -1.5, target_lra: float = 11.0) -> dict:
     """
     `lemo-opuscar/core/render/mux.sh` Two-Pass Linear EBU R128 Loudnorm + `ebur128` verification:
       - Pass 1: Measures `input_i`, `input_tp`, `input_lra`, `input_thresh`, `target_offset`.
@@ -2151,7 +2159,7 @@ def mix_cmd(args):
         v_in = Path(args.video_in).resolve()
         v_out = Path(args.video_out).resolve()
         v_out.parent.mkdir(parents=True, exist_ok=True)
-        ebur = two_pass_loudnorm_mux(v_in, out_wav, v_out, target_i=-14.0, target_tp=-1.2, target_lra=11.0)
+        ebur = two_pass_loudnorm_mux(v_in, out_wav, v_out, target_i=-16.0, target_tp=-1.5, target_lra=11.0)
         result["videoOut"] = str(v_out)
         result["ebur128"] = ebur
 

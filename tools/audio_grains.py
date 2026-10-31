@@ -140,8 +140,8 @@ def gen_parchment_quill_grain(seed: int = 1001) -> np.ndarray:
     t = np.arange(n, dtype=np.float64) / SR
     out = np.zeros(n, dtype=np.float64)
 
-    # 4 distinct calligraphic/etching strokes with stick-slip micro-impulses
-    strokes = [(0.02, 0.24, 1950.0, 3400.0), (0.29, 0.21, 2300.0, 3900.0), (0.54, 0.26, 1750.0, 3100.0), (0.83, 0.22, 2450.0, 4200.0)]
+    # 4 distinct calligraphic/etching strokes with warm stick-slip micro-impulses
+    strokes = [(0.02, 0.24, 980.0, 1950.0), (0.29, 0.21, 1150.0, 2200.0), (0.54, 0.26, 880.0, 1750.0), (0.83, 0.22, 1220.0, 2350.0)]
     for s_start, s_dur, f_lo, f_hi in strokes:
         sn = int(s_dur * SR)
         st = np.arange(sn, dtype=np.float64) / SR
@@ -153,22 +153,22 @@ def gen_parchment_quill_grain(seed: int = 1001) -> np.ndarray:
         pos = 0.0
         while pos < s_dur - 0.003:
             v_loc = float(np.interp(pos, st, vel))
-            rate = 110.0 + 380.0 * v_loc
+            rate = 95.0 + 280.0 * v_loc
             idx = int(pos * SR)
             if idx < sn - 16:
-                f_nib = float(rng.uniform(2800.0, 6800.0))
+                f_nib = float(rng.uniform(1250.0, 2650.0))
                 k_len = min(36, sn - idx)
                 kt = np.arange(k_len) / SR
                 slip_train[idx : idx + k_len] += (
-                    np.sin(2.0 * np.pi * f_nib * kt) * np.exp(-kt / 0.00045) * rng.uniform(0.4, 1.0) * v_loc
+                    np.sin(2.0 * np.pi * f_nib * kt) * np.exp(-kt / 0.00055) * rng.uniform(0.35, 0.85) * v_loc
                 )
             pos += (1.0 / rate) * rng.uniform(0.75, 1.28)
-        fiber_noise = time_varying_bp(pink_noise(sn, rng), f_sweep, q=3.8) * vel * 0.55
-        nib_ring = bp(slip_train, 1600.0, 8200.0) * 0.75
-        desk_body = bp(pink_noise(sn, rng), 220.0, 680.0) * vel * 0.18
+        fiber_noise = time_varying_bp(pink_noise(sn, rng), f_sweep, q=2.8) * vel * 0.50
+        nib_ring = bp(slip_train, 780.0, 2650.0) * 0.45
+        desk_body = bp(pink_noise(sn, rng), 200.0, 620.0) * vel * 0.28
         add_at(out, fiber_noise + nib_ring + desk_body, s_start, 1.0)
 
-    return fade_norm(out, 0.004, 0.025)
+    return fade_norm(lp(out, 2600.0), 0.006, 0.025, peak=0.58)
 
 
 def gen_cardstock_fold_grain(seed: int = 1002) -> np.ndarray:
@@ -275,27 +275,27 @@ def gen_stream_bubble_grain(seed: int = 1005) -> np.ndarray:
 
 
 def gen_ceramic_clink_grain(seed: int = 1006) -> np.ndarray:
-    """Porcelain teacup / glass crystalline contact transient & beating modal ring (0.72s)."""
+    """Warm porcelain teacup / jade contact transient & gentle modal ring (0.72s)."""
     rng = np.random.default_rng(seed)
     dur = 0.72
     n = int(dur * SR)
     out = np.zeros(n, dtype=np.float64)
 
-    hits = [(0.005, 1320.0, 1.0), (0.022, 1985.0, 0.68), (0.34, 1580.0, 0.82)]
+    hits = [(0.005, 680.0, 1.0), (0.022, 960.0, 0.65), (0.34, 820.0, 0.78)]
     for at, f0, amp in hits:
         ring = modal_cluster(
             f0,
-            [1.0, 1.582, 2.374, 3.441, 4.918],
-            [1.0, 0.62, 0.42, 0.25, 0.12],
-            [0.26, 0.18, 0.11, 0.065, 0.035],
+            [1.0, 1.52, 2.18, 2.95],
+            [1.0, 0.52, 0.26, 0.10],
+            [0.24, 0.15, 0.085, 0.04],
             0.36,
             rng,
         )
-        click_n = int(0.0022 * SR)
-        ring[:click_n] += bp(rng.standard_normal(click_n), 3200.0, 11500.0) * np.exp(-np.arange(click_n) / (0.0005 * SR)) * 0.65
+        click_n = int(0.0020 * SR)
+        ring[:click_n] += bp(rng.standard_normal(click_n), 950.0, 2600.0) * np.exp(-np.arange(click_n) / (0.0006 * SR)) * 0.28
         add_at(out, ring, at, amp)
 
-    return fade_norm(out, 0.0004, 0.025)
+    return fade_norm(lp(out, 2400.0), 0.001, 0.025, peak=0.56)
 
 
 def gen_clay_squish_grain(seed: int = 1007) -> np.ndarray:
@@ -323,19 +323,19 @@ def gen_clay_squish_grain(seed: int = 1007) -> np.ndarray:
 
 
 def gen_silk_brush_grain(seed: int = 1008) -> np.ndarray:
-    """Wolf-hair calligraphic brush sweep & flying-white Xuan paper bristle friction (0.95s)."""
+    """Warm wolf-hair calligraphic brush sweep & moist Xuan paper fiber friction (0.95s)."""
     rng = np.random.default_rng(seed)
     dur = 0.95
     n = int(dur * SR)
     t = np.arange(n, dtype=np.float64) / SR
     u = t / dur
 
-    env = np.sin(np.pi * np.power(u, 0.68)) ** 1.35 * (0.78 + 0.22 * np.sin(2.0 * np.pi * 19.0 * t))
-    f_body = 420.0 + 920.0 * np.sin(np.pi * u)
-    f_bristle = 2100.0 + 2800.0 * np.power(u, 0.85)
-    body = time_varying_bp(pink_noise(n, rng), f_body, q=2.2) * env * 0.65
-    bristle = time_varying_bp(pink_noise(n, rng), f_bristle, q=3.6) * env * 0.48
-    return fade_norm(body + bristle, 0.008, 0.03)
+    env = np.sin(np.pi * np.power(u, 0.68)) ** 1.35 * (0.82 + 0.18 * np.sin(2.0 * np.pi * 14.0 * t))
+    f_body = 240.0 + 540.0 * np.sin(np.pi * u)
+    f_bristle = 720.0 + 960.0 * np.power(u, 0.82)
+    body = time_varying_bp(pink_noise(n, rng), f_body, q=1.8) * env * 0.68
+    bristle = time_varying_bp(pink_noise(n, rng), f_bristle, q=2.6) * env * 0.34
+    return fade_norm(lp(body + bristle, 2000.0), 0.012, 0.035, peak=0.52)
 
 
 def gen_woodblock_mallet_grain(seed: int = 1009) -> np.ndarray:
