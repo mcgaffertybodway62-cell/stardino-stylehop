@@ -927,31 +927,48 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  for (let idx = 0; idx < offsets.length; idx++) {
-    const ex = offsets[idx];
-    const ey = 0;
+  const dir = lookX >= 0 ? 1 : -1;
+  const popStates = offsets.map((ex, idx) => {
     const isRight = idx === 1;
+    if (eyePop <= 0.05) {
+      return { ex, ey: 0, popDx: 0, popDy: 0, isRight };
+    }
+    // Fan telescopic eye-stalks forward & upward with distinct vertical/horizontal parallax so sockets never collide or overlap the nose/whiskers
+    const popDx =
+      dir * eyePop * r * (isRight ? 1.75 : 0.45) +
+      dir * (isRight ? 7.0 : -5.0) * eyePop;
+    const popDy =
+      -eyePop * r * (isRight ? 1.48 : 1.68) +
+      Math.sin(t * 32 + idx * 2.1) * eyePop * 1.5;
+    return { ex, ey: 0, popDx, popDy, isRight };
+  });
 
-    ctx.save();
-    ctx.translate(ex, ey);
-
-    // 1930s Tex Avery / Fleischer telescopic eye-pop stalks when `eyePop > 0.05`
-    const popDx = eyePop > 0.05 ? (lookX >= 0 ? 1 : -1) * eyePop * r * 1.65 + (isRight ? 4 : -4) * eyePop : 0;
-    const popDy = eyePop > 0.05 ? -eyePop * r * 0.55 + Math.sin(t * 36 + idx * 2) * eyePop * 2.5 : 0;
-    if (eyePop > 0.05) {
+  // Pass 1: Draw cream telescopic eye-stalks behind the popped eyeballs
+  if (eyePop > 0.05) {
+    for (const st of popStates) {
+      ctx.save();
+      ctx.translate(st.ex, st.ey);
       ctx.beginPath();
-      ctx.moveTo(0, -r * 0.38);
-      ctx.lineTo(popDx, popDy - r * 0.46);
-      ctx.lineTo(popDx, popDy + r * 0.46);
-      ctx.lineTo(0, r * 0.38);
+      ctx.moveTo(0, -r * 0.34);
+      ctx.lineTo(st.popDx, st.popDy - r * 0.42);
+      ctx.lineTo(st.popDx, st.popDy + r * 0.42);
+      ctx.lineTo(0, r * 0.34);
       ctx.closePath();
       ctx.fillStyle = RUBBER_PALETTE.paperCream;
       ctx.fill();
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
       ctx.lineWidth = Math.max(2.4, r * 0.18);
       ctx.stroke();
-      ctx.translate(popDx, popDy);
+      ctx.restore();
     }
+  }
+
+  // Pass 2: Draw the eye sockets, pupils, and eyebrows cleanly separated
+  for (let idx = 0; idx < popStates.length; idx++) {
+    const { ex, ey, popDx, popDy, isRight } = popStates[idx];
+
+    ctx.save();
+    ctx.translate(ex + popDx, ey + popDy);
 
     if (mode === 'happy' || (mode === 'wink' && isRight)) {
       ctx.beginPath();
@@ -960,10 +977,10 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
       ctx.lineWidth = Math.max(3.5, r * 0.32);
       ctx.stroke();
     } else {
-      // Tall oval cream eye socket
+      // Tall oval cream eye socket (controlled popScale so sockets stay crisp and separated)
       ctx.save();
-      const popScale = 1.0 + eyePop * 0.38;
-      const sy = (mode === 'shock' || eyePop > 0.1 ? aspectY * 1.18 : aspectY) * popScale;
+      const popScale = 1.0 + Math.min(eyePop, 1.2) * 0.08;
+      const sy = aspectY * popScale;
       ctx.scale(popScale, sy);
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -976,9 +993,9 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
       if (mode === 'dizzy') {
         const rot = (isRight ? 1 : -1) * t * 4.5;
         ctx.rotate(rot);
-        const xr = r * 0.42;
+        const xr = r * 0.44;
         ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-        ctx.lineWidth = Math.max(2.8, r * 0.24);
+        ctx.lineWidth = Math.max(3.0, r * 0.26);
         ctx.beginPath();
         ctx.moveTo(-xr, -xr);
         ctx.lineTo(xr, xr);
@@ -986,17 +1003,17 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
         ctx.lineTo(-xr, xr);
         ctx.stroke();
       } else if (mode === 'squint') {
-        const dir = isRight ? -1 : 1;
+        const sDir = isRight ? -1 : 1;
         ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
         ctx.lineWidth = Math.max(2.8, r * 0.24);
         ctx.beginPath();
-        ctx.moveTo(-dir * r * 0.45, -r * 0.42);
-        ctx.lineTo(dir * r * 0.38, 0);
-        ctx.lineTo(-dir * r * 0.45, r * 0.42);
+        ctx.moveTo(-sDir * r * 0.45, -r * 0.42);
+        ctx.lineTo(sDir * r * 0.38, 0);
+        ctx.lineTo(-sDir * r * 0.45, r * 0.42);
         ctx.stroke();
       } else if (mode === 'shock' || eyePop > 0.15) {
         ctx.beginPath();
-        ctx.arc(lookX * r * 0.28, lookY * r * 0.22, r * (0.34 - eyePop * 0.08), 0, Math.PI * 2);
+        ctx.arc(lookX * r * 0.26, lookY * r * 0.20, r * Math.max(0.24, 0.36 - eyePop * 0.06), 0, Math.PI * 2);
         ctx.fillStyle = RUBBER_PALETTE.inkBlack;
         ctx.fill();
       } else {
@@ -1016,13 +1033,13 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
       ctx.restore();
 
       if (eyePop > 0.25) {
-        drawVibrationTicks(ctx, 0, 0, r * 1.45, { count: 2, rot: idx * 0.5 });
+        drawVibrationTicks(ctx, 0, 0, r * 1.32, { count: 2, rot: idx * 0.5 });
       }
     }
 
     // Expressive 1930s Eyebrow
     if (brows) {
-      const browY = -r * aspectY - r * 0.35 - eyePop * r * 0.55;
+      const browY = -r * aspectY - r * 0.32 - eyePop * r * 0.28;
       ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
       ctx.lineWidth = Math.max(3.0, r * 0.25);
       ctx.beginPath();
@@ -1041,8 +1058,8 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
           browY - r * 0.15
         );
       } else {
-        const lift = mode === 'shock' || eyePop > 0.1 ? -r * (0.25 + eyePop * 0.35) : 0;
-        ctx.arc(0, browY + r * 0.35 + lift, r * 0.85, Math.PI * 1.15, Math.PI * 1.85);
+        const lift = mode === 'shock' || eyePop > 0.1 ? -r * (0.20 + eyePop * 0.22) : 0;
+        ctx.arc(0, browY + r * 0.35 + lift, r * 0.82, Math.PI * 1.15, Math.PI * 1.85);
       }
       ctx.stroke();
     }
@@ -1058,9 +1075,9 @@ export function drawPieCutEyes(ctx, x, y, opts = {}) {
  */
 export function drawCartoonMouth(ctx, x, y, opts = {}) {
   const jawDrop = clamp(opts.jawDrop ?? 0, 0, 1.5);
-  const mode = jawDrop > 0.15 ? 'roar' : opts.mode || 'grin';
-  const w = (opts.width ?? 28) * (1 + jawDrop * 0.35);
-  const h = (opts.height ?? 18) * (1 + jawDrop * 1.25);
+  const mode = jawDrop > 0.12 ? 'roar' : opts.mode || 'grin';
+  const w = (opts.width ?? 28) * (1 + jawDrop * 0.32);
+  const h = (opts.height ?? 18) * (1 + jawDrop * 1.05);
   const t = opts.t ?? 0;
 
   ctx.save();
@@ -1078,34 +1095,76 @@ export function drawCartoonMouth(ctx, x, y, opts = {}) {
     ctx.lineWidth = 2.0;
     ctx.stroke();
   } else if (mode === 'sing' || mode === 'roar') {
-    const openH = mode === 'roar' ? h * 1.35 : h;
+    const openH = mode === 'roar' ? h * 1.18 : h;
+    const padX = mode === 'roar' ? 7.5 : 5.0;
+    const padBot = mode === 'roar' ? 10.5 : 6.5;
+
+    // 1. Cream Jaw Pouch / Lower Muzzle Rim so dropped jaw never merges with black head/chest
     ctx.beginPath();
-    ctx.moveTo(-w * 0.5, -openH * 0.15);
-    ctx.quadraticCurveTo(0, -openH * 0.45, w * 0.5, -openH * 0.1);
-    ctx.bezierCurveTo(w * 0.55, openH * 0.85, -w * 0.55, openH * 0.85, -w * 0.5, -openH * 0.15);
+    ctx.moveTo(-(w * 0.5 + padX), -openH * 0.08);
+    ctx.quadraticCurveTo(0, -openH * 0.32, w * 0.5 + padX, -openH * 0.04);
+    ctx.bezierCurveTo(
+      w * 0.58 + padX,
+      openH * 0.88 + padBot,
+      -(w * 0.58 + padX),
+      openH * 0.88 + padBot,
+      -(w * 0.5 + padX),
+      -openH * 0.08
+    );
     ctx.closePath();
-    ctx.fillStyle = RUBBER_PALETTE.inkBlack;
+    ctx.fillStyle = RUBBER_PALETTE.paperCream;
     ctx.fill();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
-    ctx.lineWidth = 3.0;
+    ctx.lineWidth = 3.6;
     ctx.stroke();
 
-    // Vibrating cartoon tongue inside open throat
+    // 2. Dark throat cavity
+    const traceMouthCavity = () => {
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.5, -openH * 0.08);
+      ctx.quadraticCurveTo(0, -openH * 0.28, w * 0.5, -openH * 0.04);
+      ctx.bezierCurveTo(w * 0.54, openH * 0.82, -w * 0.54, openH * 0.82, -w * 0.5, -openH * 0.08);
+      ctx.closePath();
+    };
+    traceMouthCavity();
+    ctx.fillStyle = RUBBER_PALETTE.inkBlack;
+    ctx.fill();
+
+    // 3. Upper cream cartoon teeth & vibrating coral-red tongue inside throat
     ctx.save();
+    traceMouthCavity();
     ctx.clip();
+
+    // Upper row of cream square cartoon teeth
+    const toothBottomY = openH * 0.14;
+    ctx.beginPath();
+    ctx.rect(-w * 0.46, -openH * 0.32, w * 0.92, openH * 0.46);
+    ctx.fillStyle = RUBBER_PALETTE.paperCream;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    for (const tx of [-w * 0.22, 0, w * 0.22]) {
+      ctx.beginPath();
+      ctx.moveTo(tx, -openH * 0.28);
+      ctx.lineTo(tx, toothBottomY);
+      ctx.stroke();
+    }
+
+    // Large vibrating coral-red cartoon tongue
     const wag = Math.sin(t * 16) * (w * 0.08);
     ctx.beginPath();
-    ctx.arc(wag - w * 0.12, openH * 0.48, w * 0.34, 0, Math.PI * 2);
-    ctx.arc(wag + w * 0.14, openH * 0.50, w * 0.32, 0, Math.PI * 2);
+    ctx.arc(wag - w * 0.14, openH * 0.52, w * 0.38, 0, Math.PI * 2);
+    ctx.arc(wag + w * 0.16, openH * 0.54, w * 0.36, 0, Math.PI * 2);
     ctx.fillStyle = RUBBER_PALETTE.tcCoral;
     ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
     ctx.restore();
 
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.5, -openH * 0.15);
-    ctx.quadraticCurveTo(0, -openH * 0.45, w * 0.5, -openH * 0.1);
-    ctx.bezierCurveTo(w * 0.55, openH * 0.85, -w * 0.55, openH * 0.85, -w * 0.5, -openH * 0.15);
-    ctx.closePath();
+    // 4. Crisp inner lip outline
+    traceMouthCavity();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
     ctx.lineWidth = 3.0;
     ctx.stroke();
@@ -2239,10 +2298,12 @@ export function getGramophoneSockets(cx, cy, opts = {}) {
   const cabCy = cabBaseY - cabH * 0.5;
   const cabCx = cx + 20.0;
   const cabX = cabCx - cabW * 0.5;
-  const crankX = cabX + cabW;
+  const crankSide = opts.crankSide || 'right';
+  const isLeftCrank = crankSide === 'left';
+  const crankX = isLeftCrank ? cabX : cabX + cabW;
   const crankY = cabCy;
   const crankRot = t * (opts.crankSpeed ?? 5.2);
-  const hubLocalX = crankX + 36;
+  const hubLocalX = crankX + (isLeftCrank ? -36 : 36);
   const hubLocalY = crankY + 18;
   const knobLocalX = hubLocalX + Math.cos(crankRot) * 14;
   const knobLocalY = hubLocalY + Math.sin(crankRot) * 14;
@@ -2385,15 +2446,17 @@ export function drawAnthropomorphicGramophone(ctx, cx, cy, opts = {}) {
   drawSpinningVinyl(ctx, 0, 0, 86, t * 7.5, { flat: true });
   ctx.restore();
 
-  // 5. Winding Crank Handle on Right Side
-  const crankX = cabX + cabW;
+  // 5. Winding Crank Handle (supports `crankSide: 'left' | 'right'`)
+  const isLeftCrank = (opts.crankSide || 'right') === 'left';
+  const crankX = isLeftCrank ? cabX : cabX + cabW;
   const crankY = cabCy;
-  const crankRot = t * 5.2;
-  const crankKnobX = crankX + 36 + Math.cos(crankRot) * 12;
+  const crankRot = t * (opts.crankSpeed ?? 5.2);
+  const crankDir = isLeftCrank ? -1 : 1;
+  const crankKnobX = crankX + crankDir * 36 + Math.cos(crankRot) * 12;
   const crankKnobY = crankY + 18 + Math.sin(crankRot) * 12;
   ctx.beginPath();
   ctx.moveTo(crankX, crankY);
-  ctx.lineTo(crankX + 36, crankY - 12);
+  ctx.lineTo(crankX + crankDir * 36, crankY - 12);
   ctx.lineTo(crankKnobX, crankKnobY);
   ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
   ctx.lineWidth = 5.0;
@@ -2862,9 +2925,220 @@ export function drawAnthropomorphicInstrument(ctx, cx, cy, opts = {}) {
 }
 
 /**
+ * Rule-based Generic 1930s Anthropomorphic Prop & Machine Assembler (`drawAnthropomorphicProp`).
+ * Decouples Tier-3 living props from fixed Broadway stickers so any object silhouette
+ * (`bodyType: 'boiler' | 'clock' | 'radio' | 'anvil' | 'lantern' | 'custom'`) can be brought to
+ * life with squash-and-stretch envelopes, Pie-Cut eyes, cartoon mouth, rubber-hose limbs,
+ * 4-finger white gloves, and steam/soundwave spout sockets.
+ */
+export function drawAnthropomorphicProp(ctx, cx, cy, opts = {}) {
+  const bodyType = opts.bodyType || 'radio';
+  const scale = opts.scale ?? 1.0;
+  const flip = opts.flip ?? 1;
+  const t = opts.t ?? 0;
+  const bounceEnabled = opts.bounce ?? false;
+  const swing = bounceEnabled
+    ? evalSwingBounce(t, opts.bpm ?? 132, opts.phase ?? 0)
+    : { squashX: 1.0, squashY: 1.0, sway: 0, footTap: 0, bounce: 0 };
+
+  const w = opts.width ?? 116;
+  const h = opts.height ?? 136;
+  const sx = (opts.squashX ?? 1.0) * swing.squashX;
+  const sy = (opts.squashY ?? 1.0) * swing.squashY;
+  const bodyColor = opts.color || RUBBER_PALETTE.mahoganyLight;
+  const accentColor = opts.accentColor || RUBBER_PALETTE.brassGold;
+  const eyeMode = opts.eyeMode || 'pie';
+  const mouthMode = opts.mouthMode || 'grin';
+  const eyePop = opts.eyePop ?? 0;
+  const jawDrop = opts.jawDrop ?? 0;
+  const hasLegs = opts.legs !== false;
+  const hasArms = opts.arms !== false;
+  const spoutBlast = clamp(opts.spoutBlast ?? 0, 0, 1.5);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale * flip, scale);
+  ctx.rotate((opts.leanAngle ?? 0) + swing.sway);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1. Floor contact shadow
+  ctx.save();
+  ctx.translate(0, h * 0.56 + (hasLegs ? 32 : 4));
+  ctx.scale(1.0, 0.30);
+  ctx.beginPath();
+  ctx.arc(0, 0, w * 0.62, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(28, 20, 15, 0.36)';
+  ctx.fill();
+  ctx.restore();
+
+  // 2. Optional Rubber-Hose Legs & Tapping Cartoon Shoes
+  if (hasLegs) {
+    const legTopY = (h * 0.46) * sy;
+    const footY = h * 0.52 + 30;
+    for (const [lxSign, isTap] of [
+      [-1, true],
+      [1, false],
+    ]) {
+      drawRubberHoseLimb(ctx, [lxSign * w * 0.26, legTopY], [lxSign * w * 0.32, footY], {
+        bend: lxSign * 0.24,
+        width: 9.5,
+      });
+      drawCartoonShoe(ctx, lxSign * w * 0.32, footY, {
+        scale: 0.78,
+        flip: lxSign < 0,
+        tapAngle: isTap ? swing.footTap : 0,
+      });
+    }
+  }
+
+  // 3. Squashing & Stretching Prop Body Silhouette
+  ctx.save();
+  ctx.scale(sx, sy);
+
+  if (typeof opts.drawBody === 'function') {
+    opts.drawBody(ctx, w, h, RUBBER_PALETTE);
+  } else if (bodyType === 'boiler') {
+    // Pressurized riveted brass/iron steam boiler cylinder with dome top & pressure gauge
+    drawRoundedRectPath(ctx, -w * 0.48, -h * 0.48, w * 0.96, h * 0.96, w * 0.28);
+    ctx.fillStyle = bodyColor;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 4.2;
+    ctx.stroke();
+
+    // Brass pressure bands & rivets
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(-w * 0.46, -h * 0.24, w * 0.92, 10);
+    ctx.fillRect(-w * 0.46, h * 0.22, w * 0.92, 10);
+    ctx.strokeRect(-w * 0.46, -h * 0.24, w * 0.92, 10);
+    ctx.strokeRect(-w * 0.46, h * 0.22, w * 0.92, 10);
+  } else if (bodyType === 'clock') {
+    // Vintage grandfather/metronome clock housing with dial face
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.46, h * 0.50);
+    ctx.lineTo(-w * 0.36, -h * 0.34);
+    ctx.arc(0, -h * 0.34, w * 0.36, Math.PI, 0);
+    ctx.lineTo(w * 0.46, h * 0.50);
+    ctx.closePath();
+    ctx.fillStyle = bodyColor;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 4.2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, -h * 0.16, w * 0.28, 0, Math.PI * 2);
+    ctx.fillStyle = RUBBER_PALETTE.paperCream;
+    ctx.fill();
+    ctx.stroke();
+  } else if (bodyType === 'anvil') {
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.55, -h * 0.28);
+    ctx.lineTo(w * 0.48, -h * 0.28);
+    ctx.lineTo(w * 0.30, h * 0.08);
+    ctx.lineTo(w * 0.42, h * 0.45);
+    ctx.lineTo(-w * 0.42, h * 0.45);
+    ctx.lineTo(-w * 0.26, h * 0.08);
+    ctx.closePath();
+    ctx.fillStyle = '#4B4844';
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 4.2;
+    ctx.stroke();
+  } else {
+    // Default 'radio' / cathedral arch cabinet with speaker grille
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.48, h * 0.48);
+    ctx.lineTo(-w * 0.48, -h * 0.10);
+    ctx.arc(0, -h * 0.10, w * 0.48, Math.PI, 0);
+    ctx.lineTo(w * 0.48, h * 0.48);
+    ctx.closePath();
+    ctx.fillStyle = bodyColor;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 4.2;
+    ctx.stroke();
+
+    // Inner trim & brass speaker grille
+    ctx.beginPath();
+    ctx.arc(0, -h * 0.12, w * 0.34, 0, Math.PI * 2);
+    ctx.fillStyle = accentColor;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 3.0;
+    ctx.stroke();
+  }
+
+  // 4. Top Steam / Soundwave Spout Socket
+  if (spoutBlast > 0.02 || bodyType === 'boiler') {
+    const spoutH = 18 + spoutBlast * 12;
+    drawRoundedRectPath(ctx, -14, -h * 0.50 - spoutH, 28, spoutH + 4, 6);
+    ctx.fillStyle = accentColor;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+    if (spoutBlast > 0.1) {
+      drawVibrationTicks(ctx, 0, -h * 0.50 - spoutH - 12, 24 * spoutBlast, {
+        count: 3,
+        rot: -Math.PI * 0.5,
+      });
+    }
+  }
+
+  // 5. Anthropomorphic Pie-Cut Eyes & Expressive Cartoon Mouth
+  drawPieCutEyes(ctx, 0, -h * 0.14, {
+    mode: eyeMode,
+    radius: Math.max(9.0, w * 0.10),
+    spacing: w * 0.24,
+    lookX: opts.lookX ?? 0.32,
+    eyePop,
+    t,
+  });
+  drawCartoonMouth(ctx, 0, h * 0.16, {
+    mode: mouthMode,
+    width: w * 0.28,
+    height: h * 0.14,
+    jawDrop,
+    t,
+  });
+  ctx.restore();
+
+  // 6. Optional Rubber-Hose Gloved Arms
+  const leftHand = [-w * 0.72, h * 0.06 + Math.sin(t * 7) * (bounceEnabled ? 8 : 0)];
+  const rightHand = [w * 0.72, h * 0.04 + Math.cos(t * 7) * (bounceEnabled ? 8 : 0)];
+  if (hasArms) {
+    drawRubberHoseLimb(ctx, [-w * 0.44 * sx, 0], leftHand, { bend: -0.32, width: 9.5 });
+    drawCartoonGlove(ctx, leftHand[0], leftHand[1], {
+      scale: 0.74,
+      rot: -0.4,
+      pose: opts.leftArmPose || 'open',
+      flip: true,
+    });
+    drawRubberHoseLimb(ctx, [w * 0.44 * sx, 0], rightHand, { bend: 0.32, width: 9.5 });
+    drawCartoonGlove(ctx, rightHand[0], rightHand[1], {
+      scale: 0.74,
+      rot: 0.4,
+      pose: opts.rightArmPose || 'point',
+      flip: false,
+    });
+  }
+
+  ctx.restore();
+
+  return {
+    top: [cx, cy - h * 0.52 * sy * scale],
+    leftHand: [cx + leftHand[0] * scale * flip, cy + leftHand[1] * scale],
+    rightHand: [cx + rightHand[0] * scale * flip, cy + rightHand[1] * scale],
+  };
+}
+
+/**
  * Renders a Mischievous 1930s Rubber-Hose Black Note Critter (`drawNoteCritter`).
  * Supports `state`: `'walk' | 'airborne' | 'squashed'`.
- * When `'squashed'`, renders the flattened ink pancake + dizzy `X X` eyes + parabolic flying Technicolor stars!
+ * When `'squashed'`, renders a high-contrast Technicolor impact splat halo + thick cream-rimmed
+ * flattened ink pancake + large dizzy `X X` eyes + orbiting Technicolor star ring!
  */
 export function drawNoteCritter(ctx, cx, cy, opts = {}) {
   const mode = opts.state || (opts.squashed ? 'squashed' : opts.airborne ? 'airborne' : 'walk');
@@ -2879,66 +3153,98 @@ export function drawNoteCritter(ctx, cx, cy, opts = {}) {
   ctx.lineJoin = 'round';
 
   if (mode === 'squashed') {
-    // 1. Impact shockwave rings on piano key
+    // 1. High-contrast Technicolor Gold & Paper Cream Impact Splat Halo underneath so black note never vanishes on black keys
     ctx.save();
-    ctx.scale(1.0, 0.34);
+    ctx.scale(1.0, 0.38);
+    const splatSpikes = 14;
     ctx.beginPath();
-    ctx.arc(0, 0, 96, 0, Math.PI * 2);
-    ctx.strokeStyle = rgba(RUBBER_PALETTE.tcGold, 0.78);
-    ctx.lineWidth = 5.0;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, 72, 0, Math.PI * 2);
-    ctx.strokeStyle = rgba(RUBBER_PALETTE.tcCyan, 0.68);
-    ctx.lineWidth = 3.8;
-    ctx.stroke();
-    ctx.restore();
-
-    // 2. Flattened black ink note pancake
-    ctx.save();
-    ctx.scale(1.85, 0.24);
-    ctx.beginPath();
-    ctx.arc(0, 0, 44, 0, Math.PI * 2);
-    ctx.fillStyle = RUBBER_PALETTE.inkBlack;
+    for (let i = 0; i < splatSpikes * 2; i++) {
+      const ang = (i * Math.PI) / splatSpikes + 0.15;
+      const rad = i % 2 === 0 ? 112 : 76;
+      const px = Math.cos(ang) * rad;
+      const py = Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = RUBBER_PALETTE.paperCream;
     ctx.fill();
-    ctx.strokeStyle = RUBBER_PALETTE.paperCream;
-    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = RUBBER_PALETTE.tcGold;
+    ctx.lineWidth = 6.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 86, 0, Math.PI * 2);
+    ctx.fillStyle = rgba(RUBBER_PALETTE.tcGold, 0.48);
+    ctx.fill();
+    ctx.strokeStyle = rgba(RUBBER_PALETTE.tcCyan, 0.82);
+    ctx.lineWidth = 4.2;
     ctx.stroke();
     ctx.restore();
 
-    // 3. Bent wilted note stem & flag flattened horizontally
+    // 2. Bent wilted note stem & flag flattened horizontally with cream outline
     ctx.beginPath();
     ctx.moveTo(46, -2);
     ctx.bezierCurveTo(74, -14, 96, 6, 118, -8);
+    ctx.strokeStyle = RUBBER_PALETTE.paperCream;
+    ctx.lineWidth = 12.0;
+    ctx.stroke();
     ctx.strokeStyle = RUBBER_PALETTE.inkBlack;
     ctx.lineWidth = 7.0;
     ctx.stroke();
+
+    // 3. Flattened black ink note pancake with bold 4.8px cream outline & specular rim
+    ctx.save();
+    ctx.scale(1.92, 0.28);
+    ctx.beginPath();
+    ctx.arc(0, 0, 45, 0, Math.PI * 2);
+    ctx.fillStyle = RUBBER_PALETTE.inkBlack;
+    ctx.fill();
+    ctx.strokeStyle = RUBBER_PALETTE.paperCream;
+    ctx.lineWidth = 5.2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, -6, 32, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.strokeStyle = RUBBER_PALETTE.tcGold;
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+    ctx.restore();
 
     // 4. Two white gloved hands splayed flat trembling on keys
     for (const hSign of [-1, 1]) {
       const tremble = Math.sin(t * 28 + hSign) * 2.5;
       ctx.save();
-      ctx.translate(hSign * 64, 4 + tremble);
-      ctx.scale(hSign * 0.9, 0.45);
+      ctx.translate(hSign * 68, 4 + tremble);
+      ctx.scale(hSign * 0.95, 0.50);
       drawCartoonGlove(ctx, 0, 0, { rot: hSign * 0.4, pose: 'open' });
       ctx.restore();
     }
 
-    // 5. Dizzy X X cartoon eyes on squashed pancake
-    drawPieCutEyes(ctx, 0, -2, { mode: 'dizzy', radius: 9.5, spacing: 36, aspectY: 0.75, brows: false, t });
+    // 5. Large High-Contrast Dizzy X X cartoon eyes on squashed pancake
+    drawPieCutEyes(ctx, 0, -4, { mode: 'dizzy', radius: 11.5, spacing: 38, aspectY: 0.85, brows: false, t });
 
-    // 6. Burst of parabolic flying Technicolor stars & mini notes
+    // 6. Prominent overhead dizzy orbit ring & flying Technicolor stars
+    ctx.save();
+    ctx.translate(0, -34);
+    ctx.scale(1.0, 0.34);
+    ctx.beginPath();
+    ctx.arc(0, 0, 66, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba(RUBBER_PALETTE.paperCream, 0.85);
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+    ctx.restore();
+
     const burst = [
-      [-82, -22, 14, RUBBER_PALETTE.tcGold],
-      [-62, 16, 11, RUBBER_PALETTE.tcCyan],
-      [78, -26, 15, RUBBER_PALETTE.tcCoral],
-      [68, 18, 12, RUBBER_PALETTE.tcViolet],
+      [-68, -32, 16, RUBBER_PALETTE.tcGold],
+      [-28, -46, 14, RUBBER_PALETTE.tcCyan],
+      [28, -46, 15, RUBBER_PALETTE.tcCoral],
+      [68, -30, 16, RUBBER_PALETTE.tcViolet],
     ];
     for (const [bx, by, br, bcol] of burst) {
       drawFourPointStar(ctx, bx, by + Math.sin(t * 10 + bx) * 4, br, {
         rot: t * 3 + bx,
         color: bcol,
-        withHalo: false,
+        withHalo: true,
         withTicks: false,
       });
     }
@@ -3708,6 +4014,41 @@ export function createRubberHoseCharacter(opts = {}) {
     }
     ctx.restore();
 
+    function drawRightArmAndProp() {
+      const armRBend = state.shRAng < -0.5 ? -0.36 : 0.34;
+      const shRx = shR.x - ((state.jawDrop || 0) > 0.15 ? 8 : 0);
+      const shRy = shR.y + 4 + ((state.jawDrop || 0) > 0.15 ? 10 : 0);
+      const armRRes = drawRubberHoseLimb(ctx, [shRx, shRy], [wrR.x, wrR.y], {
+        bend: armRBend,
+        sCurve: state.shRAng < -0.8 ? 0.22 : 0,
+        waveAmp: 3.2,
+        wavePhase: t * 8 + 1.5,
+        width: 14.5,
+      });
+
+      const forearmDirAng = aR2;
+      drawRubberHeldProp(
+        ctx,
+        state.heldProp,
+        wrR,
+        state.heldProp === 'mallet' || state.heldProp === 'baton' || state.heldProp === 'cane'
+          ? forearmDirAng
+          : aR2 - Math.PI * 0.5,
+        t
+      );
+      drawCartoonGlove(ctx, wrR.x, wrR.y, {
+        scale: 0.96,
+        rot: armRRes.endAngle - Math.PI * 0.5,
+        pose: state.heldProp && state.heldProp !== 'none' ? 'grip' : 'point',
+        flip: false,
+      });
+    }
+
+    const hasHeldProp = Boolean(state.heldProp && state.heldProp !== 'none');
+    if (!hasHeldProp) {
+      drawRightArmAndProp();
+    }
+
     // 6. Expressive 1930s Cartoon Head, Pie-Cut Eyes, Mouth, Ears & Hat
     ctx.save();
     ctx.translate(neckBase.x, neckBase.y - 30);
@@ -3789,10 +4130,25 @@ export function createRubberHoseCharacter(opts = {}) {
       drawPieCutEyes(ctx, faceShiftX + 5, -9, {
         mode: eyeMode,
         radius: 13.5,
-        spacing: 26,
+        spacing: isFront ? 26 : 20,
         lookX: isFront ? 0.1 : 0.42,
         lookY: -0.05,
         eyePop: state.eyePop || 0,
+        t,
+      });
+
+      // Expressive Mouth (with `jawDrop` support; drawn before nose & whiskers so nose stays cleanly on top)
+      const mouthMode =
+        state.heldProp === 'trumpet' || state.heldProp === 'saxophone'
+          ? 'whistle'
+          : state.mood === 'sing' || state.mood === 'roar'
+            ? 'sing'
+            : 'grin';
+      drawCartoonMouth(ctx, faceShiftX + 7, 23, {
+        mode: mouthMode,
+        width: 27,
+        height: 17,
+        jawDrop: state.jawDrop || 0,
         t,
       });
 
@@ -3803,6 +4159,9 @@ export function createRubberHoseCharacter(opts = {}) {
       ctx.ellipse(noseX, noseY, 10.5, 7.5, -0.15, 0, Math.PI * 2);
       ctx.fillStyle = RUBBER_PALETTE.inkBlack;
       ctx.fill();
+      ctx.strokeStyle = RUBBER_PALETTE.paperCream;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
       ctx.beginPath();
       ctx.arc(noseX - 3.0, noseY - 2.4, 2.8, 0, Math.PI * 2);
       ctx.fillStyle = RUBBER_PALETTE.paperCream;
@@ -3814,26 +4173,11 @@ export function createRubberHoseCharacter(opts = {}) {
         ctx.lineWidth = 2.4;
         for (const wy of [-4, 4]) {
           ctx.beginPath();
-          ctx.moveTo(faceShiftX + 22, 14 + wy);
-          ctx.lineTo(faceShiftX + 44, 12 + wy * 2.2);
+          ctx.moveTo(faceShiftX + 22, 13 + wy);
+          ctx.lineTo(faceShiftX + 46, 11 + wy * 2.2);
           ctx.stroke();
         }
       }
-
-      // Expressive Mouth (with `jawDrop` support)
-      const mouthMode =
-        state.heldProp === 'trumpet' || state.heldProp === 'saxophone'
-          ? 'whistle'
-          : state.mood === 'sing' || state.mood === 'roar'
-            ? 'sing'
-            : 'grin';
-      drawCartoonMouth(ctx, faceShiftX + 7, 22, {
-        mode: mouthMode,
-        width: 27,
-        height: 17,
-        jawDrop: state.jawDrop || 0,
-        t,
-      });
     }
 
     // Hat on top of head (with `hatJump` cartoon take pop-off!)
@@ -3859,32 +4203,10 @@ export function createRubberHoseCharacter(opts = {}) {
     }
     ctx.restore();
 
-    // 7. Foreground (Right) Rubber-Hose Arm, Held Instrument/Prop & 4-Finger White Glove
-    const armRBend = state.shRAng < -0.5 ? -0.36 : 0.34;
-    const armRRes = drawRubberHoseLimb(ctx, [shR.x, shR.y + 4], [wrR.x, wrR.y], {
-      bend: armRBend,
-      sCurve: state.shRAng < -0.8 ? 0.22 : 0,
-      waveAmp: 3.2,
-      wavePhase: t * 8 + 1.5,
-      width: 14.5,
-    });
-
-    const forearmDirAng = Math.atan2(Math.cos(aR2), Math.sin(aR2));
-    drawRubberHeldProp(
-      ctx,
-      state.heldProp,
-      wrR,
-      state.heldProp === 'mallet' || state.heldProp === 'baton' || state.heldProp === 'cane'
-        ? forearmDirAng
-        : aR2 - Math.PI * 0.5,
-      t
-    );
-    drawCartoonGlove(ctx, wrR.x, wrR.y, {
-      scale: 0.96,
-      rot: armRRes.endAngle - Math.PI * 0.5,
-      pose: state.heldProp && state.heldProp !== 'none' ? 'grip' : 'point',
-      flip: false,
-    });
+    // 7. Foreground (Right) Rubber-Hose Arm, Held Instrument/Prop & 4-Finger White Glove (when holding prop)
+    if (hasHeldProp) {
+      drawRightArmAndProp();
+    }
 
     ctx.restore();
   }

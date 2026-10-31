@@ -149,3 +149,41 @@
 | **Phase 2 · `paper-popup` 内核与样片** | [`styles/paper-popup/kernel.js`](../styles/paper-popup/kernel.js)<br>[`styles/paper-popup/world.js`](../styles/paper-popup/world.js)<br>[`styles/paper-popup/scenes.html`](../styles/paper-popup/scenes.html) | 1. `evalPaperFold`、`applySpreadFold`、`buildPaperGround`、`createPaperBoat`、`createPaperPineTree` 全面升级为真 3D 折痕铰链旋转（`rotation.x = (1 - fold) * 1.48`）；<br>2. 完整恢复 `evalContinuousHopChain` 与 `evalTargetedJump` 的蓄力下蹲（Anticipation）、腾空拉伸与俯仰角、落地缓冲挤压（Squash & Stretch）；<br>3. `createOrigamiFox` 重构为多折面躯干、白胸脯、黑鼻尖、带高光折纸眼、四条独立关节折纸腿与八面菱形折纸尾，支持 `act('hop' \| 'jump' \| 'look')`；<br>4. `world.js` 严格按跨页容器隔离所有道具与生灵，并采用桌面立体书远景（`z=17.6`）与折纸微距中近景（`z=11.2`）交替运镜。 | **已完成并通过 `audit.mjs` + `lookcheck.py`** |
 | **Phase 3 · `rubber-hose` 内核与样片** | [`styles/rubber-hose/kernel.js`](../styles/rubber-hose/kernel.js)<br>[`styles/rubber-hose/world.js`](../styles/rubber-hose/world.js)<br>[`styles/rubber-hose/scenes.html`](../styles/rubber-hose/scenes.html) | 1. 解耦背景与次要道具的 132 BPM 同频抖动（`drawAnthropomorphicGramophone`、`drawAnthropomorphicInstrument` 支持 `bounce: false`，大幅降低五线谱背景晃动）；<br>2. 新增 `evalCartoonTake`、`getGramophoneSockets`、补齐 `drawAnthropomorphicInstrument` 的 `kind === 'drumkit'` 分支；<br>3. 升级 `RUBBER_HUMANOID_DIMS` 与 `createRubberHoseCharacter`（加大头身比、粗四肢、大饼干眼，支持望远镜式眼珠弹出 `eyePop`、下巴脱臼 `jawDrop`、礼帽飞起 `hatJump`）；<br>4. 重构 `world.js` 为四幕单焦点强因果故事：摇柄蓄压（真实 IK 握持摇柄）→ 号角喷发与占画面 50% 高的大特写惊愕 Take → 追逐与木槌物理砸扁音符（真实 IK 敲击触发三色彩环）→ 驯服合奏与圆圈收尾。 | **已完成并通过 `audit.mjs` + `lookcheck.py`** |
 | **Phase 4 · `showcase/worlds/` 离线韧性** | `showcase/worlds/world_05_paper/split/*`<br>`showcase/worlds/world_08_clay/split/*`<br>`showcase/worlds/world_09_blueprint/split/*`<br>`showcase/worlds/world_03_cyber/split/*` | 替换外部 Three.js CDN 为本地 `../../../../engine/vendor/three.min.js` + `BufferGeometry` 兼容层，修复 Tailwind CDN URL 并在各 `style.css` 注入 `.hidden { display: none !important; }` 等离线布局兜底规则。 | **已完成并通过验证** |
+
+
+---
+
+## 五、v7 复盘核实：11 项残留视觉/叙事缺陷与 3D 性能瓶颈修复规范（Phase 5 · 已完成并通过门禁验证）
+
+> 完整逐行代码定位与数学根因详见私有架构库文档：[`/root/projects/earn/gemini-stylehop/stardino-stylehop-devdocs/AUDIT_2026-10-31_V7_RESIDUAL_AND_PERF.md`](/root/projects/earn/gemini-stylehop/stardino-stylehop-devdocs/AUDIT_2026-10-31_V7_RESIDUAL_AND_PERF.md)。
+
+### 5.1 `styles/rubber-hose` 的 4 个直观视觉与叙事缺陷（核实全部属实）
+1. **Scene 1 → Scene 2 严重 180° 越轴与瞬移**：
+   - **根因**：Scene 1（[`styles/rubber-hose/world.js` L72-L84](../styles/rubber-hose/world.js#L72-L84)）黑猫站在留声机右侧 `x=1385, facing=-1`（朝左）摇柄；切到 Scene 2（[`world.js` L101-L113](../styles/rubber-hose/world.js#L101-L113)）时，黑猫突然瞬移到留声机左侧 `x=465, facing=1`（朝右），违反 180° 轴线原则。
+   - **修复**：统一舞台轴线——在 Scene 1 中让留声机位于右侧（`x ≈ 1360` 喇叭朝左），黑猫从 Scene 1 起就站在留声机左前方（`x ≈ 960, facing: 1` 朝右握摇柄），从而与 Scene 2 左侧朝右的大特写形成 100% 连续的空间承接。
+2. **Scene 2 `take` 惊愕五官穿模崩坏**：
+   - **根因**：① [`styles/rubber-hose/kernel.js` L939-L954](../styles/rubber-hose/kernel.js#L939-L954) 在侧面 `view: 'side'` 下仍按正面间距 `spacing: 26` 排布双目，且 `eyePop ≈ 1.16` 时两颗放大 `1.44x` 的白眼珠同时向 `+X` 弹出 `25.8px`，互相重叠切割并压穿鼻头 `(35,7)` 与胡须；② `drawCartoonMouth`（[`kernel.js` L1080-L1112](../styles/rubber-hose/kernel.js#L1080-L1112)）在 `jawDrop = 1.16` 时向下画 `56.3px` 纯黑椭圆（无米白下巴轮廓与白牙），与黑头黑胸糊成黑块；③ [`world.js` L384](../styles/rubber-hose/world.js#L384) 硬编码 `y = state.y - 540 = 405` 的 `!!` 图标直接撞在 `scale: 2.32` 跳起后的猫后脑勺上。
+   - **修复**：侧面 `eyePop` 改为向前上方扇形弹出且控制眼珠缩放与高度（绝不压鼻子胡须）；`roar` 张大嘴外包米白下巴袋、上排白方牙与亮珊瑚红吐舌；`!!` 图标动态锚定在头顶上方空白处。
+3. **Scene 3 `malletStrike` 木槌悬空 113px 与被砸音符隐形**：
+   - **根因**：① **精确数学 Bug**：[`styles/rubber-hose/kernel.js` L3872](../styles/rubber-hose/kernel.js#L3872) 写了 `const forearmDirAng = Math.atan2(Math.cos(aR2), Math.sin(aR2))`——把 `atan2(y, x)` 的 `sin` 和 `cos` 写反了，导致木槌旋转角变成 `π/2 - aR2` 横在半空 `y≈530`！② [`world.js` L119](../styles/rubber-hose/world.js#L119) 猫停在 `(805, 715)` 距目标 `(1005, 615)` 超出上臂+前臂可达范围；③ `drawNoteCritter` 的 `'squashed'` 状态压成纯黑细条叠在黑琴键缝上隐形。
+   - **修复**：修正 `forearmDirAng` 为 `aR2`（或 `armRRes.endAngle`），拉近起锤站位并在落锤时前倾屈膝，确保在 `data-keyframe="0.64"` 时木槌头 100% 砸实在音符怪身上；为 `'squashed'` 音符增加特艺金/奶油白撞击贴地光斑、加粗 `4.5px` 米白外轮廓与大号眩晕星环。
+4. **内核 Tier 3 固化 4 件套与缺乏真正推拉运镜**：
+   - **修复**：在 [`styles/rubber-hose/kernel.js`](../styles/rubber-hose/kernel.js) 新增通用参数化拟人器物组装原语 `drawAnthropomorphicProp(ctx, x, y, opts)`；在 [`world.js`](../styles/rubber-hose/world.js) 启用 `studio2d.js` 的 `zoomFrom/zoomTo` 与 `panFrom/panTo` 实现真正的推拉摇移镜头调度。
+
+### 5.2 `styles/paper-popup` 的 4 个残留视觉与原语短板（核实全部属实）
+1. **下半部近 40% 空旷米白书页 + 顶部 20% 桌沿水平切线生硬 + 层次偏少**：
+   - **修复**：优化 [`createPaperStudioStage`](../styles/paper-popup/kernel.js#L2689-L2695) 的桌面纵深与背景过渡，压低相机俯角消除顶部生硬桌沿切线；在两个跨页前缘两侧（`z = +2.1 ~ +3.2, x = ±4.8`）补充随书页铰链立起的前景折纸花草/石灯/芦苇压角立卡。
+2. **主角折纸狐浅杏黄 (`#EE9F54`) 与底纸 (`#FCF6E8`)、右侧山坡及浅黄船帆顺色**：
+   - **修复**：将主角折纸狐升级为高饱和朱砂赤陶橙红（`#D94432` + 暗部 `#9E2A1E` + 纯白胸毛与尾尖），并将 Spread 0 右侧山坡改为青碧色系（`jadeBlue` / `bambooGreen`），拉开强烈冷暖与明度反差。
+3. **推进景别仍停留在中远景（`z = 11.2 / 11.8`，狐狸面积 `< 3%`），缺乏特写情绪与互动原语**：
+   - **修复**：将 Scene 2 与 Scene 4 的 `focusPos` 真正推入中近景微距（`y = 2.65 ~ 3.15, z = 6.8 ~ 7.6`）；在 `kernel.js` 新增立体书弹片式 3D 情绪气泡原语 `createPaperEmotionPop`（支持 `? / ! / ♪ / ♥` 折痕弹出）及小狐狸驻足歪头/欢欣点头互动姿态。
+4. **高阶纸艺机关原语未下沉至 `styles/paper-popup/kernel.js`**：
+   - **修复**：遵循 ADR-013 规则化生成原则，在 `kernel.js` 新增 `createOrigamiArchBridge`（参数化折纸阶梯拱桥）、`createHangingPaperLanterns`（参数化垂挂折纸灯笼/星灯串）、`createBacklitSunWheel`（参数化多层同心背光日轮/星盘），并在 `world.js` 中运用。
+
+### 5.3 `engine/look.js` 的 3 个 3D 实时渲染性能瓶颈（核实全部属实）
+1. **每帧双遍重绘接触阴影（`scene.overrideMaterial` + 4 次全屏模糊 Shader）**（[`engine/look.js` L228-L320](../engine/look.js#L228-L320)）：
+   - **修复**：将接触阴影默认分辨率降为 `256`、精简为单轮 2-Pass 模糊，支持帧间隔节流更新，并在接触阴影重绘时跳过 `LineSegments` 白边与高空网格。
+2. **转场时 `data-look-blend` 切分为 8 档，连续 8 次同步调用 `THREE.PMREMGenerator` 烘焙环境贴图**（[`engine/look.js` L387, L438-L449](../engine/look.js#L375-L388)）：
+   - **修复**：移除 `Math.round(k * 8) / 8` 中间态实时 `PMREMGenerator` 烘焙；持久化复用单个 `PMREMGenerator` 实例并在初始化时预热场景预设，转场期间平滑插值灯光/雾/曝光/`envMapIntensity`，在 `k = 0.5` 切换已缓存的起止 `envLook` 贴图，实现转场零烘焙卡顿。
+3. **每帧全场景递归遍历 `syncMaterials()`**（[`engine/look.js` L490-L515](../engine/look.js#L490-L515)）：
+   - **修复**：改为基于场景子节点变化或脏标记触发 `scene.traverse`，日常帧直接跳过全树遍历，仅更新已追踪的 `tracked` 材质数组。

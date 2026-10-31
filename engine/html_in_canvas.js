@@ -101,6 +101,8 @@ export function uploadElementTexture(gl, texture, canvas, element, { flipY = fal
         textureSizes.set(texture, { width: w, height: h });
       }
       gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, element);
+    } else if (gl.texElementImage2D.length >= 6) {
+      gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, element);
     } else {
       gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, element);
     }

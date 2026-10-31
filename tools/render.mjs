@@ -56,6 +56,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
+    const hasVal = () => i + 1 < argv.length && !argv[i + 1].startsWith('-');
     if (a === '--style') o.style = next();
     else if (a === '--content') o.content = next();
     else if (a === '--world') o.world = next();
@@ -66,8 +67,8 @@ export function parseArgs(argv) {
     else if (a === '--fps') o.fps = parseInt(next(), 10);
     else if (a === '--workers') o.workers = Math.max(1, parseInt(next(), 10));
     else if (a === '--stills') o.stills = next().split(',').map(Number).filter((n) => !Number.isNaN(n));
-    else if (a === '--sheet') o.sheet = path.resolve(next());
-    else if (a === '--storyboard') o.storyboard = path.resolve(next());
+    else if (a === '--sheet') o.sheet = hasVal() ? path.resolve(next()) : true;
+    else if (a === '--storyboard') o.storyboard = hasVal() ? path.resolve(next()) : true;
     else if (a === '--video') o.video = path.resolve(next());
     else if (a === '--no-audio') o.audio = false;
     else if (a === '--preset') o.preset = next();
@@ -299,14 +300,20 @@ export async function main(argv = process.argv.slice(2)) {
       stillPaths.push(p);
     }
 
-    const defaultSheet = !o.page && !o.video ? path.join(REPO_ROOT, 'styles', o.style, 'contact_sheet.jpg') : null;
-    const sheet = o.sheet || defaultSheet;
+    const defaultSheet = !o.page && (!o.video || o.sheet === true) ? path.join(REPO_ROOT, 'styles', o.style, 'contact_sheet.jpg') : null;
+    const sheet = typeof o.sheet === 'string' ? o.sheet : defaultSheet;
     if (sheet && stillPaths.length >= 1) {
       contactSheet(stillPaths, sheet, o.width, o.height);
     }
 
     // 1b. Per-shot storyboard (every cut, labelled) + continuity warnings
-    if (o.storyboard) {
+    const storyboardOut =
+      typeof o.storyboard === 'string'
+        ? o.storyboard
+        : o.storyboard === true && o.style
+        ? path.join(REPO_ROOT, '..', 'out', 'styles', o.style, 'storyboard.jpg')
+        : null;
+    if (storyboardOut) {
       const shots = (await page.evaluate(() => window.SHOTS || null)) ||
         (cues?.scenes || []).map((s) => ({ t: s.settle ?? s.start + s.dur * 0.6, scene: s.index, shot: 0, size: '-', subject: '-', dur: s.dur, warn: [] }));
       const paths = [];
@@ -318,11 +325,11 @@ export async function main(argv = process.argv.slice(2)) {
         paths.push(p);
         labels.push(`S${sh.scene + 1}.${sh.shot + 1} ${sh.size} ${sh.subject} ${sh.dur}s`);
       }
-      if (paths.length) storyboardSheet(paths, labels, o.storyboard, o.width, o.height);
+      if (paths.length) storyboardSheet(paths, labels, storyboardOut, o.width, o.height);
       // The director adds render-time warnings (e.g. characters too small) to window.SHOTS.
       const live = await page.evaluate(() => window.SHOTS || null);
       if (live) live.forEach((l, i) => shots[i] && (shots[i].warn = l.warn));
-      console.log(`\n  storyboard: ${rel(o.storyboard)} (${shots.length} shots)`);
+      console.log(`\n  storyboard: ${rel(storyboardOut)} (${shots.length} shots)`);
       for (const sh of shots) {
         const w = sh.warn?.length ? `   ! ${sh.warn.join('; ')}` : '';
         console.log(`    S${sh.scene + 1}.${sh.shot + 1}  t=${sh.t.toFixed(2)}  ${String(sh.size).padEnd(13)} ${String(sh.subject).padEnd(14)} ${sh.dur}s${sh.box ? `  box ${sh.box.join('x')}` : ''}${w}`);

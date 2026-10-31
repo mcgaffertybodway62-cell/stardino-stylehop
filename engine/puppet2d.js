@@ -1059,7 +1059,7 @@ export function createPuppet2D(opts = {}) {
         }
       } else if (a.do === 'malletStrike') {
         // 3-Beat Cartoon Mallet Smash: [0..0.38] deep windup behind back -> [0.38..0.58] whip smash onto target -> [0.58..1.0] impact hold & recoil
-        if (localT <= to) {
+        if (localT <= to || a.hold) {
           if (u < 0.38) {
             const wu = smootherstep(0, 0.38, u);
             state.spineAngle = lerp(0, -0.28, wu);
@@ -1069,19 +1069,23 @@ export function createPuppet2D(opts = {}) {
             state.shRAng = lerp(-0.45, -2.55, wu);
             state.elRAng = lerp(0.75, 0.95, wu);
           } else {
-            const su = clamp((u - 0.38) / 0.22, 0, 1);
+            const su = clamp((u - 0.38) / 0.20, 0, 1);
             const smashEnv = smootherstep(0, 1, su);
-            state.spineAngle = lerp(-0.28, 0.26, smashEnv);
-            state.headAngle = lerp(-0.20, 0.16, smashEnv);
-            state.pelvisShiftX = lerp(-10, 12, smashEnv);
-            state.pelvisDropY = smashEnv * 10;
-            state.squash = Math.sin(clamp((u - 0.38) / 0.62, 0, 1) * Math.PI) * 0.24;
+            state.spineAngle = lerp(-0.28, 0.34, smashEnv);
+            state.headAngle = lerp(-0.20, 0.18, smashEnv);
+            state.pelvisShiftX = lerp(-10, 16, smashEnv);
+            state.pelvisDropY = smashEnv * 18;
+            state.thighRAng = lerp(-0.04, -0.26, smashEnv);
+            state.kneeRAng = lerp(0.02, 0.34, smashEnv);
+            const impactPulse = u < 0.62 ? Math.sin(clamp((u - 0.38) / 0.24, 0, 1) * Math.PI) : 0;
+            state.squash = impactPulse * 0.16;
             if (a.target) {
               const txWorld = Array.isArray(a.target) ? a.target[0] : a.target.x;
               const tyWorld = Array.isArray(a.target) ? a.target[1] : a.target.y;
               const preSkel = solveSkeleton(0, localT);
-              const localTx = (txWorld - state.x) / (preSkel.sc * state.facing);
-              const localTy = (tyWorld - (state.y + state.hopY)) / preSkel.sc;
+              const { sx, sy } = evalSquashStretch2D(state.squash);
+              const localTx = (txWorld - state.x) / (preSkel.sc * state.facing * sx);
+              const localTy = (tyWorld - (state.y + state.hopY)) / (preSkel.sc * sy);
               const toolLen = a.toolLen ?? 68;
               const ik = solveLimbIK2D(preSkel.shR, dims.upperArmR, dims.forearmR + toolLen, { x: localTx, y: localTy }, preSkel.aThorax);
               state.shRAng = lerp(-2.55, ik.shAng, smashEnv);

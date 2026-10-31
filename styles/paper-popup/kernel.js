@@ -51,7 +51,10 @@ export const PAPER_PALETTE = {
   charcoalInk: '#2B1D28',
 
   // Warm Amber, Coral, Crimson & Twilight Cardstock Layers
+  foxVermilion: '#D94432',
+  foxCrimsonShade: '#9E2A1E',
   canyonAmber: '#EE9F54',
+  canyonTerra: '#B85A3A',
   amberGold: '#F2AE5E',
   ridgeCoral: '#DE6E5B',
   coralOrange: '#DE6E5B',
@@ -1374,6 +1377,510 @@ export function createPaperGearWheel(makeCardstockMat, opts = {}) {
 }
 
 /**
+ * Parameterized 3D Origami Stepped Arch Bridge (`createOrigamiArchBridge`, ADR-013):
+ *   - Generates an arched cardstock bridge with customizable `span`, `archHeight`, `width`,
+ *     accordion-pleated stair `steps`, openwork kirigami spandrel cutouts, and gold-foil posts.
+ *   - Hinges flat onto the book spread via `setFold(u, staggerIdx)` (`rotation.x`).
+ */
+export function createOrigamiArchBridge(makeCardstockMat, options = {}) {
+  const {
+    span = 2.8,
+    archHeight = 0.76,
+    width = 0.86,
+    steps = 9,
+    thickness = 0.06,
+    color = PAPER_PALETTE.bridgeCrimson,
+    stepColor = PAPER_PALETTE.deckleCream,
+    railColor = PAPER_PALETTE.foilGold,
+    x = 0,
+    y = 0,
+    z = 0,
+  } = options;
+
+  const root = new THREE.Group();
+  root.name = 'OrigamiArchBridge';
+  root.position.set(x, y, z);
+
+  const foldPivot = new THREE.Group();
+  root.add(foldPivot);
+
+  const halfSpan = span * 0.5;
+  const halfW = width * 0.5;
+  const sideMat = makeCardstockMat(color, { roughness: 0.68 });
+  const stepMat = makeCardstockMat(stepColor, { roughness: 0.74 });
+  const railMat = makeCardstockMat(railColor, {
+    roughness: 0.36,
+    metalness: 0.45,
+    emissive: railColor,
+    emissiveIntensity: 0.14,
+  });
+
+  // 1. Twin arched kirigami side girders with circular negative-space cutouts
+  const wallShape = new THREE.Shape();
+  const segs = 28;
+  wallShape.moveTo(-halfSpan, 0);
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const px = lerp(-halfSpan, halfSpan, u);
+    const archY = Math.sin(u * Math.PI) * archHeight + 0.24;
+    wallShape.lineTo(px, archY);
+  }
+  wallShape.lineTo(halfSpan, 0);
+  for (let i = segs; i >= 0; i--) {
+    const u = i / segs;
+    const px = lerp(-halfSpan, halfSpan, u);
+    const innerY = Math.max(0, Math.sin(u * Math.PI) * (archHeight - 0.12) - 0.04);
+    wallShape.lineTo(px, innerY);
+  }
+  wallShape.closePath();
+
+  // Spandrel kirigami circular cutouts
+  for (const sx of [-0.54, 0.54]) {
+    const hole = new THREE.Path();
+    hole.absarc(sx * halfSpan, archHeight * 0.48, 0.09, 0, Math.PI * 2, true);
+    wallShape.holes.push(hole);
+  }
+
+  const wallGeo = new THREE.ExtrudeGeometry(wallShape, { depth: thickness, bevelEnabled: false });
+  wallGeo.translate(0, 0, -thickness * 0.5);
+
+  for (const zSign of [-1, 1]) {
+    const wallMesh = new THREE.Mesh(wallGeo, sideMat);
+    wallMesh.position.z = zSign * (halfW - thickness * 0.5);
+    wallMesh.castShadow = true;
+    wallMesh.receiveShadow = true;
+    addWhitePaperEdge(wallMesh, 0.92, 10);
+    foldPivot.add(wallMesh);
+  }
+
+  // 2. Accordion-pleated stair steps along the arch deck
+  const stepCount = Math.max(5, steps);
+  const stepW = (span * 0.92) / stepCount;
+  for (let i = 0; i < stepCount; i++) {
+    const u = (i + 0.5) / stepCount;
+    const px = lerp(-halfSpan * 0.92, halfSpan * 0.92, u);
+    const py = Math.sin(u * Math.PI) * archHeight + 0.06;
+    const slope = Math.cos(u * Math.PI) * (archHeight / halfSpan) * 0.45;
+    const stepGeo = new THREE.BoxGeometry(stepW * 0.95, 0.045, width - thickness * 1.5);
+    const stepMesh = new THREE.Mesh(stepGeo, i % 2 === 0 ? stepMat : sideMat);
+    stepMesh.position.set(px, py, 0);
+    stepMesh.rotation.z = slope * 0.35;
+    stepMesh.castShadow = true;
+    stepMesh.receiveShadow = true;
+    addWhitePaperEdge(stepMesh, 0.88);
+    foldPivot.add(stepMesh);
+  }
+
+  // 3. Four gold-foil bridge newel posts & keystone finials
+  for (const uPost of [0.06, 0.5, 0.94]) {
+    const px = lerp(-halfSpan, halfSpan, uPost);
+    const py = Math.sin(uPost * Math.PI) * archHeight + 0.24;
+    for (const zSign of [-1, 1]) {
+      const postGeo = new THREE.BoxGeometry(0.08, 0.22, 0.08);
+      postGeo.translate(0, 0.11, 0);
+      const postMesh = new THREE.Mesh(postGeo, railMat);
+      postMesh.position.set(px, py, zSign * (halfW - thickness * 0.5));
+      addWhitePaperEdge(postMesh, 0.9);
+      foldPivot.add(postMesh);
+    }
+  }
+
+  function setFold(u = 1.0, staggerIdx = 0) {
+    const f = evalPaperFold(u, staggerIdx, 0.04);
+    foldPivot.rotation.x = f.rotationX;
+    foldPivot.scale.y = f.scaleY;
+  }
+
+  root.foldPivot = foldPivot;
+  root.setFold = setFold;
+  root.userData = { foldPivot, setFold };
+  return root;
+}
+
+/**
+ * Parameterized Catenary-Draped Origami Lantern / Star Garland (`createHangingPaperLanterns`, ADR-013):
+ *   - Suspends `count` faceted 3D origami lanterns (`octahedron` | `star`) along a catenary paper ribbon
+ *     between two slender cardstock poles (`withPoles`), filling upper vertical negative space.
+ *   - Supports `update(t)` gentle pendulum sway and `setFold(u, staggerIdx)` true crease-hinge folding.
+ */
+export function createHangingPaperLanterns(makeCardstockMat, options = {}) {
+  const {
+    span = 8.6,
+    height = 3.35,
+    sag = 0.58,
+    count = 5,
+    colors = [
+      PAPER_PALETTE.lanternGold,
+      PAPER_PALETTE.origamiRose,
+      PAPER_PALETTE.origamiSky,
+      PAPER_PALETTE.lanternRed,
+    ],
+    poleColor = PAPER_PALETTE.coverBurgundy,
+    withPoles = true,
+    x = 0,
+    y = 0,
+    z = 0,
+  } = options;
+
+  const root = new THREE.Group();
+  root.name = 'HangingPaperLanterns';
+  root.position.set(x, y, z);
+
+  const foldPivot = new THREE.Group();
+  root.add(foldPivot);
+
+  const halfSpan = span * 0.5;
+  const poleMat = makeCardstockMat(poleColor, { roughness: 0.72 });
+  const cordMat = makeCardstockMat(PAPER_PALETTE.foilGold, {
+    roughness: 0.38,
+    metalness: 0.42,
+    emissive: PAPER_PALETTE.foilGold,
+    emissiveIntensity: 0.2,
+  });
+
+  if (withPoles) {
+    for (const sx of [-1, 1]) {
+      const poleGeo = new THREE.BoxGeometry(0.11, height, 0.09);
+      poleGeo.translate(0, height * 0.5, 0);
+      const poleMesh = new THREE.Mesh(poleGeo, poleMat);
+      poleMesh.position.set(sx * halfSpan, 0, 0);
+      poleMesh.castShadow = true;
+      addWhitePaperEdge(poleMesh, 0.85);
+      foldPivot.add(poleMesh);
+    }
+  }
+
+  // Catenary ribbon segments connecting the two poles
+  const cordSegs = 20;
+  for (let i = 0; i < cordSegs; i++) {
+    const u0 = i / cordSegs;
+    const u1 = (i + 1) / cordSegs;
+    const x0 = lerp(-halfSpan, halfSpan, u0);
+    const x1 = lerp(-halfSpan, halfSpan, u1);
+    const y0 = height - Math.sin(u0 * Math.PI) * sag;
+    const y1 = height - Math.sin(u1 * Math.PI) * sag;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    const segGeo = new THREE.BoxGeometry(len + 0.02, 0.035, 0.03);
+    const segMesh = new THREE.Mesh(segGeo, cordMat);
+    segMesh.position.set((x0 + x1) * 0.5, (y0 + y1) * 0.5, 0);
+    segMesh.rotation.z = Math.atan2(dy, dx);
+    foldPivot.add(segMesh);
+  }
+
+  // Suspended faceted origami lanterns
+  const lanternPivots = [];
+  for (let i = 0; i < count; i++) {
+    const u = (i + 1) / (count + 1);
+    const lx = lerp(-halfSpan, halfSpan, u);
+    const ly = height - Math.sin(u * Math.PI) * sag;
+    const col = colors[i % colors.length];
+
+    const lPivot = new THREE.Group();
+    lPivot.position.set(lx, ly, 0);
+
+    // Drop string
+    const strGeo = new THREE.BoxGeometry(0.025, 0.22, 0.025);
+    strGeo.translate(0, -0.11, 0);
+    lPivot.add(new THREE.Mesh(strGeo, cordMat));
+
+    // Faceted origami octahedron/accordion lantern body
+    const bodyGeo = new THREE.OctahedronGeometry(0.24, 0);
+    bodyGeo.scale(1.0, 1.28, 0.72);
+    bodyGeo.translate(0, -0.38, 0);
+    const bodyMat = makeCardstockMat(col, {
+      roughness: 0.52,
+      flatShading: true,
+      emissive: col,
+      emissiveIntensity: 0.36,
+    });
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.castShadow = true;
+    addWhitePaperEdge(bodyMesh, 0.94, 4);
+    lPivot.add(bodyMesh);
+
+    // Bottom paper tassel tail
+    const tasselGeo = new THREE.ConeGeometry(0.06, 0.22, 4);
+    tasselGeo.translate(0, -0.74, 0);
+    const tasselMesh = new THREE.Mesh(tasselGeo, cordMat);
+    addWhitePaperEdge(tasselMesh, 0.85, 8);
+    lPivot.add(tasselMesh);
+
+    foldPivot.add(lPivot);
+    lanternPivots.push(lPivot);
+  }
+
+  function update(t = 0) {
+    lanternPivots.forEach((lp, idx) => {
+      lp.rotation.z = Math.sin(t * 2.4 + idx * 1.1) * 0.14;
+      lp.rotation.y = Math.cos(t * 1.8 + idx * 0.9) * 0.22;
+    });
+  }
+
+  function setFold(u = 1.0, staggerIdx = 0) {
+    const f = evalPaperFold(u, staggerIdx, 0.04);
+    foldPivot.rotation.x = f.rotationX;
+    foldPivot.scale.y = f.scaleY;
+  }
+
+  root.foldPivot = foldPivot;
+  root.update = update;
+  root.setFold = setFold;
+  root.userData = { foldPivot, update, setFold };
+  return root;
+}
+
+/**
+ * Parameterized Multi-Ring Concentric Backlit Sun-Wheel / Astrolabe (`createBacklitSunWheel`, ADR-013):
+ *   - Generates `rings` concentric laser-cut sunburst/gear rings with customizable `rays` and
+ *     backlit washi luminance, counter-rotating smoothly in `update(t)` and folding flat in `setFold(u)`.
+ */
+export function createBacklitSunWheel(makeCardstockMat, options = {}) {
+  const {
+    radius = 1.55,
+    rings = 3,
+    rays = 12,
+    centerY = 2.45,
+    color = PAPER_PALETTE.sunGold,
+    innerColor = PAPER_PALETTE.origamiCream,
+    foilColor = PAPER_PALETTE.foilGold,
+    x = 0,
+    y = 0,
+    z = 0,
+  } = options;
+
+  const root = new THREE.Group();
+  root.name = 'BacklitSunWheel';
+  root.position.set(x, y, z);
+
+  const foldPivot = new THREE.Group();
+  root.add(foldPivot);
+
+  const wheelCenter = new THREE.Group();
+  wheelCenter.position.set(0, centerY, 0);
+  foldPivot.add(wheelCenter);
+
+  // Support stem rising from the book page crease
+  const stemGeo = new THREE.BoxGeometry(0.16, centerY, 0.06);
+  stemGeo.translate(0, centerY * 0.5, -0.08);
+  const stemMesh = new THREE.Mesh(stemGeo, makeCardstockMat(foilColor, { roughness: 0.58 }));
+  addWhitePaperEdge(stemMesh, 0.85);
+  foldPivot.add(stemMesh);
+
+  // Conic / radial backlit washi glow disc behind the sun-wheel
+  const glowGeo = new THREE.CircleGeometry(radius * 1.18, 28);
+  const glowMat = makeCardstockMat(innerColor, {
+    roughness: 0.45,
+    emissive: color,
+    emissiveIntensity: 0.38,
+  });
+  const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+  glowMesh.position.z = -0.06;
+  wheelCenter.add(glowMesh);
+
+  const ringGroups = [];
+  for (let rIdx = 0; rIdx < rings; rIdx++) {
+    const rFrac = 1.0 - rIdx * 0.26;
+    const rOut = radius * rFrac;
+    const rIn = rOut * 0.68;
+    const numRays = Math.max(6, rays - rIdx * 2);
+
+    const shape = new THREE.Shape();
+    for (let i = 0; i < numRays * 2; i++) {
+      const ang = (i * Math.PI) / numRays;
+      const rad = i % 2 === 0 ? rOut : rOut * 0.84;
+      const px = Math.cos(ang) * rad;
+      const py = Math.sin(ang) * rad;
+      if (i === 0) shape.moveTo(px, py);
+      else shape.lineTo(px, py);
+    }
+    shape.closePath();
+
+    if (rIdx < rings - 1) {
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, rIn, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+    }
+
+    const rGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.045, bevelEnabled: false });
+    rGeo.translate(0, 0, -0.022);
+    const rCol = rIdx % 2 === 0 ? color : foilColor;
+    const rMat = makeCardstockMat(rCol, {
+      roughness: 0.44,
+      metalness: rIdx % 2 === 1 ? 0.35 : 0.12,
+      emissive: rCol,
+      emissiveIntensity: 0.22,
+    });
+    const rMesh = new THREE.Mesh(rGeo, rMat);
+    rMesh.position.z = rIdx * 0.05;
+    rMesh.castShadow = true;
+    addWhitePaperEdge(rMesh, 0.94, 10);
+    wheelCenter.add(rMesh);
+    ringGroups.push(rMesh);
+  }
+
+  function update(t = 0) {
+    ringGroups.forEach((rm, idx) => {
+      const dir = idx % 2 === 0 ? 1 : -1;
+      rm.rotation.z = t * (0.28 + idx * 0.12) * dir;
+    });
+  }
+
+  function setFold(u = 1.0, staggerIdx = 0) {
+    const f = evalPaperFold(u, staggerIdx, 0.04);
+    foldPivot.rotation.x = f.rotationX;
+    foldPivot.scale.y = f.scaleY;
+  }
+
+  root.foldPivot = foldPivot;
+  root.update = update;
+  root.setFold = setFold;
+  root.userData = { foldPivot, update, setFold };
+  return root;
+}
+
+/**
+ * 3D Die-Cut Paper Spring Emotion Pop-Up Card (`createPaperEmotionPop`):
+ *   - Generates an accordion-pleated paper spring strip topped by a scalloped die-cut cardstock
+ *     badge and extruded 3D symbol (`symbol: '!' | '?' | '♪' | '♥'`).
+ *   - Supports `setPop(u, t)` to spring up above a character during peak narrative moments!
+ */
+export function createPaperEmotionPop(makeCardstockMat, options = {}) {
+  const {
+    symbol = '!',
+    color = PAPER_PALETTE.foxVermilion,
+    cardColor = PAPER_PALETTE.origamiWhite,
+    foilColor = PAPER_PALETTE.foilGold,
+    scale = 1.0,
+  } = options;
+
+  const root = new THREE.Group();
+  root.name = `PaperEmotionPop_${symbol}`;
+
+  const springPivot = new THREE.Group();
+  root.add(springPivot);
+
+  const cardMat = makeCardstockMat(cardColor, {
+    roughness: 0.55,
+    emissive: cardColor,
+    emissiveIntensity: 0.18,
+  });
+  const symMat = makeCardstockMat(color, {
+    roughness: 0.42,
+    emissive: color,
+    emissiveIntensity: 0.32,
+  });
+  const foilMat = makeCardstockMat(foilColor, {
+    roughness: 0.35,
+    metalness: 0.48,
+    emissive: foilColor,
+    emissiveIntensity: 0.22,
+  });
+
+  // 1. Zig-zag accordion paper spring stem
+  for (let i = 0; i < 3; i++) {
+    const segGeo = new THREE.BoxGeometry(0.07, 0.16, 0.04);
+    const segMesh = new THREE.Mesh(segGeo, cardMat);
+    segMesh.position.set((i % 2 === 0 ? -1 : 1) * 0.03, 0.08 + i * 0.12, 0);
+    segMesh.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.38;
+    addWhitePaperEdge(segMesh, 0.9);
+    springPivot.add(segMesh);
+  }
+
+  // 2. Diamond / Cloud Die-Cut Backing Card Badge with Gold-Foil Rim
+  const badgePivot = new THREE.Group();
+  badgePivot.position.set(0, 0.68, 0);
+  springPivot.add(badgePivot);
+
+  const outerShape = new THREE.Shape();
+  const lobes = 8;
+  for (let i = 0; i < lobes * 2; i++) {
+    const ang = (i * Math.PI) / lobes;
+    const r = i % 2 === 0 ? 0.36 : 0.29;
+    const px = Math.cos(ang) * r;
+    const py = Math.sin(ang) * r;
+    if (i === 0) outerShape.moveTo(px, py);
+    else outerShape.lineTo(px, py);
+  }
+  outerShape.closePath();
+
+  const rimGeo = new THREE.ExtrudeGeometry(outerShape, { depth: 0.04, bevelEnabled: false });
+  rimGeo.translate(0, 0, -0.025);
+  const rimMesh = new THREE.Mesh(rimGeo, foilMat);
+  addWhitePaperEdge(rimMesh, 0.92);
+  badgePivot.add(rimMesh);
+
+  const innerGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.05, 16);
+  innerGeo.rotateX(Math.PI / 2);
+  const innerMesh = new THREE.Mesh(innerGeo, cardMat);
+  innerMesh.position.z = 0.01;
+  addWhitePaperEdge(innerMesh, 0.95);
+  badgePivot.add(innerMesh);
+
+  // 3. 3D Extruded Emotion Symbol (`!` / `?` / `♪` / `♥`)
+  const symGroup = new THREE.Group();
+  symGroup.position.z = 0.045;
+  badgePivot.add(symGroup);
+
+  if (symbol === '♥') {
+    const hs = new THREE.Shape();
+    hs.moveTo(0, -0.14);
+    hs.bezierCurveTo(-0.20, 0.0, -0.18, 0.16, -0.08, 0.16);
+    hs.bezierCurveTo(-0.02, 0.16, 0, 0.10, 0, 0.08);
+    hs.bezierCurveTo(0, 0.10, 0.02, 0.16, 0.08, 0.16);
+    hs.bezierCurveTo(0.18, 0.16, 0.20, 0.0, 0, -0.14);
+    const hGeo = new THREE.ExtrudeGeometry(hs, { depth: 0.04, bevelEnabled: false });
+    const hMesh = new THREE.Mesh(hGeo, symMat);
+    addWhitePaperEdge(hMesh, 0.95);
+    symGroup.add(hMesh);
+  } else if (symbol === '♪') {
+    const headGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.04, 12);
+    headGeo.rotateX(Math.PI / 2);
+    headGeo.scale(1.2, 0.9, 1);
+    headGeo.translate(-0.04, -0.08, 0.02);
+    const stemGeo = new THREE.BoxGeometry(0.045, 0.24, 0.04);
+    stemGeo.translate(0.03, 0.03, 0.02);
+    const flagGeo = new THREE.BoxGeometry(0.11, 0.05, 0.04);
+    flagGeo.rotateZ(-0.35);
+    flagGeo.translate(0.07, 0.11, 0.02);
+    for (const g of [headGeo, stemGeo, flagGeo]) {
+      const m = new THREE.Mesh(g, symMat);
+      addWhitePaperEdge(m, 0.92);
+      symGroup.add(m);
+    }
+  } else {
+    // Exclamation `!` (or `?`) bar + dot
+    const barGeo = new THREE.BoxGeometry(0.075, 0.19, 0.045);
+    barGeo.translate(0, 0.055, 0.02);
+    const barMesh = new THREE.Mesh(barGeo, symMat);
+    addWhitePaperEdge(barMesh, 0.95);
+    symGroup.add(barMesh);
+
+    const dotGeo = new THREE.BoxGeometry(0.075, 0.075, 0.045);
+    dotGeo.translate(0, -0.11, 0.02);
+    const dotMesh = new THREE.Mesh(dotGeo, symMat);
+    addWhitePaperEdge(dotMesh, 0.95);
+    symGroup.add(dotMesh);
+  }
+
+  function setPop(u = 0.0, t = 0.0) {
+    const p = clamp(u, 0, 1);
+    root.visible = p > 0.02;
+    if (!root.visible) return;
+    const bounce = easeOutBack(p);
+    springPivot.scale.setScalar(Math.max(0.01, bounce * scale));
+    springPivot.rotation.z = Math.sin(t * 7.5) * 0.14 * p;
+    springPivot.rotation.x = -(1 - p) * 1.25;
+  }
+
+  setPop(0);
+  root.setPop = setPop;
+  root.userData = { springPivot, setPop };
+  return root;
+}
+
+/**
  * Sculptural Tabletop 3D Pop-Up Book Base (`createPopUpBookBase`):
  *
  * Builds an authentic open hardcover pop-up book lying flat on the studio tabletop (ZERO giant vertical
@@ -2173,8 +2680,8 @@ export function createOrigamiButterfly(makeCardstockMat, opts = {}) {
  */
 export function createOrigamiFox(makeCardstockMat, opts = {}) {
   const {
-    color = PAPER_PALETTE.canyonAmber,
-    shadeColor = PAPER_PALETTE.canyonTerra,
+    color = PAPER_PALETTE.foxVermilion,
+    shadeColor = PAPER_PALETTE.foxCrimsonShade,
     chestColor = PAPER_PALETTE.origamiWhite,
     tailTipColor = PAPER_PALETTE.origamiWhite,
     scale = 1.0,
@@ -2344,12 +2851,36 @@ export function createOrigamiFox(makeCardstockMat, opts = {}) {
       backRightLeg.rotation.z = -air * 0.55;
       headPivot.rotation.z = (pose.headPitch ?? 0) - air * 0.18;
       headPivot.rotation.y = pose.headYaw ?? 0;
+      headPivot.rotation.x = pose.headRoll ?? 0;
       tailPivot.rotation.z = (pose.tailWag ?? 0) + air * 0.32;
+      tailPivot.rotation.y = (pose.tailWag ?? 0) * 0.55;
     }
   }
 
   function act(localT = 0, actOpts = {}) {
     const mode = actOpts.mode || 'trot';
+    if (mode === 'curious') {
+      bodyPivot.position.y = Math.sin(localT * 3.8) * 0.02;
+      setPose({
+        squashY: 1.0 + Math.sin(localT * 3.8) * 0.03,
+        headPitch: 0.14 + Math.sin(localT * 4.2) * 0.08,
+        headYaw: 0.24 * Math.sin(localT * 2.6),
+        headRoll: 0.26 * Math.cos(localT * 3.2),
+        tailWag: Math.sin(localT * 6.5) * 0.28,
+      });
+      return null;
+    }
+    if (mode === 'joy') {
+      bodyPivot.position.y = Math.abs(Math.sin(localT * 7.2)) * 0.08;
+      setPose({
+        squashY: 1.0 - 0.07 * Math.cos(localT * 14.4),
+        headPitch: 0.20 * Math.sin(localT * 8.5),
+        headYaw: 0.16 * Math.cos(localT * 4.2),
+        headRoll: 0.12 * Math.sin(localT * 5.0),
+        tailWag: Math.sin(localT * 10.5) * 0.42,
+      });
+      return null;
+    }
     if (mode === 'hop') {
       const hop = evalContinuousHopChain(
         (localT * (actOpts.speed ?? 0.45)) % 1.0,
@@ -2685,13 +3216,16 @@ export function createPaperStudioStage({
   const envGroup = new THREE.Group();
   scene.add(envGroup);
 
-  // Warm walnut studio tabletop so the open burgundy & cream pop-up book reads clearly as a physical book on a table
+  // Warm walnut studio tabletop extended far into the background + seamless matching rear backdrop
+  // so the upper frame never shows a harsh horizontal table-edge cutoff line!
+  const deskMat = makeCardstockMat(PAPER_PALETTE.deskWood, { roughness: 0.84, bumpScale: 0.012 });
   const deskMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(64, 1.2, 42),
-    makeCardstockMat(PAPER_PALETTE.deskWood, { roughness: 0.84, bumpScale: 0.012 })
+    new THREE.BoxGeometry(240, 1.2, 260),
+    deskMat
   );
-  deskMesh.position.set(0, -0.6, 0.5);
+  deskMesh.position.set(0, -0.6, -110.0);
   deskMesh.receiveShadow = true;
+  deskMesh.userData.skipContactShadow = true;
   envGroup.add(deskMesh);
 
   return {

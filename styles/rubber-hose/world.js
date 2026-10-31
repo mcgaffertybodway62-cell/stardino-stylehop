@@ -48,6 +48,7 @@ import {
   getGramophoneSockets,
   drawAnthropomorphicGramophone,
   drawAnthropomorphicInstrument,
+  drawAnthropomorphicProp,
   drawNoteCritter,
   drawJazzNoteStream,
   drawSpinningVinyl,
@@ -68,14 +69,15 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
   // -------------------------------------------------------------------------
   // Cast of 1930s Rubber-Hose Characters across the 4 scenes
   // -------------------------------------------------------------------------
-  // Scene 1: Jazz Cat cranking the Gramophone (`scale: 1.50`, `facing: -1`, `heldProp: 'none'`)
+  // Scene 1: Jazz Cat standing in front-left of the Gramophone (`x: 1035, y: 855, facing: 1`)
+  // physically cranking the left-side winding handle (`crankSide: 'left'`) — 100% axis-continuous with Scene 2!
   const catCranker = createRubberHoseCharacter({
     archetype: 'jazzcat',
     view: 'side',
-    x: 1385,
-    y: 885,
+    x: 1035,
+    y: 855,
     scale: 1.50,
-    facing: -1,
+    facing: 1,
     bounceScale: 0.22,
     hat: 'bowler',
     heldProp: 'none',
@@ -86,7 +88,7 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
   const flapperObserver = createRubberHoseCharacter({
     archetype: 'flapper',
     view: 'side',
-    x: 375,
+    x: 345,
     y: 815,
     scale: 1.22,
     facing: 1,
@@ -101,7 +103,7 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
   const catCloseTake = createRubberHoseCharacter({
     archetype: 'jazzcat',
     view: 'side',
-    x: 465,
+    x: 475,
     y: 945,
     scale: 2.32,
     facing: 1,
@@ -116,11 +118,11 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
   const catMalletHero = createRubberHoseCharacter({
     archetype: 'jazzcat',
     view: 'side',
-    x: 805,
-    y: 715,
+    x: 855,
+    y: 745,
     scale: 1.68,
     facing: 1,
-    bounceScale: 0.25,
+    bounceScale: 0.20,
     hat: 'bowler',
     heldProp: 'mallet',
     pantsColor: RUBBER_PALETTE.paperCream,
@@ -181,10 +183,46 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
       vortexFinale: { x: 960, y: 540, w: 1700, h: 920 },
     },
     shots: {
-      'act1-curtain-up': { size: 'wide', move: 'push', amount: 0.45, subject: 'broadwayStage' },
-      'act2-horn-duel': { size: 'close', move: 'pan', amount: 0.40, subject: 'hornDuelClose' },
-      'act3-technicolor-keys': { size: 'medium', move: 'track', amount: 0.45, subject: 'technicolorKeys' },
-      'act4-vortex-iris': { size: 'full', move: 'pull', amount: 0.45, subject: 'vortexFinale' },
+      'act1-curtain-up': {
+        size: 'wide',
+        move: 'push',
+        zoomFrom: 1.0,
+        zoomTo: 1.08,
+        panFrom: [-14, 0],
+        panTo: [16, -6],
+        holdStart: 0.15,
+        burstWindow: [0.20, 0.85],
+        subject: 'broadwayStage',
+      },
+      'act2-horn-duel': {
+        size: 'close',
+        move: 'pan',
+        zoomFrom: 1.02,
+        zoomTo: 1.08,
+        panFrom: [22, -4],
+        panTo: [-14, 4],
+        burstWindow: [0.15, 0.72],
+        subject: 'hornDuelClose',
+      },
+      'act3-technicolor-keys': {
+        size: 'medium',
+        move: 'track',
+        zoomFrom: 1.0,
+        zoomTo: 1.07,
+        panFrom: [-22, 4],
+        panTo: [16, -6],
+        burstWindow: [0.10, 0.65],
+        subject: 'technicolorKeys',
+      },
+      'act4-vortex-iris': {
+        size: 'full',
+        move: 'pull',
+        zoomFrom: 1.08,
+        zoomTo: 1.0,
+        panFrom: [-10, -4],
+        panTo: [0, 0],
+        subject: 'vortexFinale',
+      },
     },
   });
 
@@ -224,12 +262,26 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
       t,
     });
 
-    // 2. Giant Brass Gramophone at center-right (`cx = 1120, cy = 465`), swelling with pressure
-    const gramCx = 1120;
-    const gramCy = 465;
+    // 2. Stage-center-left Anthropomorphic Cathedral Radio Prop (`drawAnthropomorphicProp`) watching the pressure rise
+    drawAnthropomorphicProp(ctx, 665, 650, {
+      bodyType: 'radio',
+      scale: 0.76,
+      bounce: false,
+      squashX: 1.0 + pressureU * 0.06,
+      squashY: 1.0 - pressureU * 0.05,
+      eyeMode: pressureU > 0.55 ? 'shock' : 'pie',
+      mouthMode: pressureU > 0.55 ? 'ooh' : 'grin',
+      lookX: 0.48,
+      t,
+    });
+
+    // 3. Giant Brass Gramophone on right stage (`cx = 1345, cy = 475`), horn facing left, crank on left side (`crankSide: 'left'`)
+    const gramCx = 1345;
+    const gramCy = 475;
     const gramSockets = getGramophoneSockets(gramCx, gramCy, {
       scale: 1.0,
       cabSquashY: 1.0 - pressureU * 0.08,
+      crankSide: 'left',
       crankSpeed: 6.5,
       t,
     });
@@ -237,17 +289,19 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     drawAnthropomorphicGramophone(ctx, gramCx, gramCy, {
       scale: 1.0,
       bounce: false,
+      crankSide: 'left',
+      crankSpeed: 6.5,
       cabSquashY: 1.0 - pressureU * 0.08,
       eyeMode: pressureU > 0.5 ? 'angry' : 'pie',
       arm1Pose: 'fist',
-      arm2Pose: 'crank',
+      arm2Pose: 'fist',
       hornSquashX: hornSwell,
       hornSquashY: hornSwell * 0.96,
       spitBlast: pressureU * 0.45,
       t,
     });
 
-    // 3. Trapped musical pressure rings & '?' / '!' pop icon above the swelling horn
+    // 4. Trapped musical pressure rings & '?' / '!' pop icon above the swelling horn
     if (pressureU > 0.25) {
       drawTechnicolorRing(ctx, gramSockets.hornBell[0], gramSockets.hornBell[1], 75 + pressureU * 65, {
         alpha: pressureU * 0.65,
@@ -258,9 +312,9 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
       });
     }
 
-    // 4. Curious Flapper on left stage leaning forward to watch the jammed Gramophone
+    // 5. Curious Flapper on left stage leaning forward to watch the jammed Gramophone
     flapperObserver.act(localT, [
-      { do: 'walk', from: 0.15, to: 1.6, fromX: 255, toX: 385, fromY: 855, toY: 805 },
+      { do: 'walk', from: 0.15, to: 1.6, fromX: 255, toX: 355, fromY: 855, toY: 805 },
       {
         do: 'pose',
         from: 1.5,
@@ -271,14 +325,14 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     ]);
     flapperObserver.draw(ctx, t);
 
-    // 5. Protagonist Jazz Cat on right (`x = 1385, y = 885, facing: -1`) physically cranking `crankHub`!
+    // 6. Protagonist Jazz Cat in front-left of Gramophone (`x = 1035, y = 855, facing: 1`) physically cranking `crankHub`!
     catCranker.act(localT, [
       {
         do: 'crank',
         from: 0.0,
         to: 3.6,
         center: gramSockets.crankHub,
-        radius: 28,
+        radius: 26,
         speed: 6.5,
         mood: pressureU > 0.6 ? 'surprised' : 'neutral',
       },
@@ -379,9 +433,11 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     ]);
     catCloseTake.draw(ctx, t);
 
-    // Overhead `!!` shock icon during the Take peak
+    // Overhead `!!` shock icon dynamically anchored in clear space above forehead/hat
     if (localT > 1.05 && localT < 3.15) {
-      drawPopIcon(ctx, catCloseTake.state.x - 55, catCloseTake.state.y - 540, '!!', {
+      const popX = catCloseTake.state.x + 175;
+      const popY = Math.min(180, catCloseTake.state.y + catCloseTake.state.hopY - 325 * catCloseTake.state.scale);
+      drawPopIcon(ctx, popX, popY, '!!', {
         alpha: smootherstep(1.05, 1.35, localT),
         scale: 1.25,
         color: RUBBER_PALETTE.tcCoral,
@@ -407,16 +463,16 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     const localT = frame.localT ?? 0;
     const t = frame.t ?? 0;
 
-    // Strike lands at localT = 1.78s (`from: 1.15, to: 3.60`, where strike phase reaches 1.0 at ~1.78s)
-    const struck = localT >= 1.78;
-    const strikeTarget = [1005, 615];
+    // Strike lands at localT = 1.76s (`from: 1.02, to: 2.30, hold: true`, where strike phase reaches 1.0 at ~1.76s)
+    const struck = localT >= 1.76;
+    const strikeTarget = [905, 672];
 
     // Expanding 3-Strip Technicolor Soundwave Rings triggered at the exact moment of mallet impact!
-    const ring1R = struck ? lerp(95, 580, smootherstep(1.78, 3.55, localT)) : 0;
-    const ring2R = localT >= 2.10 ? lerp(75, 420, smootherstep(2.10, 3.65, localT)) : 0;
+    const ring1R = struck ? lerp(95, 580, smootherstep(1.76, 3.55, localT)) : 0;
+    const ring2R = localT >= 2.08 ? lerp(75, 420, smootherstep(2.08, 3.65, localT)) : 0;
     const activeRings = [];
-    if (ring1R > 10) activeRings.push({ x: strikeTarget[0], y: strikeTarget[1] + 25, r: ring1R });
-    if (ring2R > 10) activeRings.push({ x: strikeTarget[0], y: strikeTarget[1] + 25, r: ring2R });
+    if (ring1R > 10) activeRings.push({ x: strikeTarget[0], y: strikeTarget[1] + 12, r: ring1R });
+    if (ring2R > 10) activeRings.push({ x: strikeTarget[0], y: strikeTarget[1] + 12, r: ring2R });
 
     beginLayer(1.0);
 
@@ -479,21 +535,21 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
     ]);
     flapperCheer.draw(ctx, t);
 
-    // 6. The Target Note Critter at `[1005, 642]`:
-    // Before `1.78s`, it hops tauntingly on the crest; at `>= 1.78s`, the wooden mallet smashes it flat!
+    // 6. The Target Note Critter at `[1005, 645]`:
+    // Before `1.76s`, it hops tauntingly on the crest; at `>= 1.76s`, the wooden mallet smashes it flat!
     if (struck) {
-      drawNoteCritter(ctx, strikeTarget[0], strikeTarget[1] + 28, {
+      drawNoteCritter(ctx, strikeTarget[0], strikeTarget[1] + 2, {
         state: 'squashed',
-        scale: 1.38,
+        scale: 1.48,
         t,
       });
-      drawComicBurst(ctx, strikeTarget[0] + 155, strikeTarget[1] - 95, 108, {
+      drawComicBurst(ctx, strikeTarget[0] + 150, strikeTarget[1] - 110, 108, {
         scale: 0.92 + Math.sin(t * 10) * 0.06,
         label: 'POW!',
       });
     } else {
-      const runX = lerp(1160, strikeTarget[0], smootherstep(0.0, 1.35, localT));
-      drawNoteCritter(ctx, runX, strikeTarget[1] + 15, {
+      const runX = lerp(1160, strikeTarget[0], smootherstep(0.0, 1.32, localT));
+      drawNoteCritter(ctx, runX, strikeTarget[1] - 6, {
         state: 'walk',
         scale: 1.28,
         flip: -1,
@@ -501,14 +557,15 @@ export default async function createWorld({ width = 1920, height = 1080, scenes 
       });
     }
 
-    // 7. Protagonist Jazz Cat (`scale: 1.68`, `heldProp: 'mallet'`) chasing & physically striking `strikeTarget`!
+    // 7. Protagonist Jazz Cat (`scale: 0.96`, `heldProp: 'mallet'`) chasing & physically striking `strikeTarget`!
     catMalletHero.act(localT, [
       { do: 'view', view: 'side' },
-      { do: 'walk', from: 0.0, to: 1.18, fromX: 590, toX: 805, fromY: 775, toY: 715 },
+      { do: 'walk', from: 0.0, to: 1.05, fromX: 590, toX: 835, fromY: 775, toY: 745 },
       {
         do: 'malletStrike',
-        from: 1.15,
-        to: 3.65,
+        from: 1.02,
+        to: 2.30,
+        hold: true,
         target: strikeTarget,
         toolLen: 64,
       },

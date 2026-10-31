@@ -53,7 +53,8 @@ export const LOOK_DEFAULTS = {
     size: [26, 18], // ground area covered (world units), centred on `center`
     center: [0, 0],
     height: 2.5, // only geometry within this height above the ground darkens it
-    resolution: 512,
+    resolution: 256,
+    updateInterval: 2,
   },
 };
 
@@ -180,7 +181,7 @@ function luminance(c) {
  * irradiance on an up-facing surface. `envMapIntensity = budget.env / upGain` then keeps IBL in
  * the same unit as the hemisphere fill it replaces.
  */
-function buildEnvironment(THREE, renderer, look) {
+function buildEnvironment(THREE, renderer, look, sharedPmrem = null) {
   const envScene = new THREE.Scene();
   const sky = new THREE.Color(look.light.sky);
   const ground = new THREE.Color(look.light.ground);
@@ -211,9 +212,9 @@ function buildEnvironment(THREE, renderer, look) {
   const solidAngle = (boxW * boxH) / (dist * dist);
   const upGain = 1 + (luminance(softboxColor) * solidAngle * Math.max(keyDir.y, 0)) / (Math.PI * luminance(sky));
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
+  const pmrem = sharedPmrem || new THREE.PMREMGenerator(renderer);
   const texture = pmrem.fromScene(envScene, 0.04).texture;
-  pmrem.dispose();
+  if (!sharedPmrem) pmrem.dispose();
   envScene.traverse((o) => {
     o.geometry?.dispose();
     o.material?.dispose();
@@ -287,13 +288,40 @@ function buildContactShadow(THREE, look) {
     blurPlane.visible = false;
   }
 
-  function update(renderer, scene) {
+  let frameCount = 0;
+  const prevClear = new THREE.Color();
+
+  function update(renderer, scene, force = false) {
+    const interval = Math.max(1, cfg.updateInterval || 2);
+    const isCapture = typeof window !== 'undefined' && Boolean(window.__CAPTURE_MODE);
+    if (!force && !isCapture && frameCount > 0 && frameCount % interval !== 0) {
+      frameCount++;
+      return;
+    }
+    frameCount++;
+
     const bg = scene.background;
     const fog = scene.fog;
     const prevClearAlpha = renderer.getClearAlpha();
-    const prevClear = renderer.getClearColor(new THREE.Color());
+    renderer.getClearColor(prevClear);
     scene.background = null;
     scene.fog = null;
+
+    const hiddenForShadow = [];
+    const maxShadowY = (cfg.height || 2.5) + 1.8;
+    scene.traverse((o) => {
+      if (!o.visible || o === plane || o === blurPlane || o === group) return;
+      if (
+        o.isLineSegments ||
+        o.isLine ||
+        o.userData?.skipContactShadow ||
+        (o.isMesh && o.parent === scene && o.position.y > maxShadowY)
+      ) {
+        o.visible = false;
+        hiddenForShadow.push(o);
+      }
+    });
+
     scene.overrideMaterial = depthMaterial;
     plane.visible = false;
     renderer.setClearColor(0x000000, 0);
@@ -301,8 +329,12 @@ function buildContactShadow(THREE, look) {
     renderer.clear();
     renderer.render(scene, shadowCamera);
     scene.overrideMaterial = null;
+
+    for (let i = 0; i < hiddenForShadow.length; i++) {
+      hiddenForShadow[i].visible = true;
+    }
+
     blur(renderer, cfg.blur);
-    blur(renderer, cfg.blur * 0.4); // second pass removes banding
     renderer.setRenderTarget(null);
     renderer.setClearColor(prevClear, prevClearAlpha);
     scene.background = bg;
@@ -371,7 +403,7 @@ export function createLookTimeline(THREE, { base, presets = {}, scenes = [] }) {
   });
   const animated = scenes.some((s) => (s.el?.dataset || s).look);
 
-  /** Resolved look at scene `index`, scene-local time `localT`; `envLook` is quantised so IBL rebuilds stay rare. */
+  /** Resolved look at scene `index`, scene-local time `localT`; `envLook` switches between cached preset endpoints (`from` / `to`) so transitions never trigger synchronous PMREM baking stalls. */
   function at(index, localT) {
     if (!targets.length) return { look: base, envLook: base };
     const i = Math.max(0, Math.min(targets.length - 1, index));
@@ -384,7 +416,7 @@ export function createLookTimeline(THREE, { base, presets = {}, scenes = [] }) {
       k = x * x * x * (x * (x * 6 - 15) + 10);
     }
     if (from === to) return { look: to, envLook: to };
-    return { look: blendLooks(THREE, from, to, k), envLook: blendLooks(THREE, from, to, Math.round(k * 8) / 8) };
+    return { look: blendLooks(THREE, from, to, k), envLook: k < 0.5 ? from : to };
   }
 
   return { at, animated, targets };
@@ -433,8 +465,9 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   const contact = look.contact.enabled ? buildContactShadow(THREE, look) : null;
   if (contact) scene.add(contact.group);
 
-  // IBL textures are cached by the inputs that shape them, so per-scene looks rebuild rarely.
+  // IBL textures are cached by the inputs that shape them, reusing one persistent PMREMGenerator.
   const envCache = new Map();
+  let sharedPmrem = null;
   function envFor(l) {
     const k = JSON.stringify([l.light.sky, l.light.ground, l.light.key.color, l.light.key.pos, l.env.softbox]);
     if (!envCache.has(k)) {
@@ -443,9 +476,17 @@ export function createLookRig(THREE, { renderer, scene, look }) {
         old.texture.dispose();
         envCache.delete(oldKey);
       }
-      envCache.set(k, buildEnvironment(THREE, renderer, l));
+      if (!sharedPmrem) sharedPmrem = new THREE.PMREMGenerator(renderer);
+      envCache.set(k, buildEnvironment(THREE, renderer, l, sharedPmrem));
     }
     return envCache.get(k);
+  }
+
+  function prewarm(looks = []) {
+    if (!look.env.enabled) return;
+    for (const l of looks) {
+      if (l && l.env?.enabled !== false) envFor(l);
+    }
   }
 
   const tracked = [];
@@ -453,6 +494,9 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   let envIntensity = 0;
   let current = null;
   let budget = null;
+  let lastChildCount = -1;
+  let syncFrames = 0;
+  let materialsDirty = true;
 
   function apply(next, { envLook = next } = {}) {
     current = next;
@@ -487,7 +531,13 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   }
 
   /** Give every standard material the budgeted IBL intensity and sRGB colour maps. */
-  function syncMaterials() {
+  function syncMaterials(force = false) {
+    if (!force && !materialsDirty && scene.children.length === lastChildCount && syncFrames >= 2) {
+      return;
+    }
+    lastChildCount = scene.children.length;
+    materialsDirty = false;
+    syncFrames++;
     scene.traverse((o) => {
       const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
       for (const m of mats) {
@@ -510,7 +560,7 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   }
 
   function render(camera) {
-    syncMaterials();
+    syncMaterials(false);
     if (contact) contact.update(renderer, scene);
     renderer.render(scene, camera);
   }
@@ -530,6 +580,7 @@ export function createLookRig(THREE, { renderer, scene, look }) {
     },
     lights: { hemi, key, bounce },
     apply,
+    prewarm,
     render,
     syncMaterials,
   };

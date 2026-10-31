@@ -50,6 +50,9 @@ export function createStudio3D(THREE, { width, height, look, presets = LOOK_PRES
   // The look rig must exist before any material is created (colour management).
   const lookRig = createLookRig(THREE, { renderer, scene, look });
   const lookTimeline = createLookTimeline(THREE, { base: look, presets, scenes });
+  if (lookTimeline.targets.length) {
+    lookRig.prewarm(lookTimeline.targets);
+  }
 
   const framing = resolveAspectFraming(width, height, baseFov);
   const camera = new THREE.PerspectiveCamera(framing.fov, framing.aspect, near, far);
