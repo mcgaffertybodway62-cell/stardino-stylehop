@@ -6,6 +6,10 @@
 
 ![clay-macaron 多场景样片示例](styles/clay-macaron/contact_sheet.jpg)
 
+| `twilight-fable` · 微光绘本寓言（夜湖寻星录） | `ink-wash` · 宣纸水墨诗卷（杜甫《春望》） |
+| :--: | :--: |
+| ![twilight-fable 多场景样片检视表](styles/twilight-fable/contact_sheet.jpg) | ![ink-wash 多场景样片检视表](styles/ink-wash/contact_sheet.jpg) |
+
 ---
 
 ## 核心架构与工具链特性
@@ -89,12 +93,15 @@ python3 tools/sound.py --preset glass --out <work-dir>/demo.wav
 
 ### 后端
 
-| `provider` | 实现 | 适用 |
+| `provider` | 实现 | 适用（按台词 `profile` 语体区分，不与画风死绑） |
 | :-- | :-- | :-- |
-| `edge` | edge-tts（微软 Edge 在线语音） | 中文草稿/试音；需联网，商用条款自行确认 |
-| `kokoro` | kokoro-onnx + 本地 ONNX 模型 | 英文成品、完全离线；中文 `"lang": "cmn"` 音色较平 |
-| `command` | `VOICE_CMD` 命令模板 | CosyVoice2 / Azure CLI / 其他自托管 TTS |
-| `auto` | Kokoro 可用则用，否则 edge | 快速开始 |
+| `indextts2` | IndexTeam/IndexTTS-2（本地零样本音色+情感解耦大模型） | **古诗词吟诵（`profile: "recite"`，挂载 `emoAudio` 吟诵韵律）** 或 **有温度的故事/人文独白（`profile: "story"`，仅用纯声纹自然讲述，不带古诗拖腔）** |
+| `kokoro-zh` | hexgrad/Kokoro-82M-v1.1-zh（本地 PyTorch，Apache-2.0） | **知识讲解/科普解说/清爽旁白（`profile: "narrator"`，含水墨风讲解事情）离线商用首选**（`zf_001` / `zm_010` / `zm_scholar`） |
+| `f5` | SWivid/F5-TTS（本地流匹配零样本克隆） | 零样本音色克隆备选（研究/非商用来源音频） |
+| `edge` | edge-tts（微软 Edge 在线语音） | 在线草稿/现代旁白兜底（保持 `pitch: "+0Hz"`，避免服务端变调产生电音） |
+| `kokoro` | kokoro-onnx + 本地 ONNX 模型 | 英文成品、完全离线 |
+| `command` | `VOICE_CMD` 命令模板 | CosyVoice2 / GPT-SoVITS / 其他自托管 TTS |
+| `auto` | `recite` 自动选 `indextts2`，`narrator` 优先选 `kokoro-zh` | 快速开始 |
 
 ```bash
 # edge-tts（当前机器已装）
@@ -150,6 +157,8 @@ gallery/           StyleHop Studio 交互式调试工作台（index.html, player
 styles/            多场景风格目录：
                    - _template/（去固化内容的标准风格脚手架：SPEC.md + theme.css + style.js + scenes.html）
                    - clay-macaron/（3D 软陶定格 · kernel.js 介质 + world.js 示例故事 + 角色 / 布景零件）
+                   - twilight-fable/（微光绘本寓言 · 双层法线边缘光 + 奶油散景 + Q 版与写实生灵双轨）
+                   - ink-wash/（宣纸水墨诗卷 · 多笔毫飞白/披麻皴生成式原语 + 宣纸洇墨着色器）
                    - vintage-naturalist/（复古博物学 · 铜版画蚀刻/黄铜仪表内核 + 15s 雀喙标本样片 + 23px 字号红线）
 showcase/          宣发物料与历史归档（画廊吉祥物「星芒史莱姆」九界短片等，与 styles/ 完全解耦）
 ```

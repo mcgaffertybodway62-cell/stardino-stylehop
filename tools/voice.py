@@ -291,37 +291,37 @@ def apply_vocal_eq(audio: np.ndarray, profile: str = "recite") -> np.ndarray:
     return signal.sosfilt(sos_eq, x).astype(np.float32)
 
 
-def apply_deesser(audio: np.ndarray, max_reduction_db: float = 5.5) -> np.ndarray:
+def apply_deesser(audio: np.ndarray, max_reduction_db: float = 3.5) -> np.ndarray:
     """
-    Split-band dynamic de-esser (5.2 kHz – 9.6 kHz):
-    Attenuates sharp sibilants ('春/深/心/三/胜/簪') only when high-frequency energy dominates,
-    leaving mid-band vowels untouched.
+    Phase-linear broadband dynamic sibilance tamer (5.5 kHz – 9.5 kHz detector):
+    Uses a smooth 20 ms detector window (50 ms release) to gently attenuate full-band gain
+    only during sharp sibilant bursts, avoiding non-linear-phase band-subtraction notches
+    and fast AM modulation sidebands ("电音").
     """
     x = np.asarray(audio, dtype=np.float64)
     if x.size < 256 or max_reduction_db <= 0:
         return audio.astype(np.float32)
 
-    sos_sib = signal.butter(2, [5200.0 / (0.5 * SR), 9600.0 / (0.5 * SR)], btype="band", output="sos")
+    sos_sib = signal.butter(2, [5500.0 / (0.5 * SR), 9500.0 / (0.5 * SR)], btype="band", output="sos")
     sib_band = signal.sosfilt(sos_sib, x)
-    mid_band = x - sib_band
+    sos_mid = signal.butter(2, [200.0 / (0.5 * SR), 4000.0 / (0.5 * SR)], btype="band", output="sos")
+    mid_band = signal.sosfilt(sos_mid, x)
 
-    hop = max(1, int(0.003 * SR))  # 3 ms detection window
+    hop = max(1, int(0.015 * SR))  # 15 ms smooth detection window (no audio-rate AM sidebands)
     frames = x.size // hop
     if frames <= 1:
         return audio.astype(np.float32)
 
     sib_rms = np.sqrt(np.mean(sib_band[: frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
     mid_rms = np.sqrt(np.mean(mid_band[: frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
-    abs_thr = float(np.percentile(sib_rms, 65)) * 1.15 + 1e-5
+    abs_thr = float(np.percentile(sib_rms, 75)) * 1.25 + 1e-5
 
-    # Trigger when sibilance exceeds both absolute floor and relative ratio to mid-band
-    ratio = sib_rms / (mid_rms * 0.48 + abs_thr)
+    ratio = sib_rms / (mid_rms * 0.55 + abs_thr)
     over_db = np.maximum(0.0, 20.0 * np.log10(np.maximum(ratio, 1.0)))
-    gain_red_db = np.minimum(float(max_reduction_db), over_db * 0.65)
+    gain_red_db = np.minimum(float(max_reduction_db), over_db * 0.50)
 
-    # Smooth envelope (3 ms attack, 38 ms release)
-    ca = 1.0 - np.exp(-hop / (0.003 * SR))
-    cr = 1.0 - np.exp(-hop / (0.038 * SR))
+    ca = 1.0 - np.exp(-hop / (0.015 * SR))
+    cr = 1.0 - np.exp(-hop / (0.065 * SR))
     smooth_db = np.empty_like(gain_red_db)
     y = 0.0
     for i, g in enumerate(gain_red_db):
@@ -331,12 +331,11 @@ def apply_deesser(audio: np.ndarray, max_reduction_db: float = 5.5) -> np.ndarra
     gain_lin = 10.0 ** (-np.repeat(smooth_db, hop) / 20.0)
     if gain_lin.size < x.size:
         gain_lin = np.pad(gain_lin, (0, x.size - gain_lin.size), constant_values=1.0)
-    out = mid_band + sib_band * gain_lin[: x.size]
-    return out.astype(np.float32)
+    return (x * gain_lin[: x.size]).astype(np.float32)
 
 
-def _soft_limit_to_peak(x: np.ndarray, ceiling: float = PEAK, knee_ratio: float = 0.72) -> np.ndarray:
-    """Transparent soft-knee peak limiter so 1-sample consonant/reflection spikes never drag down line RMS."""
+def _soft_limit_to_peak(x: np.ndarray, ceiling: float = PEAK, knee_ratio: float = 0.90) -> np.ndarray:
+    """Transparent soft-knee peak guard (high 0.90 knee so vowel peaks never suffer tanh harmonic distortion)."""
     arr = np.asarray(x, dtype=np.float64).copy()
     knee = float(ceiling) * float(knee_ratio)
     mag = np.abs(arr)
@@ -355,27 +354,25 @@ def level_vocal(
     audio: np.ndarray,
     target_rms_db: float = -16.8,
     gain_offset_db: float = 0.0,
-    ratio: float = 2.8,
+    ratio: float = 2.0,
 ) -> np.ndarray:
     """
-    Optical-style smooth RMS vocal leveler (12 ms attack, 160 ms release) + soft-knee peak taming.
-    Brings raw TTS (which has -22..-24 dBFS RMS and 18+ dB crest factor) to a consistent, full-bodied
-    active speech loudness (crest factor ~12-14 dB) without brickwall pumping.
+    Gentle, transparent RMS vocal leveler (35 ms attack, 240 ms release) without fast waveshaping.
+    Preserves 100% of the neural voice's natural timbre without metallic intermodulation.
     """
     x = np.asarray(audio, dtype=np.float64)
     if x.size == 0:
         return audio.astype(np.float32)
 
-    hop = max(1, int(0.005 * SR))
+    hop = max(1, int(0.015 * SR))
     frames = max(1, x.size // hop)
     f_rms = np.sqrt(np.mean(x[: frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
     f_peak = float(np.max(f_rms))
     if f_peak < 1e-6:
         return audio.astype(np.float32)
 
-    # Smooth optical envelope follower
-    ca = 1.0 - np.exp(-hop / (0.012 * SR))
-    cr = 1.0 - np.exp(-hop / (0.160 * SR))
+    ca = 1.0 - np.exp(-hop / (0.035 * SR))
+    cr = 1.0 - np.exp(-hop / (0.240 * SR))
     env_db = np.empty(frames, dtype=np.float64)
     y = 20.0 * np.log10(f_rms[0] + 1e-9)
     for i, r in enumerate(f_rms):
@@ -383,10 +380,9 @@ def level_vocal(
         y += (db - y) * (ca if db > y else cr)
         env_db[i] = y
 
-    # Soft-knee compression around active median
     active_frames = f_rms > f_peak * db_to_amp(-26.0)
-    thresh_db = float(np.percentile(env_db[active_frames], 35)) if np.any(active_frames) else -22.0
-    knee_db = 6.0
+    thresh_db = float(np.percentile(env_db[active_frames], 45)) if np.any(active_frames) else -22.0
+    knee_db = 8.0
     slope = 1.0 - 1.0 / max(float(ratio), 1.0)
     delta = env_db - thresh_db
     gr_db = np.zeros_like(delta)
@@ -400,10 +396,6 @@ def level_vocal(
         gain_curve = np.pad(gain_curve, (0, x.size - gain_curve.size), constant_values=float(gain_curve[-1]))
     x = x * gain_curve[: x.size]
 
-    # Pre-tame sharp consonant transients before measuring active RMS
-    x = _soft_limit_to_peak(x, ceiling=PEAK, knee_ratio=0.68).astype(np.float64)
-
-    # Measure active voiced syllable RMS (frames above -18 dB relative to peak) and normalize to target_rms_db
     f_rms2 = np.sqrt(np.mean(x[: frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
     active2 = f_rms2 > float(np.max(f_rms2)) * db_to_amp(-18.0)
     active_rms = float(np.sqrt(np.mean(f_rms2[active2] ** 2))) if np.any(active2) else float(np.sqrt(np.mean(x ** 2)))
@@ -411,7 +403,7 @@ def level_vocal(
     if active_rms > 1e-7:
         x = x * (target_amp / active_rms)
 
-    return _soft_limit_to_peak(x, ceiling=PEAK, knee_ratio=0.65)
+    return _soft_limit_to_peak(x, ceiling=PEAK, knee_ratio=0.90)
 
 
 _VOCAL_IR_CACHE: dict[str, np.ndarray] = {}
@@ -419,38 +411,23 @@ _VOCAL_IR_CACHE: dict[str, np.ndarray] = {}
 
 def _get_vocal_space_ir(kind: str = "canyon_silk") -> np.ndarray:
     """
-    Deterministic mono-compatible room/canyon impulse response with 24 ms pre-delay
-    (preserving crisp consonant articulation) and warm low-passed wooden/canyon reflections.
+    Pure velvet diffused acoustic tail (45 ms pre-delay, ZERO discrete slapback spikes
+    so the vocal midrange never suffers metallic comb-filtering).
     """
     if kind in _VOCAL_IR_CACHE:
         return _VOCAL_IR_CACHE[kind]
     rng = np.random.default_rng(20261030 if kind == "canyon_silk" else 20261031)
-    rt60 = 0.95 if kind == "canyon_silk" else 0.52
-    n = int(round((rt60 + 0.12) * SR))
-    t = np.arange(n, dtype=np.float64) / SR
+    rt60 = 0.78 if kind == "canyon_silk" else 0.45
+    n = int(round((rt60 + 0.10) * SR))
     ir = np.zeros(n, dtype=np.float64)
 
-    # Early reflections after 24 ms pre-delay
-    reflections = (
-        [(24.0, 0.34), (41.0, -0.24), (68.0, 0.18), (105.0, 0.13), (158.0, -0.09), (225.0, 0.06)]
-        if kind == "canyon_silk"
-        else [(16.0, 0.32), (31.0, -0.20), (54.0, 0.12), (82.0, 0.07)]
-    )
-    for delay_ms, g in reflections:
-        idx = int(round(delay_ms * 0.001 * SR))
-        if idx < n:
-            ir[idx] += g
-
-    # Warm diffused tail starting at 32 ms
-    pre = int(0.032 * SR)
+    pre = int(0.045 * SR)
     t_tail = np.arange(n - pre, dtype=np.float64) / SR
-    env = (1.0 - np.exp(-t_tail / 0.025)) * np.exp(-6.9078 * t_tail / rt60)
-    tail = rng.standard_normal(n - pre) * env * 0.16
+    env = (1.0 - np.exp(-t_tail / 0.038)) * np.exp(-6.9078 * t_tail / rt60)
+    tail = rng.standard_normal(n - pre) * env * 0.14
     ir[pre:] += tail
 
-    # Bandpass entire spatial IR (240 Hz - 2650 Hz) so early reflections never comb-filter <240 Hz chest bass
-    # and sibilants never ring in the reverb tail
-    sos = signal.butter(2, [240.0 / (0.5 * SR), 2650.0 / (0.5 * SR)], btype="band", output="sos")
+    sos = signal.butter(2, [220.0 / (0.5 * SR), 1950.0 / (0.5 * SR)], btype="band", output="sos")
     ir = signal.sosfilt(sos, ir)
 
     norm = float(np.sqrt(np.sum(ir ** 2) + 1e-12))
@@ -547,12 +524,12 @@ def finish_line(
         return out
 
     eq_sig = apply_vocal_eq(trimmed, profile=profile)
-    deessed = apply_deesser(eq_sig, max_reduction_db=5.5 if is_recite else 4.2)
+    deessed = apply_deesser(eq_sig, max_reduction_db=3.0 if is_recite else 2.5)
     leveled = level_vocal(deessed, target_rms_db=target_rms_db, gain_offset_db=gain_db)
 
-    bw = (0.09 if is_recite else 0.04) if base_wet is None else float(base_wet)
-    tw = (0.22 if is_recite else 0.08) if tail_wet is None else float(tail_wet)
-    te = (0.18 if is_recite else 0.06) if tail_extend_s is None else float(tail_extend_s)
+    bw = (0.02 if is_recite else 0.0) if base_wet is None else float(base_wet)
+    tw = (0.08 if is_recite else 0.03) if tail_wet is None else float(tail_wet)
+    te = (0.12 if is_recite else 0.04) if tail_extend_s is None else float(tail_extend_s)
     space_kind = "canyon_silk" if is_recite else "studio_warm"
     return apply_vocal_space(leveled, base_wet=bw, tail_wet=tw, tail_extend_s=te, space_kind=space_kind)
 
@@ -619,6 +596,15 @@ PROVIDER_LICENSES: dict[str, dict] = {
         "weightsLicense": "Apache-2.0",
         "commercialUse": True,
         "notes": "完全免费可商用；适合英文及多语种轻量合成。",
+    },
+    "indextts2": {
+        "tier": "commercial_free",
+        "badge": "[开源情感解耦大模型 · IndexTeam/IndexTTS-2]",
+        "model": "IndexTeam/IndexTTS-2 (Speaker-Emotion Disentangled Autoregressive + BigVGAN)",
+        "codeLicense": "Apache-2.0 / IndexTTS License",
+        "weightsLicense": "IndexTTS Model License",
+        "commercialUse": True,
+        "notes": "支持声纹与悲怆/吟诵情感参考音频独立解耦 (emoAudioPrompt) 及 QwenEmotion 8维情感控制。",
     },
     "f5": {
         "tier": "non_commercial",
@@ -881,6 +867,75 @@ def f5_synth(
     return wav
 
 
+def indextts2_available() -> bool:
+    return Path("/root/tts/index-tts/checkpoints/gpt.pth").is_file() and VOICE312_PY.is_file()
+
+
+def indextts2_synth(
+    text: str,
+    ref_audio: str | None = None,
+    emo_audio: str | None = None,
+    emo_text: str | None = None,
+    emo_alpha: float = 0.9,
+    profile: str = "narrator",
+) -> np.ndarray:
+    """
+    Synthesizes speech via local IndexTTS-2.
+    - When `profile` is `recite` / `classical_poem` (or `emo_audio` is explicitly provided), uses
+      disentangled `emo_audio_prompt` (defaulting to `/root/tts/refs/poet_master_emo_tragic.wav` for poetry).
+    - When `profile` is `narrator` / `story` / `monologue` (e.g., explaining a topic in `ink-wash`),
+      does NOT inject the tragic poetry emotion prompt unless `emo_audio` or `emo_text` is explicitly given,
+      ensuring calm, natural narrative prosody without poetic dragging.
+    """
+    spk_wav = Path(ref_audio).resolve() if ref_audio else Path("/root/tts/refs/poet_master_spk.wav")
+    if not spk_wav.is_file():
+        spk_wav = DEFAULT_POET_REF_WAV
+
+    is_poetic = str(profile or "").lower().strip() in ("recite", "classical_poem", "ink_poem")
+    if emo_audio:
+        emo_wav_path = Path(emo_audio).resolve()
+        emo_arg = str(emo_wav_path) if emo_wav_path.is_file() else ""
+    elif is_poetic and not emo_text:
+        default_emo = Path("/root/tts/refs/poet_master_emo_tragic.wav")
+        emo_arg = str(default_emo) if default_emo.is_file() else ""
+    else:
+        emo_arg = ""
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        tmp_wav = Path(tf.name)
+    try:
+        code = (
+            "import sys, torch, soundfile as sf, torchaudio\n"
+            "def _sf_load(u, *a, **k):\n"
+            "    d, sr = sf.read(str(u), dtype='float32', always_2d=True)\n"
+            "    return torch.from_numpy(d.T.copy()), sr\n"
+            "torchaudio.load = _sf_load\n"
+            "from indextts.infer_v2 import IndexTTS2\n"
+            "tts = IndexTTS2(cfg_path='/root/tts/index-tts/checkpoints/config.yaml', "
+            "model_dir='/root/tts/index-tts/checkpoints', use_fp16=True, device='cuda:0', use_cuda_kernel=False)\n"
+            "emo_wav = sys.argv[3] if sys.argv[3] else None\n"
+            "emo_txt = sys.argv[4] if sys.argv[4] else None\n"
+            "tts.infer(spk_audio_prompt=sys.argv[1], text=sys.argv[2], output_path=sys.argv[6], "
+            "emo_audio_prompt=None if emo_txt else emo_wav, use_emo_text=bool(emo_txt), emo_text=emo_txt, "
+            "emo_alpha=float(sys.argv[5]), interval_silence=350 if emo_wav else 220)\n"
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = f"/root/tts/index-tts:{env.get('PYTHONPATH', '')}"
+        proc = subprocess.run(
+            [str(VOICE312_PY), "-c", code, str(spk_wav), text, emo_arg, str(emo_text or ""), str(float(emo_alpha)), str(tmp_wav)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout).strip().splitlines()[-3:]
+            die(f"IndexTTS-2 failed: {' '.join(tail)}")
+        return decode_to_mono(tmp_wav)
+    finally:
+        tmp_wav.unlink(missing_ok=True)
+
+
 def chattts_synth(text: str, voice_seed: str = "42") -> np.ndarray:
     """Synthesizes conversational speech via `2Noise/ChatTTS` (CC-BY-NC-4.0 weights) in `/root/tts/venv`."""
     py_bin = CHATTTS_PY if CHATTTS_PY.is_file() else Path(sys.executable)
@@ -982,6 +1037,8 @@ def command_synth(text: str, voice: str, rate: str, pitch: str, lang: str) -> np
 
 def choose_provider(manifest: dict) -> str:
     p = str(manifest.get("provider") or "auto").lower().strip()
+    if p in ("indextts2", "indextts-2", "index-tts-2", "indextts"):
+        return "indextts2"
     if p in ("kokoro-zh", "kokoro_zh", "kokoro-v1.1-zh"):
         return "kokoro-zh"
     if p in ("f5", "f5-tts", "f5_tts", "f5tts"):
@@ -995,16 +1052,21 @@ def choose_provider(manifest: dict) -> str:
     if p == "command":
         return "command"
     if p != "auto":
-        die(f"unknown provider {p!r} (auto, kokoro-zh, f5, chattts, edge, kokoro, command)")
+        die(f"unknown provider {p!r} (auto, indextts2, kokoro-zh, f5, chattts, edge, kokoro, command)")
+    profile = str(manifest.get("profile") or manifest.get("style") or "").lower().strip()
+    if profile in ("recite", "classical_poem", "ink_poem") and indextts2_available():
+        return "indextts2"
     if kokoro_zh_available():
         return "kokoro-zh"
+    if indextts2_available():
+        return "indextts2"
     if kokoro_available():
         return "kokoro"
     if importlib.util.find_spec("edge_tts") is not None:
         return "edge"
     if os.environ.get("VOICE_CMD"):
         return "command"
-    die("no TTS backend available; install kokoro, f5-tts, edge-tts, or set VOICE_CMD")
+    die("no TTS backend available; install indextts2, kokoro, f5-tts, edge-tts, or set VOICE_CMD")
 
 
 def cache_path(cache_dir: Path, payload: dict) -> Path:
@@ -1047,10 +1109,14 @@ def synthesize_raw_utterance(
     force: bool,
     ref_audio: str | None = None,
     ref_text: str | None = None,
+    emo_audio: str | None = None,
+    emo_text: str | None = None,
+    emo_alpha: float = 0.90,
+    profile: str = "narrator",
 ) -> np.ndarray:
     """Synthesizes and caches the raw decoded 48 kHz mono utterance prior to DSP shaping."""
     payload = {
-        "raw_v": 3,
+        "raw_v": 5,
         "backend": backend,
         "text": text,
         "voice": voice,
@@ -1058,8 +1124,12 @@ def synthesize_raw_utterance(
         "pitch": pitch,
         "lang": lang,
         "speed": speed,
+        "profile": profile,
         "ref_audio": str(ref_audio or ""),
         "ref_text": str(ref_text or ""),
+        "emo_audio": str(emo_audio or ""),
+        "emo_text": str(emo_text or ""),
+        "emo_alpha": round(float(emo_alpha), 3),
     }
     if backend == "kokoro":
         model, voices = kokoro_model_paths()
@@ -1081,6 +1151,15 @@ def synthesize_raw_utterance(
         audio = kokoro_zh_synth(text, voice, speed)
     elif backend == "f5":
         audio = f5_synth(text, speed=speed, ref_audio=ref_audio, ref_text=ref_text)
+    elif backend == "indextts2":
+        audio = indextts2_synth(
+            text,
+            ref_audio=ref_audio,
+            emo_audio=emo_audio or (ref_text if (ref_text and Path(ref_text).is_file()) else None),
+            emo_text=emo_text,
+            emo_alpha=emo_alpha,
+            profile=profile,
+        )
     elif backend == "chattts":
         audio = chattts_synth(text, voice_seed=voice)
     elif backend == "command":
@@ -1137,9 +1216,9 @@ def _expand_line_clauses(
             )
         return out
 
-    # Automatic hemistich splitting for classical poetry when `style`/`profile` is `recite` or `caesura` is set
+    # Only split hemistichs when `caesura` is explicitly requested on the line; otherwise preserve native full-sentence TTS prosody
     caesura = line.get("caesura")
-    if (profile in ("recite", "classical_poem", "ink_poem") or caesura is not None) and ("，" in default_say or "；" in default_say):
+    if caesura is not None and ("，" in default_say or "；" in default_say):
         parts = [p.strip() for p in CLAUSE_SPLIT_RE.findall(default_say) if p.strip()]
         if len(parts) >= 2:
             out = []
@@ -1196,6 +1275,9 @@ def synthesize_line(
     target_rms_db: float = -16.8,
     ref_audio: str | None = None,
     ref_text: str | None = None,
+    emo_audio: str | None = None,
+    emo_text: str | None = None,
+    emo_alpha: float = 0.90,
 ) -> np.ndarray:
     """
     Synthesizes a complete line (single utterance or multi-clause micro-assembly) with vocal DSP.
@@ -1208,6 +1290,9 @@ def synthesize_line(
     n_clauses = len(clauses)
     line_ref_audio = line_cfg.get("refAudio") or ref_audio
     line_ref_text = line_cfg.get("refText") or ref_text
+    line_emo_audio = line_cfg.get("emoAudio") or emo_audio
+    line_emo_text = line_cfg.get("emoText") or emo_text
+    line_emo_alpha = float(line_cfg.get("emoAlpha", emo_alpha))
 
     clause_buffers: list[tuple[np.ndarray, int, float, bool]] = []
     for idx, cl in enumerate(clauses):
@@ -1225,6 +1310,10 @@ def synthesize_line(
             force=force,
             ref_audio=line_ref_audio,
             ref_text=line_ref_text,
+            emo_audio=line_emo_audio,
+            emo_text=line_emo_text,
+            emo_alpha=line_emo_alpha,
+            profile=profile,
         )
         tail_ext_s = float(cl.get("tailExtend", 0.20 if is_last else 0.16))
         post_roll_s = 0.160 if is_last else 0.085
@@ -1559,16 +1648,9 @@ def spectral_duck_and_mix(
     out_l = mid_ducked + side_ducked
     out_r = mid_ducked - side_ducked
 
-    # Add centered vocal + subtle decorrelated stereo canyon halo (13 ms / 21 ms Haas reflections, band-passed 260-2600 Hz)
+    # Add centered vocal (no short Haas delay by default to prevent metallic comb-filtering)
     v_scaled = v * db_to_amp(float(voice_gain_db))
-    sos_halo = signal.butter(2, [260.0 / (0.5 * SR), 2600.0 / (0.5 * SR)], btype="band", output="sos")
-    v_halo = signal.sosfilt(sos_halo, v_scaled) * float(stereo_tail_width)
-    d_l = int(0.013 * SR)
-    d_r = int(0.021 * SR)
-    halo_l = np.pad(v_halo[:-d_l], (d_l, 0)) if d_l < n else np.zeros_like(v_scaled)
-    halo_r = -np.pad(v_halo[:-d_r], (d_r, 0)) if d_r < n else np.zeros_like(v_scaled)
-
-    mix = np.column_stack((out_l + v_scaled + halo_l, out_r + v_scaled + halo_r))
+    mix = np.column_stack((out_l + v_scaled, out_r + v_scaled))
 
     # Soft-knee true-peak transparent limiter
     ceiling = db_to_amp(float(ceiling_db))
@@ -1688,7 +1770,9 @@ def providers_cmd(_args):
     rows = []
     for name, info in PROVIDER_LICENSES.items():
         avail = (
-            kokoro_zh_available()
+            indextts2_available()
+            if name == "indextts2"
+            else kokoro_zh_available()
             if name == "kokoro-zh"
             else kokoro_available()
             if name == "kokoro"
@@ -1734,6 +1818,9 @@ def build(args):
     gap_default = float(manifest.get("gap", DEFAULT_GAP))
     manifest_ref_audio = manifest.get("refAudio")
     manifest_ref_text = manifest.get("refText")
+    manifest_emo_audio = manifest.get("emoAudio")
+    manifest_emo_text = manifest.get("emoText")
+    manifest_emo_alpha = float(manifest.get("emoAlpha", 0.90))
     entries = []
     seen = set()
     last_end = 0.0
@@ -1773,6 +1860,11 @@ def build(args):
             speed = float(line.get("speed") or args.speed or manifest.get("speed") or (0.86 if line_profile in ("recite", "classical_poem") else 0.95))
             rate = "+0%"
             pitch = "+0Hz"
+        elif provider == "indextts2":
+            voice = str(line.get("voice") or args.voice or manifest.get("voice") or "indextts2_poet_master")
+            speed = float(line.get("speed") or args.speed or manifest.get("speed") or 1.0)
+            rate = "+0%"
+            pitch = "+0Hz"
         elif provider == "f5":
             voice = str(line.get("voice") or args.voice or manifest.get("voice") or "f5_poet_baritone")
             speed = float(line.get("speed") or args.speed or manifest.get("speed") or 0.92)
@@ -1810,6 +1902,9 @@ def build(args):
             target_rms_db=target_rms_db,
             ref_audio=manifest_ref_audio,
             ref_text=manifest_ref_text,
+            emo_audio=manifest_emo_audio,
+            emo_text=manifest_emo_text,
+            emo_alpha=manifest_emo_alpha,
         )
         max_dur = line.get("maxDur")
         if max_dur is None and scene is not None:
@@ -2178,7 +2273,7 @@ def main(argv=None):
     b.add_argument("--out-dir", required=True, help="where voice.wav, voice.timing.json, voice.words.json, CREDITS.voice.txt and voice.srt go")
     b.add_argument("--start", type=float, default=0.0, help="slice start in seconds (single-scene renders)")
     b.add_argument("--dur", type=float, default=None, help="slice duration in seconds")
-    b.add_argument("--provider", choices=("auto", "kokoro-zh", "f5", "chattts", "edge", "kokoro", "command"), default=None)
+    b.add_argument("--provider", choices=("auto", "indextts2", "kokoro-zh", "f5", "chattts", "edge", "kokoro", "command"), default=None)
     b.add_argument("--voice", default=None)
     b.add_argument("--profile", default=None, help="Vocal DSP profile: recite | narrator | clean | raw")
     b.add_argument("--rate", default=None)
