@@ -25,9 +25,9 @@
 
 ## 3. Rendering Pipeline, Camera Grammar & Shader Recipe
 
-- **运镜（`engine/director.js` shot list）**：`push` / `pull` / `orbit` / `rise`，恒定 26–31° 焦段；**无抖**。特写只给刻线、配合面与读数。
+- **运镜（`engine/director.js` shot list）**：`push` / `pull` / `orbit` / `rise`，恒定 26–31° 焦段；**无抖**。特写只给刻线、配合面与读数。取景用显式包围盒（含台面抬升），竖屏另用更窄的 HERO 盒补偿宽度约束。
 - **Pass Chain**：`['grain', { amount: 0.014, paper: 0.0, vignette: 0.16 }]`。材质感来自 kernel 的 PBR（阳极铝 / 钢 / 玻璃），不用屏幕空间贴图。
-- **剖切**：`renderer.localClippingEnabled = true`；`THREE.Plane((-1,0,0), c)` 沿 X 轴在世界空间扫过（0.9 → 0），只裁缸套 / 缸盖 / 阀组，机匣与曲轴保持完整；斜视 30–40° 才看得出半个圆柱的开口（正视时半圆柱投影仍是整圆）。截面盖做过 teardown 式 stencil 双胞胎 + cap 平面，实测无头渲染的默认帧缓冲没有 stencil，cap 会整片绘制，因此**未采用**并已移除相关代码；当前用 `DoubleSide` 半壳 + 内壁 `boreSleeve` 表现切面。
+- **剖切**：`renderer.localClippingEnabled = true`；`THREE.Plane((-1,0,0), c)` 沿 X 轴在世界空间扫过（0.9 → 0），只裁缸套 / 缸盖 / 阀组，机匣与曲轴保持完整；斜视 30–40° 才看得出半个圆柱的开口（正视时半圆柱投影仍是整圆）。截面盖不走 stencil（无头渲染的默认帧缓冲没有 stencil，teardown 式 cap 会整片绘制），改为**按机体形状解析生成**：缸套用两条随切面移动的壁厚竖条，缸盖用矩形边框，cap 面随 `cutConst` 每帧平移（`placeCap()`）。切面因此有材料感与壁厚，而不是半透明壳。
 - **HUD**：相机子节点平面 + `CanvasTexture`，`depthTest:false / toneMapped:false`，每帧按 `camera.fov` 重算尺寸；`userData.skipContactShadow = true`。
 
 ---
@@ -75,6 +75,6 @@
 - [x] `node tools/render.mjs --style calibration-lab --sheet styles/calibration-lab/contact_sheet.jpg` 已生成并逐格读图（2026-11-01）
 - [x] `gallery/catalog.js` 已注册 `stageMode` / `bestFor` / `avoidFor` / `cameraPresets`
 
-细节层：凸轮由两根立柱 + 轴承盖固定（避免“悬空横杆”），后端正时链轮随凸轮转动，机匣前脸有铆接铭牌，排气歧管按 CatmullRom 扫管生成。
+细节层：凸轮室由后壁 + 两根前立柱与轴承盖围出（前向开放，剖面里能看到凸轮与弹簧，固体视角不出现“悬空横杆”），后端正时链轮随凸轮转动，机匣前脸有铆接铭牌，排气歧管按 CatmullRom 扫管生成。
 
-已知短板：切面无可读盖色（无 stencil 帧缓冲）；爆炸镜头垂直节奏偏稀；仪表相位条在 1080p 下偏小。
+已知短板：cap 只覆盖缸套与缸盖两类形状（排气歧管、气门与弹簧的切面无盖）；爆炸镜头垂直节奏偏稀；仪表相位条在 1080p 下偏小。

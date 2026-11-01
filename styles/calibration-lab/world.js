@@ -263,17 +263,17 @@ export function buildSample(M, hostScene) {
   add(plug, new THREE.CylinderGeometry(6, 6, 26, 16), jacketMat).position.y = 12;
   add(plug, new THREE.CylinderGeometry(8, 8, 7, 6), valveSteel).position.y = -2;
 
-  // ---------------------------------------------------------------- cam carrier + camshaft
+  // ---------------------------------------------------------------- cam cover + camshaft
+  const camWallZ = add(head, blockGeometry({ w: 126, h: 74, d: 12, r: 4 }), shellBlack);
+  camWallZ.position.set(0, 301, -51);
   for (const sx of [-1, 1]) {
-    const post = add(head, blockGeometry({ w: 16, h: 62, d: 20, r: 3 }), shellBlack);
-    post.position.set(sx * 58, 296, 0);
-    const capBlock = add(head, blockGeometry({ w: 26, h: 12, d: 26, r: 3 }), shellAlu);
-    capBlock.position.set(sx * 58, 312, 0);
-    const nut = add(head, boltGeometry({ r: 3.6, h: 6 }), valveSteel);
-    nut.position.set(sx * 58, 319, 0);
+    const frontPost = add(head, blockGeometry({ w: 12, h: 44, d: 12, r: 3 }), shellBlack);
+    frontPost.position.set(sx * 57, 286, 47);
+    const bearingCap = add(head, blockGeometry({ w: 24, h: 10, d: 24, r: 3 }), shellAlu);
+    bearingCap.position.set(sx * 57, 312, 47);
   }
   const cam = new THREE.Group();
-  cam.position.y = 284;
+  cam.position.y = 273;
   root.add(cam);
   const camShaft = add(cam, new THREE.CylinderGeometry(11, 11, 224, 20), M.steel);
   camShaft.rotation.x = Math.PI / 2;
@@ -349,6 +349,46 @@ export function buildSample(M, hostScene) {
   root.scale.setScalar(rootScale);
   root.position.y = 0.522; // rubber pads rest on the bench (y = 0)
 
+  // ---- section caps, built analytically (no stencil in the headless framebuffer): a wall strip
+  // for the cylinder, a frame for each hollow casting, so the cut reads as material with a wall
+  // thickness instead of a see-through shell.
+  const capMat = new THREE.MeshStandardMaterial({ color: '#B7BDC4', roughness: 0.62, metalness: 0.12, side: THREE.DoubleSide });
+  const capGroup = new THREE.Group();
+  capGroup.visible = false;
+  root.add(capGroup);
+  const CAP_T = 7; // cap thickness along the cut normal, mm
+  const capBox = (sx, sy, sz, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), capMat);
+    m.scale.set(sx, sy, sz);
+    m.position.set(0, y, z);
+    m.castShadow = false;
+    m.receiveShadow = false;
+    capGroup.add(m);
+    return m;
+  };
+  const frameCap = (zHalf, yMin, yMax, t) => {
+    const yc = (yMin + yMax) / 2;
+    const h = yMax - yMin;
+    capBox(CAP_T, t, zHalf * 2, yMax - t / 2, 0);
+    capBox(CAP_T, t, zHalf * 2, yMin + t / 2, 0);
+    capBox(CAP_T, h - t * 2, t, yc, -(zHalf - t / 2));
+    capBox(CAP_T, h - t * 2, t, yc, zHalf - t / 2);
+  };
+  frameCap(62, 212, 264, 9); // cylinder head
+  const jacketCaps = [capBox(CAP_T, 180, CAP_T, 122, 0), capBox(CAP_T, 180, CAP_T, 122, 0)];
+
+  const placeCap = () => {
+    const cMm = clipPlane.constant / rootScale;
+    capGroup.position.set(cMm, 0, 0);
+    const chord = 69 * 69 - cMm * cMm;
+    const live = chord > 0;
+    const half = live ? Math.sqrt(chord) : 0;
+    jacketCaps.forEach((m, i) => {
+      m.visible = live;
+      m.position.z = (i === 0 ? -1 : 1) * half;
+    });
+  };
+
   const tmpA = new THREE.Vector3();
   const tmpB = new THREE.Vector3();
 
@@ -371,6 +411,8 @@ export function buildSample(M, hostScene) {
         m.side = sectionOn ? THREE.DoubleSide : THREE.FrontSide;
         m.needsUpdate = true;
       }
+      capGroup.visible = sectionOn;
+      placeCap();
       jacketMat.transparent = cut === 'glass';
       jacketMat.opacity = cut === 'glass' ? 0.42 : 1;
       jacketMat.depthWrite = cut !== 'glass';
@@ -392,7 +434,7 @@ export function buildSample(M, hostScene) {
     cylGroup.position.y = eJacket;
     flywheel.position.z = -112 - layerEase(ex, [0.0, 0.4], 120);
     head.position.y = eHead;
-    cam.position.y = 284 + eCam;
+    cam.position.y = 273 + eCam;
 
     // ---- rotating parts
     crank.rotation.z = -th * DEG;
@@ -480,7 +522,8 @@ export default async function createWorld({ width, height, scenes = [], style = 
   // Framing boxes, in world units, declared from the built sample's real extents. Subjects that are
   // Object3D get measured at their rest pose; the exploded stack needs its own envelope because the
   // parts leave their rest bounds while the camera is already moving.
-  const HERO = { center: [0, 1.22, 0], size: [2.0, 2.55, 1.98] };
+  const tall = height > width;
+  const HERO = tall ? { center: [0, 1.22, 0], size: [1.84, 2.62, 1.94] } : { center: [0, 1.22, 0], size: [2.0, 2.55, 1.98] };
   const UPPER = { center: [0, 1.55, -0.1], size: [1.2, 2.1, 1.35] };
   const HEAD = { center: [0, 2.02, 0], size: [1.1, 1.05, 0.95] };
   const EXPLODED = { center: [0, 1.95, 0], size: [2.2, 3.9, 2.1] };
