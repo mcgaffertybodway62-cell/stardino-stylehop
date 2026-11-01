@@ -1,42 +1,49 @@
 <!--
   Ink Wash Scroll · Pure Visual Stage Timeline & Acoustic Foley Cues (`styles/ink-wash/scenes.html`).
   Stage Mode: `3d-pure` (`defaultOverlay: 'none'`).
-  Zero developer-inspection text cards on top of the canvas; `data-look` drives the per-scene
-  Song-Dynasty pigment palette (`shanshui` -> `qinglv` -> `xieyi` -> `night`), and `data-cues`
-  drives `tools/sound.py --preset ink`.
+  Story: 杜甫《春望》 · 水墨丹青五幕手卷
 -->
 
 <section class="frame scene"
-         data-scene="act1-pine-tea"
-         data-title="01 · 松间煮茶 · 鹤起云谷"
-         data-dur="3.6"
+         data-scene="act1-ruined-wall"
+         data-title="01 · 国破山河 · 断垣深草"
+         data-dur="4.8"
          data-look="shanshui"
-         data-cues="0.16:enter:scroll_unroll:0.85, 0.75:stroke_draw:pine_breeze:0.72, 1.45:float:tea_pour_stream:0.88, 2.40:enter:crane_wings:0.80">
+         data-cues="0.16:stroke_draw:scroll_unroll:0.82, 0.92:foot_step:ruin_step_one:0.66, 1.85:layer_float:zhongnan_mist:0.78, 2.68:foot_step:ruin_step_two:0.62, 3.45:stroke_draw:xingcao_couplet_1:0.76">
 </section>
 
 <section class="frame scene"
-         data-scene="act2-brush-bridge"
-         data-title="02 · 千里青绿 · 挥毫成桥"
-         data-dur="3.8"
-         data-look="qinglv"
-         data-look-blend="1.0"
-         data-cues="0.18:enter:qinglv_reveal:0.88, 0.95:impact:brush_touch:0.95, 1.55:stroke_draw:bridge_sweep:0.92, 2.75:float:plum_bloom:0.82">
-</section>
-
-<section class="frame scene"
-         data-scene="act3-river-boat"
-         data-title="03 · 秋江泛舟 · 双鲤化荷"
-         data-dur="3.8"
+         data-scene="act2-tear-blossom"
+         data-title="02 · 感时花泪 · 恨别惊禽"
+         data-dur="4.5"
          data-look="xieyi"
-         data-look-blend="1.0"
-         data-cues="0.20:float:skiff_oar:0.82, 1.35:float:koi_arc_ripple:0.88, 2.15:stroke_draw:taiji_swirl:0.88, 2.85:enter:lotus_unfurl:0.92">
+         data-look-blend="0.85"
+         data-cues="0.20:stroke_draw:old_bough_draw:0.74, 1.48:drink_sip:petal_tear_drop:0.88, 2.38:blade_clique:startled_heart_snap:0.90, 2.50:sword_slash:bird_wings_burst:0.80">
 </section>
 
 <section class="frame scene"
-         data-scene="act4-moon-pavilion"
-         data-title="04 · 月夜古亭 · 抚琴落印"
-         data-dur="3.6"
+         data-scene="act3-beacon-letter"
+         data-title="03 · 烽火三月 · 家书万金"
+         data-dur="4.6"
          data-look="night"
-         data-look-blend="1.2"
-         data-cues="0.22:float:guqin_harmonic:0.88, 1.15:count_tick:qin_pluck:0.76, 2.10:impact:cinnabar_seal_stamp:0.98, 2.85:float:moon_resonance:0.84">
+         data-look-blend="0.85"
+         data-cues="0.48:taiko_impact:beacon_eruption:1.00, 0.56:wave_surge:smoke_pillar_roar:0.88, 1.12:calligraphy_slam:kuangcao_beacon_slam:0.96, 2.38:stroke_draw:silk_letter_wind:0.82">
+</section>
+
+<section class="frame scene"
+         data-scene="act4-white-hairpin"
+         data-title="04 · 白头搔短 · 浑不胜簪"
+         data-dur="5.0"
+         data-look="snow"
+         data-look-blend="0.90"
+         data-cues="0.24:layer_float:frost_terrace_wind:0.74, 1.38:stroke_draw:white_hair_touch:0.68, 2.96:drink_sip:jade_hairpin_fall:0.92, 3.72:count_tick:hairpin_settle_stone:0.60">
+</section>
+
+<section class="frame scene"
+         data-scene="act5-eternal-void"
+         data-title="05 · 山河终古 · 少陵春望"
+         data-dur="5.5"
+         data-look="shanshui"
+         data-look-blend="1.15"
+         data-cues="0.18:blade_sheathe:aftermath_breath:0.52, 1.30:layer_float:wei_river_void:0.86, 2.55:stroke_draw:colophon_dufu:0.78, 3.85:cinnabar_seal_stamp:shaoling_seal:0.98">
 </section>
