@@ -155,7 +155,7 @@
 
 ## 五、v7 复盘核实：11 项残留视觉/叙事缺陷与 3D 性能瓶颈修复规范（Phase 5 · 已完成并通过门禁验证）
 
-> 完整逐行代码定位与数学根因详见私有架构库文档：[`/root/projects/earn/gemini-stylehop/stardino-stylehop-devdocs/AUDIT_2026-10-31_V7_RESIDUAL_AND_PERF.md`](/root/projects/earn/gemini-stylehop/stardino-stylehop-devdocs/AUDIT_2026-10-31_V7_RESIDUAL_AND_PERF.md)。
+> 以下逐项列出缺陷根因、代码定位与修复规范，每条均链接到本仓库内的实现文件；全部已落地并通过门禁验证。
 
 ### 5.1 `styles/rubber-hose` 的 4 个直观视觉与叙事缺陷（核实全部属实）
 1. **Scene 1 → Scene 2 严重 180° 越轴与瞬移**：

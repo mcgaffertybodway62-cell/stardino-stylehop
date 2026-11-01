@@ -1,7 +1,7 @@
 # Calibration Lab · 计量实验室（`styles/calibration-lab/SPEC.md`）
 
 > 一句话：**机器不是展品，是正在被标定的样件。** 浅色无缝影棚、高反差工业反射灯带、程序化机加工法线/粗糙度微纹理、真 Stencil 剖切封盖、安全橙强调与 3D 尺寸公差引线；读数与姿态来自同一个函数。
-> 私有设计背景见 `stardino-stylehop-devdocs/STYLE_PROPOSAL_CALIBRATION_LAB.md`。
+> 设计迭代记录见本目录的 git 提交历史。
 
 ---
 
