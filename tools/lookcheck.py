@@ -82,6 +82,9 @@ ABS = {
 #   rather than stuffing the sky with floating filler (`half_void <= 0.80`, `com_y in [0.30, 0.72]`).
 # - `twilight-fable`: nocturnal bioluminescent woodland fables feature deep night skies and low-key lighting
 #   (`L_min = 18.0`, `half_void <= 0.84`, `com_y in [0.28, 0.74]`).
+# - `calibration-lab`: seamless pale studio with one sample on a bench and no set dressing — the empty upper
+#   frame *is* the medium (no horizon, no props to fill it); the HUD anchors the top-left corner
+#   (`half_void <= 0.80`).
 STYLE_ABS_OVERRIDES = {
     'ink-wash': {
         'L_min': 18.0,
@@ -104,6 +107,9 @@ STYLE_ABS_OVERRIDES = {
         'com_y_min': 0.28,
         'com_y_max': 0.74,
         'half_void_max': 0.84,
+    },
+    'calibration-lab': {
+        'half_void_max': 0.80,
     },
 }
 

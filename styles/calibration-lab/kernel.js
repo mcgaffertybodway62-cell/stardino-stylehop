@@ -65,7 +65,7 @@ export const CAL_LOOK = {
     enabled: true,
     opacity: 0.42,
     blur: 2.6,
-    size: [6, 6],
+    size: [9, 6.4],
     center: [0, 0],
     height: 1.2,
     resolution: 512,
@@ -89,6 +89,8 @@ export function createMaterials() {
     black: phys({ color: CAL_PALETTE.structure, metalness: 0.3, roughness: 0.36, clearcoat: 0.4, clearcoatRoughness: 0.22 }),
     steel: std({ color: CAL_PALETTE.steel, metalness: 1.0, roughness: 0.28 }),
     bronze: std({ color: CAL_PALETTE.bronze, metalness: 0.9, roughness: 0.36 }),
+    // Dark machined part (piston/rotor): the one value that reads against powder white shells.
+    graphite: std({ color: '#464C53', metalness: 0.55, roughness: 0.46 }),
     rubber: std({ color: CAL_PALETTE.rubber, metalness: 0.08, roughness: 0.92 }),
     glass: phys({
       color: CAL_PALETTE.glass,
@@ -103,11 +105,6 @@ export function createMaterials() {
     accent: new THREE.MeshBasicMaterial({ color: CAL_PALETTE.accent, toneMapped: false }),
     accentGlow: new THREE.MeshBasicMaterial({ color: CAL_PALETTE.accent, transparent: true, opacity: 0.22, toneMapped: false, depthWrite: false }),
   };
-}
-
-/** Solid materials that take the section cut (glass and accent are never clipped). */
-export function solidMaterials(M) {
-  return [M.alu, M.aluDark, M.white, M.black, M.steel, M.bronze, M.rubber];
 }
 
 // ============================================================================
@@ -288,7 +285,11 @@ function createBenchTexture() {
   return tex;
 }
 
-export function createCalLabStudio({ width, height, scenes = [], style = {}, maxDist = 9 }) {
+export function createCalLabStudio({ width, height, scenes = [], style = {}, maxDist = null }) {
+  // No distance cap: the set is seamless (flat backdrop + fog), so there is nothing to walk into.
+  // A cap here silently overrides every shot's authored fill — the explode needs ~14 units and the
+  // section pull ~11; capping at 9 turned the pull into a 2% drift and jammed the stack to the frame
+  // edges, which reads as "the camera is stuck".
   const studio = createStudio3D(THREE, {
     width,
     height,
@@ -310,15 +311,7 @@ export function createCalLabStudio({ width, height, scenes = [], style = {}, max
   bench.receiveShadow = true;
   studio.scene.add(bench);
 
-  // A milled edge lip, so the bench reads as an object rather than a painted plane.
-  const lip = new THREE.Mesh(
-    new THREE.BoxGeometry(9.06, 0.035, 0.05),
-    new THREE.MeshStandardMaterial({ color: '#AEB4BB', roughness: 0.4, metalness: 0.7 }),
-  );
-  lip.position.set(0, 0.012, 3.2);
-  studio.scene.add(lip);
-
-  return { ...studio, bench, benchTex, benchLip: lip };
+  return { ...studio, bench, benchTex };
 }
 
 // ============================================================================
@@ -347,10 +340,13 @@ function spacedText(ctx, text, x, y, spacing) {
 }
 
 /**
- * Declarative instrument panel. `draw(state)` lays out:
- *   { title, subtitle, formula, big: {label, value, unit}, rows: [{label, value}],
- *     phase: {labels, index}, plot: {title, xMax, yMax, series: [{points, color, width}], dot,
- *     xText, yText, note}, tag, progress, accent }
+ * Declarative instrument panel. `draw(state)` lays out exactly what the shot has to measure:
+ *   { title, subtitle, big: {label, value, unit}, phase: {labels, index},
+ *     plot?: {title, xMax, yMax, series: [{points, color, width}], dot, xText, yText, note} }
+ *
+ * The HUD is a corner instrument, not a dashboard: one readout, one state strip, and at most one
+ * curve — and only in the shot whose job *is* measurement. Decorative rows, formulas, tags and
+ * progress bars were removed because they covered a third of the frame and carried no mechanism.
  */
 export function createGaugeHud({ camera, width, height }) {
   const canvas = document.createElement('canvas');
@@ -419,54 +415,28 @@ export function createGaugeHud({ camera, width, height }) {
     ctx.fillStyle = accent;
     ctx.fillRect(m, m, Math.round(46 * u), Math.max(2, Math.round(3 * u)));
     ctx.fillStyle = CAL_PALETTE.ink;
-    ctx.font = `700 ${Math.round(34 * u)}px ${SANS}`;
-    ctx.fillText(state.title || 'CALIBRATION', m, m + Math.round(42 * u));
+    ctx.font = `700 ${Math.round(27 * u)}px ${SANS}`;
+    ctx.fillText(state.title || 'CALIBRATION', m, m + Math.round(34 * u));
     ctx.font = `500 ${Math.round(12.5 * u)}px ${MONO}`;
     ctx.fillStyle = CAL_PALETTE.muted;
-    spacedText(ctx, (state.subtitle || '').toUpperCase(), m, m + Math.round(63 * u), 1.6 * u);
+    spacedText(ctx, (state.subtitle || '').toUpperCase(), m, m + Math.round(54 * u), 1.6 * u);
 
-    // ---------------------------------------------------------------- big readout
-    const bigY = m + Math.round((portrait ? 118 : 132) * u);
+    // ---------------------------------------------------------------- one readout
+    // Shrunk from 88px to 60px and stripped of the row list: the number is an instrument, not a
+    // headline, and it must not out-shout the sample.
+    const bigY = m + Math.round((portrait ? 104 : 118) * u);
     const big = state.big || { label: '', value: '—', unit: '' };
     ctx.fillStyle = CAL_PALETTE.muted;
-    ctx.font = `600 ${Math.round(11.5 * u)}px ${MONO}`;
-    spacedText(ctx, (big.label || '').toUpperCase(), m, bigY - Math.round(8 * u), 1.5 * u);
+    ctx.font = `600 ${Math.round(12 * u)}px ${MONO}`;
+    spacedText(ctx, (big.label || '').toUpperCase(), m, bigY - Math.round(10 * u), 1.5 * u);
     ctx.fillStyle = CAL_PALETTE.ink;
-    ctx.font = `800 ${Math.round((portrait ? 78 : 88) * u)}px ${MONO}`;
+    ctx.font = `800 ${Math.round((portrait ? 54 : 62) * u)}px ${MONO}`;
     const bigText = String(big.value);
-    ctx.fillText(bigText, m, bigY + Math.round(78 * u));
+    ctx.fillText(bigText, m, bigY + Math.round(54 * u));
     const bw = ctx.measureText(bigText).width;
     ctx.fillStyle = CAL_PALETTE.muted;
-    ctx.font = `600 ${Math.round(20 * u)}px ${MONO}`;
-    ctx.fillText(big.unit || '', m + bw + Math.round(10 * u), bigY + Math.round(78 * u));
-
-    // ---------------------------------------------------------------- rows
-    let ry = bigY + Math.round(112 * u);
-    const rowW = Math.round(portrait ? W - m * 2 - 400 * u : 380 * u);
-    for (const row of state.rows || []) {
-      ctx.strokeStyle = 'rgba(201, 205, 210, 0.8)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(m, ry + 0.5);
-      ctx.lineTo(m + rowW, ry + 0.5);
-      ctx.stroke();
-      ctx.fillStyle = CAL_PALETTE.muted;
-      ctx.font = `500 ${Math.round(11 * u)}px ${MONO}`;
-      spacedText(ctx, String(row.label).toUpperCase(), m, ry + Math.round(19 * u), 1.0 * u);
-      ctx.fillStyle = CAL_PALETTE.ink;
-      ctx.font = `600 ${Math.round(15 * u)}px ${MONO}`;
-      ctx.textAlign = 'right';
-      ctx.fillText(String(row.value), m + rowW, ry + Math.round(19 * u));
-      ctx.textAlign = 'left';
-      ry += Math.round(27 * u);
-    }
-
-    // ---------------------------------------------------------------- formula
-    if (state.formula) {
-      ctx.fillStyle = CAL_PALETTE.muted;
-      ctx.font = `400 ${Math.round(11.5 * u)}px ${MONO}`;
-      ctx.fillText(state.formula, m, ry + Math.round(20 * u));
-    }
+    ctx.font = `600 ${Math.round(18 * u)}px ${MONO}`;
+    ctx.fillText(big.unit || '', m + bw + Math.round(9 * u), bigY + Math.round(54 * u));
 
     // ---------------------------------------------------------------- phase strip
     const phase = state.phase;
@@ -559,23 +529,6 @@ export function createGaugeHud({ camera, width, height }) {
       if (plot.note) {
         ctx.fillText(plot.note, px + Math.round(12 * u), py + size + Math.round(22 * u));
       }
-    }
-
-    // ---------------------------------------------------------------- tag + progress
-    if (state.tag) {
-      ctx.fillStyle = CAL_PALETTE.ink;
-      ctx.font = `600 ${Math.round(11.5 * u)}px ${MONO}`;
-      ctx.textAlign = 'right';
-      spacedText(ctx, state.tag.toUpperCase(), W - m, H - m - Math.round(14 * u), 1.4 * u);
-      ctx.textAlign = 'left';
-    }
-    if (typeof state.progress === 'number') {
-      const barW = portrait ? W - m * 2 : Math.round(260 * u);
-      const barY = H - m;
-      ctx.fillStyle = 'rgba(21, 24, 28, 0.10)';
-      ctx.fillRect(W - m - barW, barY, barW, Math.max(2, 3 * u));
-      ctx.fillStyle = accent;
-      ctx.fillRect(W - m - barW, barY, barW * clamp(state.progress, 0, 1), Math.max(2, 3 * u));
     }
 
     tex.needsUpdate = true;
