@@ -333,7 +333,13 @@ function spacedText(ctx, text, x, y, spacing) {
     ctx.fillText(text, x, y);
     return;
   }
-  let cx = x;
+  // fillText per glyph ignores textAlign, so honour the alignment here or right-aligned
+  // labels run off the frame.
+  const align = ctx.textAlign;
+  let total = 0;
+  for (const ch of text) total += ctx.measureText(ch).width + spacing;
+  total = Math.max(0, total - spacing);
+  let cx = align === 'right' ? x - total : align === 'center' ? x - total / 2 : x;
   for (const ch of text) {
     ctx.fillText(ch, cx, y);
     cx += ctx.measureText(ch).width + spacing;

@@ -56,7 +56,7 @@
 | **01** | `lab-run` | 0.0–4.2s | `orbit` → `push`（低位） | 样件在台面上运行，读数已经在跳 | `brass_ratchet` ×3 |
 | **02** | `lab-section` | 4.2–8.2s | `pull` → `push` 进缸 | 剖切面 1.4s 内扫过，缸内与示功图同时可读 | `scale_tilt`, `count_tick` |
 | **03** | `lab-explode` | 8.2–12.2s | `rise` → `orbit` | 按装配顺序分层：曲轴 → 活塞 → 缸盖 → 凸轮 | `card_enter` ×4 |
-| **04** | `lab-valves` | 12.2–16.0s | 极近 `push` → `pull` 回全景 | 回装；升程曲线与气门对位 | `count_tick` ×2 |
+| **04** | `lab-valves` | 12.2–16.0s | 推近缸盖 | 回装（**solid**，不剖切）；开放缸盖让气门、弹簧与凸轮直接可见，配升程曲线 | `count_tick` ×2 |
 
 ---
 
@@ -75,6 +75,6 @@
 - [x] `node tools/render.mjs --style calibration-lab --sheet styles/calibration-lab/contact_sheet.jpg` 已生成并逐格读图（2026-11-01）
 - [x] `gallery/catalog.js` 已注册 `stageMode` / `bestFor` / `avoidFor` / `cameraPresets`
 
-细节层：凸轮室由后壁 + 两根前立柱与轴承盖围出（前向开放，剖面里能看到凸轮与弹簧，固体视角不出现“悬空横杆”），后端正时链轮随凸轮转动，机匣前脸有铆接铭牌，排气歧管按 CatmullRom 扫管生成。
+细节层：凸轮室由后壁 + 两根前立柱与轴承盖围出（前向开放）；缸盖做成**开放机体**（后壁 / 两侧壁 / 缸面 / 顶板，前面敞开），所以 solid 视角也能直接读到气门与弹簧，不必为了“看得见”而在每一镜都剖切；后端正时链轮随凸轮转动，机匣前脸有铆接铭牌，排气歧管按 CatmullRom 扫管生成。
 
-已知短板：cap 只覆盖缸套与缸盖两类形状（排气歧管、气门与弹簧的切面无盖）；爆炸镜头垂直节奏偏稀；仪表相位条在 1080p 下偏小。
+已知短板：cap 只覆盖缸套与缸盖两类形状（排气歧管、气门与弹簧的切面无盖）；爆炸镜头垂直节奏偏稀；仪表相位条在 1080p 下偏小；缸盖开放后 solid 视角略“教学模型”而非整机质感。

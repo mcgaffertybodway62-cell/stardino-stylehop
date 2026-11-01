@@ -215,16 +215,23 @@ export function buildSample(M, hostScene) {
 
   const head = new THREE.Group();
   root.add(head);
-  const headBody = add(head, blockGeometry({ w: 138, h: 52, d: 124, r: 6 }), shellAlu);
-  headBody.position.y = 238;
+  // Open-front head: an educational cutaway casting, so the valvetrain reads even without a cut.
+  const headBack = add(head, blockGeometry({ w: 138, h: 52, d: 12, r: 4 }), shellAlu);
+  headBack.position.set(0, 238, -56);
+  for (const sx of [-1, 1]) {
+    const headSide = add(head, blockGeometry({ w: 12, h: 52, d: 124, r: 4 }), shellAlu);
+    headSide.position.set(sx * 63, 238, 0);
+  }
+  const headDeck = add(head, blockGeometry({ w: 138, h: 10, d: 124, r: 4 }), shellAlu);
+  headDeck.position.y = 217;
+  const headPlate = add(head, blockGeometry({ w: 138, h: 10, d: 124, r: 4 }), shellAlu);
+  headPlate.position.y = 259;
   const gasket = add(head, blockGeometry({ w: 140, h: 5, d: 126, r: 4 }), shellBlack);
   gasket.position.y = 212;
-  const headTop = add(head, blockGeometry({ w: 104, h: 18, d: 98, r: 4 }), shellBlack);
-  headTop.position.y = 273;
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const b = add(head, boltGeometry({ r: 4.4, h: 7 }), valveSteel);
-      b.position.set(sx * 58, 266, sz * 51);
+      b.position.set(sx * 58, 264, sz * 51);
     }
   }
 
@@ -366,20 +373,14 @@ export function buildSample(M, hostScene) {
     capGroup.add(m);
     return m;
   };
-  const frameCap = (zHalf, yMin, yMax, t) => {
-    const yc = (yMin + yMax) / 2;
-    const h = yMax - yMin;
-    capBox(CAP_T, t, zHalf * 2, yMax - t / 2, 0);
-    capBox(CAP_T, t, zHalf * 2, yMin + t / 2, 0);
-    capBox(CAP_T, h - t * 2, t, yc, -(zHalf - t / 2));
-    capBox(CAP_T, h - t * 2, t, yc, zHalf - t / 2);
-  };
-  frameCap(62, 212, 264, 9); // cylinder head
+  const headCap = capBox(CAP_T, 52, 124, 238, 0); // solid cut face of the head casting
   const jacketCaps = [capBox(CAP_T, 180, CAP_T, 122, 0), capBox(CAP_T, 180, CAP_T, 122, 0)];
 
+  let capSeeValves = false;
   const placeCap = () => {
     const cMm = clipPlane.constant / rootScale;
     capGroup.position.set(cMm, 0, 0);
+    headCap.visible = !capSeeValves;
     const chord = 69 * 69 - cMm * cMm;
     const live = chord > 0;
     const half = live ? Math.sqrt(chord) : 0;
@@ -403,6 +404,7 @@ export function buildSample(M, hostScene) {
 
     // ---- section cut
     clipPlane.constant = ops.cutConst ?? 0.9;
+    capSeeValves = Boolean(ops.seeValves);
     const sectionOn = cut === 'section';
     if (cut !== cutNow) {
       cutNow = cut;
@@ -412,7 +414,6 @@ export function buildSample(M, hostScene) {
         m.needsUpdate = true;
       }
       capGroup.visible = sectionOn;
-      placeCap();
       jacketMat.transparent = cut === 'glass';
       jacketMat.opacity = cut === 'glass' ? 0.42 : 1;
       jacketMat.depthWrite = cut !== 'glass';
@@ -424,6 +425,8 @@ export function buildSample(M, hostScene) {
       boreSleeve.visible = sectionOn;
       charge.visible = cut !== 'section';
     }
+
+    placeCap();
 
     // ---- explode choreography (staged, so nothing passes through anything)
     const eJacket = layerEase(ex, [0.04, 0.46], 46);
@@ -659,8 +662,8 @@ export default async function createWorld({ width, height, scenes = [], style = 
       ops.explode = smootherstep(0.22, 2.3, localT);
       ops.arrows = 0;
     } else if (sceneIndex === 3) {
-      ops.cut = 'section';
-      ops.cutConst = 0.0;
+      // The head is open-front, so the valvetrain reads without a cut: keep the sample whole.
+      ops.cut = 'solid';
       ops.arrows = 0;
       ops.explode = 1 - smootherstep(0.05, 0.95, localT);
     }
