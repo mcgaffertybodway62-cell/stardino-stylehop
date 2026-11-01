@@ -93,7 +93,7 @@ const CHARGE = ['#D98A5E', '#A7ADB4', '#7FA6C4', '#C9CDD2'];
 
 /** Crank web outline: counterweight sector opposite the pin, boss around the pin. */
 function webGeometry(thick) {
-  const R = 64;
+  const R = 54;
   const s = new THREE.Shape();
   s.moveTo(-R * Math.sin(1.0), -R * Math.cos(1.0));
   s.absarc(0, 0, R, -Math.PI / 2 - 1.0, -Math.PI / 2 + 1.0, false);
@@ -144,11 +144,18 @@ export function buildSample(M, hostScene) {
     }
   }
   // Closed crankcase: the section cut is what opens it, which keeps scene 01 a clean silhouette.
-  const crankcase = add(frame, blockGeometry({ w: 290, h: 110, d: 180, r: 10 }), M.black);
-  crankcase.position.y = -22;
+  const crankcase = add(frame, blockGeometry({ w: 290, h: 142, d: 180, r: 10 }), M.black);
+  crankcase.position.y = -8;
   const boss = add(frame, new THREE.CylinderGeometry(34, 38, 18, 32), M.alu);
   boss.rotation.x = Math.PI / 2;
   boss.position.set(0, 0, 96);
+  const plate = add(frame, blockGeometry({ w: 86, h: 34, d: 3, r: 3 }), M.alu);
+  plate.position.set(-96, -26, 91);
+  for (const px of [-30, 30]) {
+    const screw = add(frame, boltGeometry({ r: 2.6, h: 4 }), M.steel);
+    screw.position.set(-96 + px, -26, 93);
+    screw.rotation.x = Math.PI / 2;
+  }
   const bossRing = add(frame, new THREE.TorusGeometry(35, 2.4, 8, 32), M.black);
   bossRing.position.set(0, 0, 105);
 
@@ -156,12 +163,13 @@ export function buildSample(M, hostScene) {
   shells.push(jacketMat);
   const cylGroup = new THREE.Group();
   frame.add(cylGroup);
-  const boreMat = M.aluDark.clone();
-  boreMat.side = THREE.BackSide;
+  const boreMat = new THREE.MeshStandardMaterial({ color: '#9AA1A8', metalness: 0.55, roughness: 0.55, side: THREE.BackSide });
   shells.push(boreMat);
-  const boreSleeve = add(cylGroup, new THREE.CylinderGeometry(K.bore / 2 + 1, K.bore / 2 + 1, 168, 44, 1, true), boreMat, { cast: false });
-  boreSleeve.position.y = 126;
+  const boreSleeve = add(cylGroup, new THREE.CylinderGeometry(63, 63, 176, 44, 1, true), boreMat, { cast: false });
+  boreSleeve.position.y = 120;
   boreSleeve.visible = false;
+  const baseFlange = add(cylGroup, new THREE.CylinderGeometry(78, 82, 14, 44), shellAlu);
+  baseFlange.position.y = 40;
   const jacket = add(cylGroup, new THREE.CylinderGeometry(66, 72, 180, 44), jacketMat);
   jacket.position.y = 122;
   for (const y of [70, 118, 166]) {
@@ -207,16 +215,16 @@ export function buildSample(M, hostScene) {
 
   const head = new THREE.Group();
   root.add(head);
-  const headBody = add(head, blockGeometry({ w: 150, h: 44, d: 130, r: 6 }), shellAlu);
-  headBody.position.y = 234;
-  const gasket = add(head, blockGeometry({ w: 152, h: 5, d: 132, r: 4 }), shellBlack);
+  const headBody = add(head, blockGeometry({ w: 138, h: 52, d: 124, r: 6 }), shellAlu);
+  headBody.position.y = 238;
+  const gasket = add(head, blockGeometry({ w: 140, h: 5, d: 126, r: 4 }), shellBlack);
   gasket.position.y = 212;
-  const headTop = add(head, blockGeometry({ w: 112, h: 16, d: 104, r: 4 }), shellBlack);
-  headTop.position.y = 263;
+  const headTop = add(head, blockGeometry({ w: 104, h: 18, d: 98, r: 4 }), shellBlack);
+  headTop.position.y = 273;
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const b = add(head, boltGeometry({ r: 4.4, h: 7 }), valveSteel);
-      b.position.set(sx * 64, 258, sz * 54);
+      b.position.set(sx * 58, 266, sz * 51);
     }
   }
 
@@ -255,9 +263,17 @@ export function buildSample(M, hostScene) {
   add(plug, new THREE.CylinderGeometry(6, 6, 26, 16), jacketMat).position.y = 12;
   add(plug, new THREE.CylinderGeometry(8, 8, 7, 6), valveSteel).position.y = -2;
 
-  // ---------------------------------------------------------------- camshaft
+  // ---------------------------------------------------------------- cam carrier + camshaft
+  for (const sx of [-1, 1]) {
+    const post = add(head, blockGeometry({ w: 16, h: 62, d: 20, r: 3 }), shellBlack);
+    post.position.set(sx * 58, 296, 0);
+    const capBlock = add(head, blockGeometry({ w: 26, h: 12, d: 26, r: 3 }), shellAlu);
+    capBlock.position.set(sx * 58, 312, 0);
+    const nut = add(head, boltGeometry({ r: 3.6, h: 6 }), valveSteel);
+    nut.position.set(sx * 58, 319, 0);
+  }
   const cam = new THREE.Group();
-  cam.position.y = 274;
+  cam.position.y = 284;
   root.add(cam);
   const camShaft = add(cam, new THREE.CylinderGeometry(11, 11, 224, 20), M.steel);
   camShaft.rotation.x = Math.PI / 2;
@@ -265,6 +281,11 @@ export function buildSample(M, hostScene) {
     const bearing = add(cam, blockGeometry({ w: 28, h: 22, d: 22, r: 4 }), M.black);
     bearing.position.set(0, 0, z);
   }
+  // cam sprocket rides on the shaft: the one thing that says "driven", not "decorative"
+  const camSprocket = new THREE.Mesh(gearGeometry({ teeth: 20, rOut: 33, rRoot: 28, width: 11, holeR: 11 }), M.alu);
+  camSprocket.position.z = -96;
+  cam.add(camSprocket);
+
   const lobes = [];
   for (const [sx, which] of [[-1, 'intake'], [1, 'exhaust']]) {
     const lg = new THREE.Group();
@@ -320,64 +341,9 @@ export function buildSample(M, hostScene) {
   const clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0.9);
   let cutNow = '';
 
-  // Section caps, teardown-style: two stencil twins per clipped mesh count its faces beyond the
-  // cut, and a plane lying on the cut paints the cap colour wherever the count says metal.
-  const capCount = (side, op) =>
-    new THREE.MeshBasicMaterial({
-      side,
-      colorWrite: false,
-      depthWrite: false,
-      depthTest: false,
-      stencilWrite: true,
-      stencilFunc: THREE.AlwaysStencilFunc,
-      stencilFail: op,
-      stencilZFail: op,
-      stencilZPass: op,
-      clippingPlanes: [clipPlane],
-    });
-  const capBack = capCount(THREE.BackSide, THREE.IncrementWrapStencilOp);
-  const capFront = capCount(THREE.FrontSide, THREE.DecrementWrapStencilOp);
-  const capMat = new THREE.MeshStandardMaterial({
-    color: '#D7DADE',
-    roughness: 0.62,
-    metalness: 0.0,
-    side: THREE.DoubleSide,
-    stencilWrite: true,
-    stencilRef: 0,
-    stencilFunc: THREE.NotEqualStencilFunc,
-    stencilFail: THREE.ReplaceStencilOp,
-    stencilZFail: THREE.ReplaceStencilOp,
-    stencilZPass: THREE.ReplaceStencilOp,
-  });
-  const cap = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), capMat);
-  cap.renderOrder = 3;
-  cap.visible = false;
-  cap.onAfterRender = (r) => r.clearStencil();
-  hostScene.add(cap);
+  // The cut is a hollow half-shell: a stencil cap needs a stencil-attached default framebuffer,
+  // which the headless renderer does not provide (documented in SPEC §3). No dead code here.
 
-  const capTwins = [];
-  {
-    const clipped = new Set(shells);
-    root.traverse((o) => {
-      if (!o.isMesh || !clipped.has(o.material)) return;
-      for (const mat of [capBack, capFront]) {
-        const twin = new THREE.Mesh(o.geometry, mat);
-        twin.castShadow = false;
-        twin.receiveShadow = false;
-        twin.renderOrder = 0.5;
-        twin.visible = false;
-        o.add(twin);
-        capTwins.push(twin);
-      }
-    });
-  }
-  const placeCap = () => {
-    const c = clipPlane.constant;
-    const n = clipPlane.normal;
-    cap.position.set(-c * n.x, -c * n.y, -c * n.z);
-    cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n.clone().negate());
-  };
-  placeCap();
 
   const rootScale = 0.006;
   root.scale.setScalar(rootScale);
@@ -397,7 +363,6 @@ export function buildSample(M, hostScene) {
 
     // ---- section cut
     clipPlane.constant = ops.cutConst ?? 0.9;
-    placeCap();
     const sectionOn = cut === 'section';
     if (cut !== cutNow) {
       cutNow = cut;
@@ -410,27 +375,24 @@ export function buildSample(M, hostScene) {
       jacketMat.opacity = cut === 'glass' ? 0.42 : 1;
       jacketMat.depthWrite = cut !== 'glass';
       jacketMat.needsUpdate = true;
-      // Stencil caps need a stencil-attached default framebuffer; headless SwiftShader drops it,
-      // so the shipped look is a hollow half-shell (see SPEC §3).
-      cap.visible = false;
-      for (const t of capTwins) t.visible = false;
       M.glass.opacity = cut === 'solid' ? 0.9 : 0.18;
       M.glass.depthWrite = cut === 'solid';
       M.glass.needsUpdate = true;
       liner.visible = cut !== 'section';
       boreSleeve.visible = sectionOn;
+      charge.visible = cut !== 'section';
     }
 
     // ---- explode choreography (staged, so nothing passes through anything)
     const eJacket = layerEase(ex, [0.04, 0.46], 46);
-    const ePiston = layerEase(ex, [0.14, 0.62], 95);
-    const eHead = layerEase(ex, [0.30, 0.74], 140);
-    const eCam = layerEase(ex, [0.48, 0.92], 220);
+    const ePiston = layerEase(ex, [0.14, 0.62], 112);
+    const eHead = layerEase(ex, [0.30, 0.74], 172);
+    const eCam = layerEase(ex, [0.48, 0.92], 252);
 
     cylGroup.position.y = eJacket;
     flywheel.position.z = -112 - layerEase(ex, [0.0, 0.4], 120);
     head.position.y = eHead;
-    cam.position.y = 274 + eCam;
+    cam.position.y = 284 + eCam;
 
     // ---- rotating parts
     crank.rotation.z = -th * DEG;
@@ -468,8 +430,8 @@ export function buildSample(M, hostScene) {
     const key = strokeIndex(th);
     charge.material.color.set(CHARGE[key]);
     charge.material.opacity = key === 0 ? 0.16 : 0.1;
-    charge.position.y = (crown + K.deck) / 2 + ePiston * 0.15;
-    charge.scale.y = Math.max(1, K.deck - crown);
+    charge.position.y = crown + (K.deck - crown) / 2 + 1.5;
+    charge.scale.y = Math.max(1, K.deck - crown - 3);
 
     // ---- valvetrain
     for (const v of valveParts) {
@@ -518,10 +480,10 @@ export default async function createWorld({ width, height, scenes = [], style = 
   // Framing boxes, in world units, declared from the built sample's real extents. Subjects that are
   // Object3D get measured at their rest pose; the exploded stack needs its own envelope because the
   // parts leave their rest bounds while the camera is already moving.
-  const HERO = { center: [0, 1.0, 0], size: [2.15, 2.15, 2.0] };
-  const UPPER = { center: [0, 1.34, -0.1], size: [1.15, 1.9, 1.3] };
-  const HEAD = { center: [0, 1.52, 0], size: [0.92, 0.78, 0.82] };
-  const EXPLODED = { center: [0, 1.55, 0], size: [2.2, 3.3, 2.1] };
+  const HERO = { center: [0, 1.22, 0], size: [2.0, 2.55, 1.98] };
+  const UPPER = { center: [0, 1.55, -0.1], size: [1.2, 2.1, 1.35] };
+  const HEAD = { center: [0, 2.02, 0], size: [1.1, 1.05, 0.95] };
+  const EXPLODED = { center: [0, 1.95, 0], size: [2.2, 3.9, 2.1] };
 
   const director = studio.director({
     subjects: {
@@ -575,9 +537,9 @@ export default async function createWorld({ width, height, scenes = [], style = 
         big: { label: 'Exploded', value: Math.round(ex * 100), unit: '%' },
         rows: [
           { label: 'Jacket lift', value: `${Math.round(layerEase(ex, [0.04, 0.46], 46))} mm` },
-          { label: 'Piston lift', value: `${Math.round(layerEase(ex, [0.14, 0.62], 95))} mm` },
-          { label: 'Head lift', value: `${Math.round(layerEase(ex, [0.3, 0.74], 140))} mm` },
-          { label: 'Cam lift', value: `${Math.round(layerEase(ex, [0.48, 0.92], 220))} mm` },
+          { label: 'Piston lift', value: `${Math.round(layerEase(ex, [0.14, 0.62], 112))} mm` },
+          { label: 'Head lift', value: `${Math.round(layerEase(ex, [0.3, 0.74], 172))} mm` },
+          { label: 'Cam lift', value: `${Math.round(layerEase(ex, [0.48, 0.92], 252))} mm` },
         ],
         phase: { labels: STROKES, index: strokeIndex(th) },
         formula: 'layers leave in assembly order · no manual keys',
@@ -650,8 +612,7 @@ export default async function createWorld({ width, height, scenes = [], style = 
       ops.cut = 'section';
       ops.cutConst = lerp(0.9, 0.0, smootherstep(0.12, 1.5, localT));
     } else if (sceneIndex === 2) {
-      ops.cut = 'section';
-      ops.cutConst = 0.0;
+      ops.cut = 'solid';
       ops.explode = smootherstep(0.22, 2.3, localT);
       ops.arrows = 0;
     } else if (sceneIndex === 3) {

@@ -27,7 +27,7 @@
 
 - **运镜（`engine/director.js` shot list）**：`push` / `pull` / `orbit` / `rise`，恒定 26–31° 焦段；**无抖**。特写只给刻线、配合面与读数。
 - **Pass Chain**：`['grain', { amount: 0.014, paper: 0.0, vignette: 0.16 }]`。材质感来自 kernel 的 PBR（阳极铝 / 钢 / 玻璃），不用屏幕空间贴图。
-- **剖切**：`renderer.localClippingEnabled = true`；`THREE.Plane((-1,0,0), c)` 沿 X 轴在世界空间扫过（0.9 → 0），只裁缸套 / 缸盖 / 阀组，机匣与曲轴保持完整；斜视 30–40° 才看得出半个圆柱的开口（正视时半圆柱投影仍是整圆）。截面盖已按 teardown 方式实现（stencil 双胞胎 + cap 平面），但**无头 SwiftShader 下 stencil 不生效**，首版关闭，改用 `DoubleSide` + 内壁 `boreSleeve` 表现切面。
+- **剖切**：`renderer.localClippingEnabled = true`；`THREE.Plane((-1,0,0), c)` 沿 X 轴在世界空间扫过（0.9 → 0），只裁缸套 / 缸盖 / 阀组，机匣与曲轴保持完整；斜视 30–40° 才看得出半个圆柱的开口（正视时半圆柱投影仍是整圆）。截面盖做过 teardown 式 stencil 双胞胎 + cap 平面，实测无头渲染的默认帧缓冲没有 stencil，cap 会整片绘制，因此**未采用**并已移除相关代码；当前用 `DoubleSide` 半壳 + 内壁 `boreSleeve` 表现切面。
 - **HUD**：相机子节点平面 + `CanvasTexture`，`depthTest:false / toneMapped:false`，每帧按 `camera.fov` 重算尺寸；`userData.skipContactShadow = true`。
 
 ---
@@ -75,4 +75,6 @@
 - [x] `node tools/render.mjs --style calibration-lab --sheet styles/calibration-lab/contact_sheet.jpg` 已生成并逐格读图（2026-11-01）
 - [x] `gallery/catalog.js` 已注册 `stageMode` / `bestFor` / `avoidFor` / `cameraPresets`
 
-首版已知短板：切面无可读盖色；排气歧管过简；爆炸镜头垂直节奏偏稀；仪表相位条在 1080p 下偏小。
+细节层：凸轮由两根立柱 + 轴承盖固定（避免“悬空横杆”），后端正时链轮随凸轮转动，机匣前脸有铆接铭牌，排气歧管按 CatmullRom 扫管生成。
+
+已知短板：切面无可读盖色（无 stencil 帧缓冲）；爆炸镜头垂直节奏偏稀；仪表相位条在 1080p 下偏小。

@@ -468,12 +468,18 @@ export function createGaugeHud({ camera, width, height }) {
       const cellW = Math.round((portrait ? (W - m * 2) / 4 : 96 * u));
       const cellH = Math.round(26 * u);
       const py = H - m - cellH - Math.round(16 * u);
+      const stripW = cellW * phase.labels.length;
+      ctx.fillStyle = 'rgba(250, 251, 252, 0.86)';
+      ctx.fillRect(m - 6 * u, py - 6 * u, stripW + 12 * u, cellH + 12 * u);
+      ctx.strokeStyle = CAL_PALETTE.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(m - 6 * u + 0.5, py - 6 * u + 0.5, stripW + 12 * u - 1, cellH + 12 * u - 1);
       phase.labels.forEach((label, i) => {
         const x = m + i * cellW;
         const on = i === phase.index;
         ctx.fillStyle = on ? accent : 'rgba(21, 24, 28, 0.04)';
         ctx.fillRect(x + 1, py, cellW - 3, cellH);
-        ctx.fillStyle = on ? '#FFFFFF' : CAL_PALETTE.muted;
+        ctx.fillStyle = on ? '#FFFFFF' : '#5E666F';
         ctx.font = `600 ${Math.round(10.5 * u)}px ${MONO}`;
         const tw = ctx.measureText(label).width;
         ctx.textAlign = 'center';
