@@ -218,6 +218,44 @@ export const STYLES = [
       'finalePull',
     ],
   },
+  {
+    id: 'calibration-lab',
+    name: 'Calibration Lab',
+    zh: '计量实验室',
+    scenes: 4,
+    dur: 16.0,
+    preset: 'terminal',
+    stageMode: '3d-pure',
+    defaultOverlay: 'none',
+    kernel: './kernel.js',
+    bestFor: [
+      '机械原理 / 结构拆解 / 剖视解释（发动机 / 泵 / 减速箱 / 连杆机构）',
+      '工业产品与量具 / 标定与公差 / 制造工艺科普',
+      '工程教学 / 物理机制讲解 / “它为什么这么动”',
+      '技术发布会结构页 / 专利与论文机制可视化',
+    ],
+    avoidFor: [
+      '需要情绪与角色的故事短片',
+      '高密度金融K线与财务报表',
+      '纯命令行代码终端演示',
+    ],
+    keywords: [
+      '机械', '原理', '结构', '剖视', '剖面', '爆炸图', '拆解', '机构', '发动机', '引擎',
+      '四冲程', '曲轴', '活塞', '连杆', '凸轮', '气门', '齿轮', '减速箱', '变速箱', '泵',
+      '液压', '轴承', '公差', '标定', '量具', '实验室', '工程', '工业', '制造', '装配',
+      '教学', '科普', '怎么工作', '为什么', '原理演示',
+      'machine', 'mechanism', 'cutaway', 'section', 'exploded', 'engine', 'piston', 'crank',
+      'gear', 'pump', 'bearing', 'calibration', 'metrology', 'engineering', 'assembly',
+      'how it works', 'explainer',
+    ],
+    cameraPresets: [
+      'heroEstablish',
+      'macroPush',
+      'tabletopOrbit',
+      'dollyVertigo',
+      'finalePull',
+    ],
+  },
 ];
 
 export const SIZES = [

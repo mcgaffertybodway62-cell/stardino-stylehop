@@ -1,0 +1,28 @@
+/*
+ * Calibration Lab · 计量实验室 (`styles/calibration-lab/theme.css`).
+ *
+ * Palette tokens only: the stage is pure 3D and carries no DOM typography, but the engine
+ * contract expects `theme.css` next to `style.js`. Tokens mirror `kernel.js -> CAL_PALETTE`
+ * and the browser-rendered canvas HUD, so a DOM overlay (fallback / edit mode) still matches.
+ */
+#stage[data-style="calibration-lab"] {
+  --bg: #edeff1;
+  --surface: #fafbfc;
+  --surface-2: #e3e6ea;
+  --ink: #15181c;
+  --muted: #7c838c;
+  --accent: #ff5a1f;
+  --accent-2: #2f6f8f;
+  --on-accent: #ffffff;
+  --line: rgba(21, 24, 28, 0.12);
+  --radius: 0px;
+  --border-w: 1px;
+  --card-shadow: 0 calc(var(--u) * 0.3) calc(var(--u) * 1.2) rgba(21, 24, 28, 0.08);
+  --pad: calc(var(--u) * 4.4);
+  --gap: calc(var(--u) * 1.8);
+  --font-display: Inter, system-ui, sans-serif;
+  --font-body: Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --title-weight: 700;
+  --title-tracking: -0.01em;
+}
