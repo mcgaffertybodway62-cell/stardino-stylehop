@@ -484,6 +484,103 @@ def add_studio_tail(
     return fade_in_out(padded + wet * refl, fade_in_s=0.0004, fade_out_s=0.025)
 
 
+def load_sample_wav(path: str) -> np.ndarray:
+    """Decode an indexed 48 kHz stereo wav to float32 (n, 2)."""
+    from scipy.io import wavfile
+
+    rate, data = wavfile.read(path)
+    if rate != SR:
+        raise ValueError(f"sample.py index must be 48 kHz, got {rate}: {path}")
+    if data.ndim == 1:
+        data = np.stack([data, data], axis=1)
+    return (data.astype(np.float32) / 32768.0)
+
+
+def pitch_sample(sig: np.ndarray, ratio: float) -> np.ndarray:
+    """Cheap linear resample: `ratio` < 1 lowers pitch, > 1 raises it."""
+    if abs(ratio - 1.0) < 1e-4:
+        return sig
+    n = max(16, int(round(len(sig) / ratio)))
+    src = np.linspace(0.0, len(sig) - 1.0, n)
+    i0 = np.floor(src).astype(np.int64)
+    i1 = np.minimum(i0 + 1, len(sig) - 1)
+    frac = (src - i0)[:, None]
+    return (sig[i0] * (1.0 - frac) + sig[i1] * frac).astype(np.float32)
+
+
+def overlay_samples(stereo: np.ndarray, cue_data: dict, sample_map_path: str) -> tuple[np.ndarray, list[str]]:
+    """
+    Add recorded one-shots over the synthesized score.
+
+    `sample_map_path` is a style-level JSON: an index path plus kind -> sample bindings:
+      { "index": "../../../out/samples-cache/index.json",
+        "map": { "brass_ratchet": {"sample": "ratchet-crank", "gain": 0.9} },
+        "bed": {"sample": "cello-bed", "gain": 0.16, "pitch": 0.5} }
+    A missing cache is not an error: the score falls back to synthesis.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    map_path = _Path(sample_map_path)
+    if not map_path.is_file():
+        return stereo, []
+    cfg = _json.loads(map_path.read_text(encoding="utf-8"))
+    index_path = _Path(cfg.get("index", "../../../out/samples-cache/index.json"))
+    if not index_path.is_absolute():
+        index_path = (map_path.parent / index_path).resolve()
+    if not index_path.is_file():
+        print(f"[sound] samples: no index at {index_path}; falling back to synthesis", file=sys.stderr)
+        return stereo, []
+    index = _json.loads(index_path.read_text(encoding="utf-8"))
+    cache = _Path(index.get("cache", index_path.parent))
+    entries = index.get("samples", {})
+    used: list[str] = []
+
+    def play(ident: str, t: float, gain: float, ratio: float, pan: float) -> None:
+        entry = entries.get(ident)
+        if not entry:
+            return
+        path = cache / entry["file"]
+        if not path.is_file():
+            return
+        sig = pitch_sample(load_sample_wav(str(path)), ratio)
+        sig = sig * float(gain) * float(entry.get("gain", 1.0))
+        mix_into(stereo, int(round(t * SR)), sig, pan=pan)
+        used.append(ident)
+
+    bed = cfg.get("bed")
+    if bed and bed.get("sample"):
+        entry = entries.get(bed["sample"])
+        if entry:
+            path = cache / entry["file"]
+            if path.is_file():
+                sig = pitch_sample(load_sample_wav(str(path)), float(bed.get("pitch", 1.0)))
+                gain = float(bed.get("gain", 0.12))
+                reps = int(np.ceil(float(cue_data.get("dur", 6.0)) * SR / max(1, len(sig)))) + 1
+                loop = np.tile(sig, (reps, 1))[: int(float(cue_data.get("dur", 6.0)) * SR)]
+                loop *= gain
+                loop = fade_in_out(loop, 0.6, 0.9)
+                stereo[: len(loop)] += loop
+                used.append(bed["sample"])
+
+    bindings = cfg.get("map", {})
+    for idx, cue in enumerate(cue_data.get("cues", [])):
+        kind = str(cue.get("kind", ""))
+        bind = bindings.get(kind)
+        if not bind:
+            continue
+        intensity = float(cue.get("intensity", 0.75))
+        pan = float(np.clip(((zlib.crc32(f"{kind}:{idx}".encode()) % 100) - 50) / 125.0, -0.4, 0.4))
+        play(
+            bind.get("sample", ""),
+            float(cue.get("t", 0.0)),
+            float(bind.get("gain", 1.0)) * (0.6 + 0.4 * intensity),
+            float(bind.get("pitch", 1.0)),
+            pan,
+        )
+    return stereo, used
+
+
 def mix_into(stereo: np.ndarray, start_idx: int, sig: np.ndarray, pan: float = 0.0):
     """Mixes a mono or stereo signal into stereo buffer at `start_idx`."""
     if start_idx >= stereo.shape[0] or len(sig) == 0:
@@ -2601,7 +2698,7 @@ def mix_voice_into(
     return out.astype(np.float32)
 
 
-def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) -> np.ndarray:
+def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77, skip_kinds: set | None = None) -> np.ndarray:
     preset = resolve_preset(preset)
     cfg = PRESETS[preset]
     dur = float(cue_data.get("dur", 6.0))
@@ -2677,9 +2774,13 @@ def synthesize_from_cues(cue_data: dict, preset: str = "glass", seed: int = 77) 
     room_wet = 0.14 if preset in ("ink", "twilight", "naturalist") else 0.08
 
     last_action_t = {}
+    skip_kinds = skip_kinds or set()
     for idx, cue in enumerate(cues):
         t = float(cue.get("t", 0.0))
         kind = str(cue.get("kind", "card_enter"))
+        if kind in skip_kinds:
+            # A recorded sample replaces the synthetic foley for this kind (no flam, no double hit).
+            continue
         label = str(cue.get("label", ""))
         intensity = float(cue.get("intensity", 0.75))
         pitch = float(cue.get("pitch", 1.0))
@@ -2790,6 +2891,7 @@ def main():
         default="glass",
         help="Sonic palette preset (ink, jazz, clay, paper, twilight, glass, cyber, terminal, or style aliases)",
     )
+    parser.add_argument("--samples", default=None, help="Style sample map (JSON): recorded one-shots layered over the score")
     parser.add_argument("--voice", default=None, help="48 kHz mono/stereo voice WAV to mix over the score")
     parser.add_argument("--duck-db", type=float, default=-10.0, help="Music gain reduction under speech (0 disables ducking)")
     parser.add_argument("--voice-gain", type=float, default=0.0, help="Voice gain in dB before the final limiter")
@@ -2805,7 +2907,28 @@ def main():
 
     preset = resolve_preset(cue_data.get("soundPreset") or args.preset)
 
-    stereo = synthesize_from_cues(cue_data, preset=preset)
+    # Only retire a synthesized cue kind when the sample it maps to is actually on disk;
+    # otherwise a missing cache would silently delete foley instead of falling back.
+    sample_kinds: set = set()
+    if args.samples:
+        try:
+            _map = json.loads(Path(args.samples).read_text(encoding="utf-8"))
+            _idx_path = Path(_map.get("index", "../../../out/samples-cache/index.json"))
+            if not _idx_path.is_absolute():
+                _idx_path = (Path(args.samples).resolve().parent / _idx_path).resolve()
+            if _idx_path.is_file():
+                _idx = json.loads(_idx_path.read_text(encoding="utf-8"))
+                _cache = Path(_idx.get("cache", _idx_path.parent))
+                for kind, bind in (_map.get("map") or {}).items():
+                    entry = (_idx.get("samples") or {}).get(bind.get("sample", ""))
+                    if entry and (_cache / entry["file"]).is_file():
+                        sample_kinds.add(kind)
+        except Exception:
+            sample_kinds = set()
+    stereo = synthesize_from_cues(cue_data, preset=preset, skip_kinds=sample_kinds)
+    samples_used: list[str] = []
+    if args.samples:
+        stereo, samples_used = overlay_samples(stereo, cue_data, args.samples)
     if args.voice:
         voice_path = Path(args.voice)
         if not voice_path.is_file():
@@ -2829,6 +2952,7 @@ def main():
                 "preset": preset,
                 "dur": float(cue_data.get("dur", 0)),
                 "cues": len(cue_data.get("cues", [])),
+                "samples": sorted(set(samples_used)),
                 "voice": str(Path(args.voice)) if args.voice else None,
                 "peak_dbtp": round(peak_db, 2),
                 "rms_dbfs": round(rms_db, 2),

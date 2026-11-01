@@ -78,3 +78,37 @@ Third-Party Sample Libraries (referenced, not redistributed)
 See CREDITS.md. Audio rendered by this project's scripts may incorporate CC BY
 licensed instrument samples (Salamander Grand Piano V3, CC BY 3.0; MuldjordKit,
 CC BY 4.0). Those obligations attach to rendered audio, not to this source tree.
+
+--------------------------------------------------------------------------------
+Recorded sample sources (tools/samples.py)
+--------------------------------------------------------------------------------
+
+No audio file is redistributed in this repository. `tools/samples.manifest.json`
+carries the URL, sha256 and licence of every file; `python3 tools/samples.py fetch`
+downloads and indexes them into `../out/samples-cache/` at build time. Styles opt in
+with a `samples.json` map; without the cache the score falls back to synthesis.
+
+VCSL — Versilian Community Sample Library
+  Licence: CC0 1.0 Universal (public domain dedication)
+  Source:  https://github.com/sgossner/VCSL
+  Files:   Idiophones/Struck Idiophones/Ratchet/Ratchet1_Crank_rr1_Mid.wav
+           Idiophones/Struck Idiophones/Ratchet/Ratchet1_Slow_rr1_Mid.wav
+           Idiophones/Struck Idiophones/Anvil/Anvil_Hit1_v1_rr1_Mid.wav
+           Idiophones/Struck Idiophones/Brake Drum/BrakeDrum1_Hammer_v1_rr1_Mid.wav
+           Idiophones/Struck Idiophones/Claves/Claves1_Hit_v1_rr1_Mid.wav
+           Idiophones/Struck Idiophones/Slapstick/slapstick_rr1.wav
+
+VSCO 2 Community Edition
+  Licence: CC0 1.0 Universal (public domain dedication)
+  Source:  https://github.com/sgossner/VSCO-2-CE
+  Files:   Strings/Cello Section/susvib/susvib_B3_v1_1.wav
+           Brass/Trumpet/sus/Sum_SHTrumpet_sus_A2_v3_rr1.wav
+
+Sonniss #GameAudioGDC Bundle (optional, manual import only)
+  Licence: Sonniss GDC Bundle EULA v2.0 — worldwide, non-exclusive, royalty-free,
+           commercial use allowed, no attribution required; the files may not be
+           redistributed as sound effects; use for AI training is expressly forbidden.
+  Source:  https://sonniss.com/gdc-bundle-license/  ·  https://gdc.sonniss.com/
+  This repository neither downloads nor ships these files. `tools/samples.py import
+  --pack sonniss-gdc --src <folder>` only indexes a copy the user downloaded
+  themselves, and it stays in `../out/samples-cache/`.

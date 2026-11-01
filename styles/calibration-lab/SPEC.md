@@ -64,6 +64,7 @@
 
 - **Tactile Surface Texture**：`../assets/textures/brushed_metal.png`（台面/图版底色参考）。
 - **Sound Preset**：`terminal`；cue 只落在机构节点（曲轴过点、剖切扫过、层分离、气门峰值），连续运动保持安静。
+- **采样层（可选）**：`samples.json` 把 cue kind 绑到真实 one-shot（`brass_ratchet → ratchet-crank`、`count_tick → claves-hit`、`scale_tilt → brake-hammer`、`card_enter → slapstick`、`layer_float → anvil-hit`），床用 `cello-bed` 低八度；绑定后**替换**该 kind 的合成拟音，避免双重触发。缓存缺失时自动回退纯合成。
 
 ---
 

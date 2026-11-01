@@ -429,6 +429,12 @@ export async function main(argv = process.argv.slice(2)) {
           '--preset',
           soundPreset,
         ];
+        // Recorded one-shots are optional: a style may bind cue kinds to samples
+        // (out/samples-cache/index.json, built by tools/samples.py). Missing cache = pure synthesis.
+        const styleSamples = path.join(REPO_ROOT, 'styles', o.style || '', 'samples.json');
+        if (o.style && fs.existsSync(styleSamples)) {
+          soundArgs.push('--samples', styleSamples);
+        }
         if (voiceWav) {
           soundArgs.push('--voice', voiceWav, '--duck-db', String(o.duckDb), '--voice-gain', String(o.voiceGain));
         }

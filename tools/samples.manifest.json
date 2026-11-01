@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "note": "Sample sources for tools/samples.py. Text only: no audio is committed (see .gitignore). Meta-<cfg>/samples-cache/ is created outside the repo by `python3 tools/samples.py fetch`.",
+  "packs": [
+    {
+      "id": "vcsl",
+      "title": "Versilian Community Sample Library (VCSL)",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://github.com/sgossner/VCSL",
+      "redistributable": true,
+      "attribution": "Versilian Studios, VCSL (CC0-1.0)",
+      "files": [
+        {
+          "id": "ratchet-crank",
+          "path": "Idiophones/Struck Idiophones/Ratchet/Ratchet1_Crank_rr1_Mid.wav",
+          "sha256": "40108f3c5e704635d7af039f3202463415228103c260f642e8f231b100b06bec",
+          "tags": ["ratchet", "mechanical", "tick"],
+          "gain": 1.0
+        },
+        {
+          "id": "ratchet-slow",
+          "path": "Idiophones/Struck Idiophones/Ratchet/Ratchet1_Slow_rr1_Mid.wav",
+          "sha256": "f3236309dbd3a1e3a00a48db7ec5a0c90a59d171512f4ec0a21f197014b16080",
+          "tags": ["ratchet", "mechanical", "bed"],
+          "gain": 1.0
+        },
+        {
+          "id": "anvil-hit",
+          "path": "Idiophones/Struck Idiophones/Anvil/Anvil_Hit1_v1_rr1_Mid.wav",
+          "sha256": "1fb23c5f9113a9ac8eea21c7fc59f4e3c8baa956c9b74052fef2630f52aeef9b",
+          "tags": ["metal", "impact"],
+          "gain": 1.0
+        },
+        {
+          "id": "brake-hammer",
+          "path": "Idiophones/Struck Idiophones/Brake Drum/BrakeDrum1_Hammer_v1_rr1_Mid.wav",
+          "sha256": "11b4fbfc21b5329e7394c24df143716f1f2681f4a8f71aa31dcab1e0d8af6b66",
+          "tags": ["metal", "impact", "machine"],
+          "gain": 1.0
+        },
+        {
+          "id": "claves-hit",
+          "path": "Idiophones/Struck Idiophones/Claves/Claves1_Hit_v1_rr1_Mid.wav",
+          "sha256": "19379cc794b9e50d4dc55200238e27091bedab63b7370eb625490c7a96631b34",
+          "tags": ["click", "measurement"],
+          "gain": 1.0
+        },
+        {
+          "id": "slapstick",
+          "path": "Idiophones/Struck Idiophones/Slapstick/slapstick_rr1.wav",
+          "sha256": "e73b38bf43b385d95e2c790e7424526a91af8d1cdf484002912a4a8eabe73300",
+          "tags": ["snap", "transition"],
+          "gain": 1.0
+        }
+      ]
+    },
+    {
+      "id": "vsco2",
+      "title": "VSCO 2 Community Edition",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://github.com/sgossner/VSCO-2-CE",
+      "redistributable": true,
+      "attribution": "Versilian Studios, VSCO 2 Community Edition (CC0-1.0)",
+      "files": [
+        {
+          "id": "cello-bed",
+          "path": "Strings/Cello Section/susvib/susvib_B3_v1_1.wav",
+          "sha256": "bd25d66c1c4e73f5827bf3b931244e51ec8388594d8004529a762be81258097f",
+          "tags": ["strings", "bed", "tonal"],
+          "gain": 0.6
+        },
+        {
+          "id": "trumpet-sting",
+          "path": "Brass/Trumpet/sus/Sum_SHTrumpet_sus_A2_v3_rr1.wav",
+          "sha256": "6c331fb59ab6668e4f77ce59c19445fc52d1082f376df853c9282ed518205a5f",
+          "tags": ["brass", "sting", "tonal"],
+          "gain": 0.5
+        }
+      ]
+    },
+    {
+      "id": "sonniss-gdc",
+      "title": "Sonniss #GameAudioGDC Bundle",
+      "license": "Sonniss GDC Bundle EULA v2.0 (royalty-free, commercial use, no attribution)",
+      "licenseUrl": "https://sonniss.com/gdc-bundle-license/",
+      "source": "https://gdc.sonniss.com/",
+      "redistributable": false,
+      "manual": true,
+      "attribution": "Sonniss #GameAudioGDC Bundle (see EULA)",
+      "notes": "Not downloadable by script (bundle is 7-27 GB behind a Cloudflare gate). Download it yourself, then run: python3 tools/samples.py import --pack sonniss-gdc --src <folder>. The EULA forbids redistributing the files and forbids using them for AI training; they stay in out/samples-cache and never enter this repository.",
+      "files": []
+    }
+  ]
+}

@@ -146,7 +146,8 @@ engine/            核心引擎：
                    - components/（可选组件，默认不加载：data.css 提供公式与数据表，按需在 theme.css 中引入）
 tools/             风格工程工具链：
                    - textures.py（程序化 512x512 无缝物理质感贴图生成器 → assets/textures/）
-                   - sound.py（基于 window.CUES 的多预设声学拟音与配乐合成器 → 48kHz WAV；--voice 混入人声并做侧链 ducking）
+                   - sound.py（基于 window.CUES 的多预设声学拟音与配乐合成器 → 48kHz WAV；--voice 混入人声并做侧链 ducking；--samples 叠加真实采样 one-shot）
+                   - samples.py（采样库抓取与索引：列举 URL/sha256/许可 → ../out/samples-cache/；支持手动导入 Sonniss 等大包）
                    - voice.py（voice.json → 48kHz 人声 + timing + SRT；edge-tts / Kokoro / VOICE_CMD 后端与逐行缓存）
                    - voice.example.json（人声 manifest 示例）
                    - audit.mjs（自动化体检门禁：零报错、文字越界/裁切、最小字号（--min-font）、阅读时长、浮层遮挡检测）
@@ -160,7 +161,7 @@ styles/            多场景风格目录：
                    - twilight-fable/（微光绘本寓言 · 双层法线边缘光 + 奶油散景 + Q 版与写实生灵双轨）
                    - ink-wash/（宣纸水墨诗卷 · 多笔毫飞白/披麻皴生成式原语 + 宣纸洇墨着色器）
                    - vintage-naturalist/（复古博物学 · 铜版画蚀刻/黄铜仪表内核 + 15s 雀喙标本样片 + 23px 字号红线）
-                   - calibration-lab/（计量实验室 · 纯 3D 机械剖视：刻线台面 + 世界空间剖切 + 分阶段爆炸 + 同源仪表 HUD）
+                   - calibration-lab/（计量实验室 · 纯 3D 机械剖视：刻线台面 + 世界空间剖切 + 分阶段爆炸 + 同源仪表 HUD + samples.json 采样层）
 showcase/          宣发物料与历史归档（画廊吉祥物「星芒史莱姆」九界短片等，与 styles/ 完全解耦）
 ```
 

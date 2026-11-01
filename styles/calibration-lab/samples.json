@@ -1,0 +1,12 @@
+{
+  "index": "../../../out/samples-cache/index.json",
+  "note": "Recorded one-shots layered over the synthesized `terminal` score. Missing cache = pure synthesis, so a fresh clone still renders.",
+  "map": {
+    "brass_ratchet": { "sample": "ratchet-crank", "gain": 0.9 },
+    "count_tick": { "sample": "claves-hit", "gain": 0.62 },
+    "scale_tilt": { "sample": "brake-hammer", "gain": 0.5, "pitch": 0.92 },
+    "card_enter": { "sample": "slapstick", "gain": 0.38 },
+    "layer_float": { "sample": "anvil-hit", "gain": 0.36 }
+  },
+  "bed": { "sample": "cello-bed", "gain": 0.14, "pitch": 0.5 }
+}

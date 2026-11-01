@@ -56,3 +56,12 @@ Drums: "MuldjordKit" by Lars Muldjord (drumgizmo.org), FreePats version, license
   - Karoryfer Samples (`github.com/sfzinstruments`)
 - **Fitted Foley Recipes (`earshot/forge/bank/fit.json`, CC0 1.0 recordings on Freesound)**:
   - Parametric modal/spectral recipes measured from CC0 1.0 recordings by `steffcaffrey`, `qubodup`, `michorvath`, `Sadiquecat`, `zrrion`, `bigmonmulgrew`, `jentlemen`, `kyles`, `IENBA`, `deraj`, `CapsLok`, `IanStarGem`, `Macif`, and `Kinoton` (no raw audio recordings are bundled).
+
+
+## Recorded samples (optional, build-time fetch)
+
+`tools/samples.py` indexes recordings into `../out/samples-cache/`; no audio is committed.
+Currently bound: **VCSL** (Versilian Studios, CC0-1.0) and **VSCO 2 Community Edition**
+(Versilian Studios, CC0-1.0). The optional **Sonniss #GameAudioGDC** pack is imported from a
+user-downloaded folder and stays outside the repository (EULA: royalty-free commercial use,
+no redistribution, no AI training). See `LICENSE-THIRD-PARTY`.
