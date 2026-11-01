@@ -225,24 +225,63 @@ export function createDirector(THREE, { camera, scenes = [], subjects = {}, shot
     return typeof ref === 'string' ? subjects[ref] : ref;
   }
 
-  function boxOf(ref, follow) {
+  function blendBoxes(a, b, t) {
+    return {
+      center: a.center.map((v, i) => lerp(v, b.center[i], t)),
+      size: a.size.map((v, i) => lerp(v, b.size[i], t)),
+    };
+  }
+
+  function boxOf(ref, follow, k = 0) {
     if (typeof ref === 'string' && Array.isArray(subjects[ref])) ref = subjects[ref];
     if (Array.isArray(ref) && ref.length && typeof ref[0] !== 'number') {
-      const boxes = ref.map((r) => boxOf(r, follow));
+      const boxes = ref.map((r) => boxOf(r, follow, k));
       const lo = [0, 1, 2].map((i) => Math.min(...boxes.map((b) => b.center[i] - b.size[i] / 2)));
       const hi = [0, 1, 2].map((i) => Math.max(...boxes.map((b) => b.center[i] + b.size[i] / 2)));
       return { center: lo.map((v, i) => (v + hi[i]) / 2), size: lo.map((v, i) => hi[i] - v) };
     }
     const obj = lookup(ref);
     if (!obj) throw new Error(`director: unknown subject "${ref}"`);
-    if (!obj.isObject3D) return { center: [...obj.center], size: [...(obj.size || [1, 1, 1])] };
+    if (typeof obj === 'function') {
+      return boxOf(obj(k), follow, k);
+    }
+    if (!obj.isObject3D) {
+      if (obj.from && obj.to) {
+        return blendBoxes(boxOf(obj.from, follow, k), boxOf(obj.to, follow, k), k);
+      }
+      const full = { center: [...obj.center], size: [...(obj.size || [1, 1, 1])] };
+      if (obj.coreBox) {
+        const core = boxOf(obj.coreBox, follow, k);
+        return blendBoxes(full, core, clamp(obj.coreWeight ?? 0.72, 0, 1));
+      }
+      return full;
+    }
+    if (follow === 'live-box') {
+      obj.updateWorldMatrix(true, true);
+      const liveBox = new THREE.Box3().setFromObject(obj);
+      if (!liveBox.isEmpty()) {
+        const c = liveBox.getCenter(new THREE.Vector3()).toArray();
+        const s = liveBox.getSize(new THREE.Vector3()).toArray();
+        const full = { center: c, size: s };
+        if (obj.userData?.coreBox) {
+          const core = boxOf(obj.userData.coreBox, follow, k);
+          return blendBoxes(full, core, clamp(obj.userData.coreWeight ?? 0.72, 0, 1));
+        }
+        return full;
+      }
+    }
     const m = measure(obj);
     let base = m.rest;
     if (follow) {
       const live = obj.getWorldPosition(tmp).toArray();
       base = follow === 'xyz' ? live : [live[0], m.rest[1], live[2]];
     }
-    return { center: base.map((v, i) => v + m.offset[i]), size: m.size };
+    const full = { center: base.map((v, i) => v + m.offset[i]), size: m.size };
+    if (obj.userData?.coreBox) {
+      const core = boxOf(obj.userData.coreBox, follow, k);
+      return blendBoxes(full, core, clamp(obj.userData.coreWeight ?? 0.72, 0, 1));
+    }
+    return full;
   }
 
   /** Subject for a shot after size hints (`userData.shotTargets`) and follow defaults. */
@@ -305,7 +344,11 @@ export function createDirector(THREE, { camera, scenes = [], subjects = {}, shot
   /** Camera state for a shot at eased progress k (no micro-motion). */
   function shotState(shot, k, live = true) {
     const { ref, fill, follow, yaw } = resolveSubject(shot);
-    const box = boxOf(ref, live && follow);
+    let box = boxOf(ref, live && follow, k);
+    if (shot.coreBox) {
+      const core = boxOf(shot.coreBox, live && follow, k);
+      box = blendBoxes(box, core, clamp(shot.coreWeight ?? 0.72, 0, 1));
+    }
     const lens = { fov: shot.fov ? shot.fov * fovScale : baseFov, aspect: lensAspect, maxDist };
     const framed = { ...shot, fov: lens.fov, fill: shot.fill ?? fill, angle: (shot.angle ?? 0) + (live ? yaw : 0) };
     return frameShot(framed, box, lens, k);

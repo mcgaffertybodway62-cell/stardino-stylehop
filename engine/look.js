@@ -209,6 +209,34 @@ function buildEnvironment(THREE, renderer, look, sharedPmrem = null) {
   softbox.lookAt(0, 0, 0);
   envScene.add(softbox);
 
+  // Optional high-contrast industrial studio reflection rig (`look.env.studioStrips`):
+  // alternates sharp specular light strips with dark negative-fill ribs so machined steel,
+  // chrome shafts, and anodized bevels show crisp metallic reflection bands instead of flat grey.
+  if (look.env.studioStrips) {
+    const stripHot = new THREE.Color(look.light.key.color).multiplyScalar(look.env.softbox * 1.45);
+    const stripWarm = new THREE.Color('#F5F8FC').multiplyScalar(look.env.softbox * 1.15);
+    const darkFill = new THREE.Color('#14181F');
+    const strips = [
+      { pos: [24, 15, 16], w: 4.2, h: 26, col: stripHot },
+      { pos: [-24, 10, -14], w: 3.6, h: 24, col: stripWarm },
+      { pos: [4, 28, -12], w: 22, h: 3.4, col: stripHot },
+      { pos: [-18, 18, 20], w: 2.8, h: 22, col: stripHot },
+      // Negative-fill absorber cards to carve crisp dark bands across cylindrical/spherical metal
+      { pos: [22, 4, -6], w: 9.5, h: 24, col: darkFill },
+      { pos: [-22, 3, 4], w: 9.0, h: 22, col: darkFill },
+      { pos: [0, 14, -27], w: 14, h: 16, col: darkFill },
+    ];
+    for (const s of strips) {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(s.w, s.h),
+        new THREE.MeshBasicMaterial({ color: s.col, side: THREE.DoubleSide }),
+      );
+      m.position.set(...s.pos);
+      m.lookAt(0, 0, 0);
+      envScene.add(m);
+    }
+  }
+
   const solidAngle = (boxW * boxH) / (dist * dist);
   const upGain = 1 + (luminance(softboxColor) * solidAngle * Math.max(keyDir.y, 0)) / (Math.PI * luminance(sky));
 
@@ -469,7 +497,7 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   const envCache = new Map();
   let sharedPmrem = null;
   function envFor(l) {
-    const k = JSON.stringify([l.light.sky, l.light.ground, l.light.key.color, l.light.key.pos, l.env.softbox]);
+    const k = JSON.stringify([l.light.sky, l.light.ground, l.light.key.color, l.light.key.pos, l.env.softbox, Boolean(l.env.studioStrips)]);
     if (!envCache.has(k)) {
       if (envCache.size >= 24) {
         const [oldKey, old] = envCache.entries().next().value;

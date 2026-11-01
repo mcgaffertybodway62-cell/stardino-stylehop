@@ -41,6 +41,7 @@ export function createStudio3D(THREE, { width, height, look, presets = LOOK_PRES
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
+    stencil: true,
     preserveDrawingBuffer: true,
     powerPreference: 'high-performance',
   });
