@@ -22,6 +22,8 @@
  *   look.render(camera);   // contact shadow + material sync + main render
  */
 
+import { createGTAORig } from './gtao.js';
+
 export const LOOK_DEFAULTS = {
   color: {
     output: 'srgb', // 'srgb' (correct) | 'legacy' (pre-r152 linear output, washed out)
@@ -34,7 +36,17 @@ export const LOOK_DEFAULTS = {
     key: {
       color: '#FFF5E0',
       pos: [-10, 22, 16],
-      shadow: { mapSize: 2048, extent: [16, 14], near: 2, far: 65, bias: -0.0005, normalBias: 0.02 },
+      shadow: {
+        type: 'pcf-soft', // 'pcf-soft' | 'vsm' | 'pcf' | 'basic'
+        mapSize: 2048,
+        extent: [16, 14],
+        near: 2,
+        far: 65,
+        bias: -0.0005,
+        normalBias: 0.02,
+        radius: 1,
+        blurSamples: 8,
+      },
     },
     sky: '#FFF8EB',
     ground: '#D9A796',
@@ -55,6 +67,21 @@ export const LOOK_DEFAULTS = {
     height: 2.5, // only geometry within this height above the ground darkens it
     resolution: 256,
     updateInterval: 2,
+  },
+  ao: {
+    enabled: false,
+    intensity: 0.70,
+    radius: 0.16,
+    thickness: 0.60,
+    distanceExponent: 1.4,
+    distanceFallOff: 1.0,
+    scale: 1.0,
+    samples: 16,
+    denoiseRadius: 6.0,
+    lumaPhi: 10.0,
+    depthPhi: 2.0,
+    normalPhi: 3.0,
+    resolutionScale: 1.0,
   },
 };
 
@@ -457,24 +484,58 @@ export function createLookTimeline(THREE, { base, presets = {}, scenes = [] }) {
  * pipeline, tone-mapping operator and shadow-map quality stay as created.
  * @returns {{ look, budget, lights, apply(look, opts), render(camera), syncMaterials() }}
  */
+const SHADOW_MAP_TYPE = {
+  'pcf-soft': 'PCFSoftShadowMap',
+  vsm: 'VSMShadowMap',
+  pcf: 'PCFShadowMap',
+  basic: 'BasicShadowMap',
+};
+
 export function createLookRig(THREE, { renderer, scene, look }) {
   const srgb = look.color.output === 'srgb';
   THREE.ColorManagement.legacyMode = !srgb;
   renderer.outputEncoding = srgb ? THREE.sRGBEncoding : THREE.LinearEncoding;
   renderer.toneMapping = THREE[TONE_MAPPING[look.color.toneMapping] || TONE_MAPPING.aces];
+  const sh = look.light.key.shadow;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE[SHADOW_MAP_TYPE[sh.type] || 'PCFSoftShadowMap'];
+  renderer.localClippingEnabled = true;
 
-  scene.background = new THREE.Color();
+  const bgColor = new THREE.Color();
+  scene.background = bgColor;
   const fog = new THREE.FogExp2(0xffffff, 0);
   scene.fog = fog;
+  const gradCache = new Map();
+
+  function gradientTextureFor(stops) {
+    const k = JSON.stringify(stops);
+    if (gradCache.has(k)) return gradCache.get(k);
+    if (typeof document === 'undefined') return null;
+    const c = document.createElement('canvas');
+    c.width = 4;
+    c.height = 512;
+    const g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 0, 0, 512);
+    const n = stops.length;
+    for (let i = 0; i < n; i++) {
+      gr.addColorStop(i / Math.max(1, n - 1), stops[i]);
+    }
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 4, 512);
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = srgb ? THREE.sRGBEncoding : THREE.LinearEncoding;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    gradCache.set(k, tex);
+    return tex;
+  }
 
   const rig = new THREE.Group();
   rig.name = 'LookRig';
   const hemi = new THREE.HemisphereLight();
   const key = new THREE.DirectionalLight();
   key.castShadow = true;
-  const sh = look.light.key.shadow;
   key.shadow.mapSize.set(sh.mapSize, sh.mapSize);
   Object.assign(key.shadow.camera, {
     near: sh.near,
@@ -486,12 +547,16 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   });
   key.shadow.bias = sh.bias;
   key.shadow.normalBias = sh.normalBias ?? 0;
+  if (sh.radius !== undefined) key.shadow.radius = sh.radius;
+  if (sh.blurSamples !== undefined) key.shadow.blurSamples = sh.blurSamples;
   const bounce = new THREE.DirectionalLight();
   rig.add(hemi, key, bounce);
   scene.add(rig);
 
   const contact = look.contact.enabled ? buildContactShadow(THREE, look) : null;
   if (contact) scene.add(contact.group);
+
+  let gtao = look.ao?.enabled ? createGTAORig(THREE, { renderer, scene, options: look.ao }) : null;
 
   // IBL textures are cached by the inputs that shape them, reusing one persistent PMREMGenerator.
   const envCache = new Map();
@@ -531,8 +596,15 @@ export function createLookRig(THREE, { renderer, scene, look }) {
     budget = computeLightBudget(next);
     const L = next.light;
     renderer.toneMappingExposure = next.color.exposure;
-    scene.background.set(next.backdrop.color);
-    fog.color.set(next.backdrop.color);
+    if (Array.isArray(next.backdrop?.gradient) && next.backdrop.gradient.length >= 2) {
+      const gTex = gradientTextureFor(next.backdrop.gradient);
+      scene.background = gTex || bgColor.set(next.backdrop.color);
+      fog.color.set(next.backdrop.gradient[Math.floor(next.backdrop.gradient.length / 2)] || next.backdrop.color);
+    } else {
+      bgColor.set(next.backdrop.color);
+      scene.background = bgColor;
+      fog.color.set(next.backdrop.color);
+    }
     fog.density = next.backdrop.fog;
 
     hemi.color.set(L.sky);
@@ -556,6 +628,10 @@ export function createLookRig(THREE, { renderer, scene, look }) {
     }
     for (const m of tracked) m.envMapIntensity = envIntensity;
     if (contact) contact.setOpacity(next.contact.opacity);
+    if (next.ao?.enabled) {
+      if (!gtao) gtao = createGTAORig(THREE, { renderer, scene, options: next.ao });
+      else gtao.setOptions(next.ao);
+    }
   }
 
   /** Give every standard material the budgeted IBL intensity and sRGB colour maps. */
@@ -590,7 +666,54 @@ export function createLookRig(THREE, { renderer, scene, look }) {
   function render(camera) {
     syncMaterials(false);
     if (contact) contact.update(renderer, scene);
+    const useAo = Boolean(gtao && current?.ao?.enabled && (current.ao.intensity ?? 0) > 0.01);
+    if (!useAo) {
+      renderer.render(scene, camera);
+      return;
+    }
+
+    gtao.update(camera);
+
+    const hudMeshes = [];
+    scene.traverse((o) => {
+      if (o.visible && o.userData?.isHudOverlay) {
+        hudMeshes.push(o);
+        o.visible = false;
+      }
+    });
+
     renderer.render(scene, camera);
+    gtao.composite();
+
+    if (hudMeshes.length > 0) {
+      const hudAncestors = new Set();
+      for (const h of hudMeshes) {
+        h.visible = true;
+        let p = h;
+        while (p && p !== scene) {
+          hudAncestors.add(p);
+          p = p.parent;
+        }
+      }
+      const hiddenTop = [];
+      for (const child of scene.children) {
+        if (child.visible && !hudAncestors.has(child)) {
+          child.visible = false;
+          hiddenTop.push(child);
+        }
+      }
+      const prevAutoClear = renderer.autoClear;
+      const prevBg = scene.background;
+      const prevFog = scene.fog;
+      renderer.autoClear = false;
+      scene.background = null;
+      scene.fog = null;
+      renderer.render(scene, camera);
+      scene.background = prevBg;
+      scene.fog = prevFog;
+      renderer.autoClear = prevAutoClear;
+      for (const child of hiddenTop) child.visible = true;
+    }
   }
 
   apply(look);
@@ -607,6 +730,7 @@ export function createLookRig(THREE, { renderer, scene, look }) {
       return envIntensity;
     },
     lights: { hemi, key, bounce },
+    gtao,
     apply,
     prewarm,
     render,

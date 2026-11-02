@@ -67,14 +67,27 @@ export const CAL_LOOK = {
     key: {
       color: '#FFFFFF',
       pos: [-9, 16, 11],
-      shadow: { mapSize: 2048, extent: [5, 5], near: 1, far: 40, bias: -0.0005, normalBias: 0.01 },
+      shadow: {
+        type: 'pcf-soft',
+        mapSize: 2048,
+        extent: [5, 5],
+        near: 1,
+        far: 40,
+        bias: -0.0005,
+        normalBias: 0.01,
+        radius: 4,
+        blurSamples: 12,
+      },
     },
     sky: '#FFFFFF',
     ground: '#C2C7CE',
     bounce: { color: '#F4F7FA', pos: [8, -3, -9], share: 0.22 },
   },
   env: { enabled: true, share: 0.58, softbox: 3.2, studioStrips: true },
-  backdrop: { color: CAL_PALETTE.backdrop, fog: 0.006 },
+  backdrop: {
+    color: CAL_PALETTE.backdrop,
+    fog: 0.006,
+  },
   contact: {
     enabled: true,
     opacity: 0.45,
@@ -84,6 +97,20 @@ export const CAL_LOOK = {
     height: 1.2,
     resolution: 512,
     updateInterval: 1,
+  },
+  ao: {
+    enabled: true,
+    intensity: 0.68,
+    radius: 0.14,
+    thickness: 0.55,
+    distanceExponent: 1.4,
+    distanceFallOff: 1.0,
+    scale: 1.0,
+    samples: 16,
+    denoiseRadius: 6.0,
+    lumaPhi: 10.0,
+    depthPhi: 2.0,
+    normalPhi: 3.0,
   },
 };
 
@@ -1173,6 +1200,7 @@ export function createSectionCutManager({
   capPlaneMesh.castShadow = false;
   capPlaneMesh.receiveShadow = false;
   capPlaneMesh.visible = false;
+  capPlaneMesh.userData.isSectionCap = true;
   capPlaneMesh.userData.skipContactShadow = true;
   if (scene) scene.add(capPlaneMesh);
 
@@ -1222,6 +1250,9 @@ export function createSectionCutManager({
       }
       for (const h of stencilHelpers) h.visible = enabled;
       capPlaneMesh.visible = enabled;
+      if (scene) {
+        scene.userData.activeClippingPlanes = enabled ? [plane] : null;
+      }
     }
 
     if (enabled) {
@@ -1483,6 +1514,70 @@ export function createPressureFieldMaterial({ clipPlane = null } = {}) {
       uBurn: { value: 0.0 },
       uTime: { value: 0.0 },
       uOpacity: { value: 0.42 },
+    },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    clipping: true,
+    clippingPlanes: clipPlane ? [clipPlane] : null,
+  });
+}
+
+const GHOST_SHELL_VS = `
+#include <clipping_planes_pars_vertex>
+varying vec3 vNormalView;
+varying vec3 vViewPos;
+void main() {
+  #include <begin_vertex>
+  vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+  vViewPos = -mvPosition.xyz;
+  vNormalView = normalize(normalMatrix * normal);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <clipping_planes_vertex>
+}
+`;
+
+const GHOST_SHELL_FS = `
+#include <clipping_planes_pars_fragment>
+uniform vec3 uColor;
+uniform vec3 uRimColor;
+uniform float uOpacity;
+uniform float uPower;
+varying vec3 vNormalView;
+varying vec3 vViewPos;
+void main() {
+  #include <clipping_planes_fragment>
+  vec3 N = normalize(vNormalView);
+  vec3 V = normalize(vViewPos);
+  float ndv = abs(dot(N, V));
+  float rim = pow(clamp(1.0 - ndv, 0.0, 1.0), uPower);
+  vec3 col = mix(uColor, uRimColor, rim * 0.72);
+  float alpha = clamp(uOpacity * (0.14 + 0.86 * rim), 0.0, 0.92);
+  gl_FragColor = vec4(col, alpha);
+}
+`;
+
+/**
+ * Fresnel X-Ray / Ghost Shell Material (`createGhostShellMaterial`).
+ * Renders outer hull/fuselage/carapace plates as a silhouette-preserving translucent X-ray veil
+ * (`alpha = uOpacity * (0.14 + 0.86 * pow(1 - |N·V|, uPower))`) so internal mechanisms read
+ * clearly through the outer envelope while maintaining crisp contour edges.
+ */
+export function createGhostShellMaterial({
+  color = '#8CA0B5',
+  rimColor = '#DCE6F0',
+  opacity = 0.28,
+  power = 2.4,
+  clipPlane = null,
+} = {}) {
+  return new THREE.ShaderMaterial({
+    vertexShader: GHOST_SHELL_VS,
+    fragmentShader: GHOST_SHELL_FS,
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uRimColor: { value: new THREE.Color(rimColor) },
+      uOpacity: { value: opacity },
+      uPower: { value: power },
     },
     transparent: true,
     depthWrite: false,
@@ -1774,6 +1869,7 @@ export function createGaugeHud({ camera, width, height }) {
   plane.frustumCulled = false;
   plane.renderOrder = 999;
   plane.position.set(0, 0, -1);
+  plane.userData.isHudOverlay = true;
   plane.userData.skipContactShadow = true;
   camera.add(plane);
 
